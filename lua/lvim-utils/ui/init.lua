@@ -502,6 +502,7 @@ local function open(opts)
 	end
 
 	local header_lines
+	local meta_lines = {}  -- tabs mode: title/subtitle/info lines above the tab bar
 	if mode ~= "tabs" then
 		header_lines = {}
 		if title then
@@ -511,16 +512,27 @@ local function open(opts)
 			table.insert(header_lines, subtitle)
 		end
 		if info then
+			table.insert(header_lines, "")
 			table.insert(header_lines, info)
 		end
-		if #header_lines > 0 then
-			table.insert(header_lines, "")
+	else
+		if title then
+			table.insert(meta_lines, title)
+		end
+		if subtitle then
+			table.insert(meta_lines, subtitle)
+		end
+		if info then
+			table.insert(meta_lines, "")
+			table.insert(meta_lines, info)
 		end
 	end
 
-	local header_height = (mode == "tabs") and 3 or (#(header_lines or {}) > 0 and #header_lines + 1 or 0)
+	-- meta_offset: rows before the tab bar in tabs mode
+	local meta_offset = #meta_lines + (#meta_lines > 0 and 1 or 0)
+	local header_height = (mode == "tabs") and (meta_offset + 4) or (#(header_lines or {}) > 0 and #header_lines + 3 or 0)
 	local action_bar_ht = (horizontal_actions and tab_has_rows() and #cur_action_rows() > 0) and 1 or 0
-	local footer_height = 2 + action_bar_ht
+	local footer_height = 3 + action_bar_ht
 	local width = calc_width()
 
 	local function get_content_count()
@@ -577,6 +589,13 @@ local function open(opts)
 
 		-- header
 		if mode == "tabs" then
+			-- optional title/subtitle/info above the tab bar
+			for _, l in ipairs(meta_lines) do
+				table.insert(lines, l == "" and "" or center(l, width))
+			end
+			if #meta_lines > 0 then
+				table.insert(lines, "")
+			end
 			local tab_bar = ""
 			for i, t in ipairs(tabs) do
 				local lbl = " " .. (t.label or ("Tab " .. i)) .. " "
@@ -586,16 +605,17 @@ local function open(opts)
 			end
 			centered_offset = math.floor((width - dw(tab_bar)) / 2)
 			table.insert(lines, center(tab_bar, width))
+			table.insert(lines, "")
 			table.insert(lines, string.rep("─", width))
 			table.insert(lines, "")
 		else
 			for _, l in ipairs(header_lines or {}) do
-				if l == "" then
-					table.insert(lines, string.rep("─", width))
-					table.insert(lines, "")
-				else
-					table.insert(lines, center(l, width))
-				end
+				table.insert(lines, l == "" and "" or center(l, width))
+			end
+			if #(header_lines or {}) > 0 then
+				table.insert(lines, "")
+				table.insert(lines, string.rep("─", width))
+				table.insert(lines, "")
 			end
 		end
 
@@ -646,12 +666,17 @@ local function open(opts)
 			for i = 1, content_height do
 				local item = ci[scroll + i]
 				if item then
-					local text = (mode == "multiselect")
-							and (selected[item] and icons().multi_selected .. " " or icons().multi_empty .. " ") .. tostring(
-								item
-							)
-						or tostring(item)
-					table.insert(lines, lpad(text, width, 2))
+					local line
+					if mode == "multiselect" then
+						local mark = selected[item] and icons().multi_selected .. " " or icons().multi_empty .. " "
+						line = lpad(mark .. tostring(item), width, 2)
+					elseif current_item ~= nil and item == current_item then
+						-- current marker replaces the 2-space leading indent
+						line = lpad(icons().current .. " " .. tostring(item), width, 0)
+					else
+						line = lpad(tostring(item), width, 2)
+					end
+					table.insert(lines, line)
 				else
 					table.insert(lines, "")
 				end
@@ -659,6 +684,7 @@ local function open(opts)
 		end
 
 		-- footer
+		table.insert(lines, "")
 		table.insert(lines, string.rep("─", width))
 		table.insert(lines, center(footer_text(), width))
 
@@ -668,28 +694,38 @@ local function open(opts)
 
 		-- highlights
 		if mode == "tabs" then
+			-- meta line highlights
+			for i, l in ipairs(meta_lines) do
+				if l == title then
+					hl_line(buf, i - 1, "LvimUiTitle")
+				elseif l == subtitle then
+					hl_line(buf, i - 1, "LvimUiSubtitle")
+				elseif l == info then
+					hl_line(buf, i - 1, "LvimUiInfo")
+				end
+			end
+			-- tab bar extmarks (shifted down by meta_offset rows)
 			for _, r in ipairs(tab_ranges) do
-				api.nvim_buf_set_extmark(buf, NS, 0, centered_offset + r.s, {
+				api.nvim_buf_set_extmark(buf, NS, meta_offset, centered_offset + r.s, {
 					end_col = centered_offset + r.e,
 					hl_group = r.active and "LvimUiTabActive" or "LvimUiTabInactive",
 					priority = 200,
 				})
 			end
-			hl_line(buf, 1, "LvimUiSeparator")
+			hl_line(buf, meta_offset + 2, "LvimUiSeparator")
 		else
 			for i, l in ipairs(header_lines or {}) do
 				if l == title then
 					hl_line(buf, i - 1, "LvimUiTitle")
-				end
-				if l == subtitle then
+				elseif l == subtitle then
 					hl_line(buf, i - 1, "LvimUiSubtitle")
-				end
-				if l == info then
+				elseif l == info then
 					hl_line(buf, i - 1, "LvimUiInfo")
 				end
-				if l == "" then
-					hl_line(buf, i - 1, "LvimUiSeparator")
-				end
+			end
+			if #(header_lines or {}) > 0 then
+				-- separator sits at: #header_lines (empty) + 1 (separator) = index #header_lines + 1 (0-based)
+				hl_line(buf, #header_lines + 1, "LvimUiSeparator")
 			end
 		end
 
@@ -1302,18 +1338,29 @@ end
 ---@return integer buf, integer win
 function M.info(content, opts)
 	local c = vim.tbl_deep_extend("force", config.ui, opts or {})
-	local lines = type(content) == "string" and vim.split(content, "\n") or vim.list_extend({}, content)
+	local content_lines = type(content) == "string" and vim.split(content, "\n") or vim.list_extend({}, content)
 
-	if c.title then
-		table.insert(lines, 1, "")
-	end
-
-	local max_w = 0
-	for _, l in ipairs(lines) do
+	-- calculate max content width (resolve_dim "auto" adds +4 on top of this)
+	local max_w = c.title and dw(c.title) or 0
+	for _, l in ipairs(content_lines) do
 		max_w = math.max(max_w, dw(l))
 	end
 
 	local width = resolve_dim(c.width, vim.o.columns, max_w)
+
+	-- build buffer lines: in-buffer header (title + separator) then content
+	local lines = {}
+	local title_row, sep_row
+	if c.title then
+		title_row = 0
+		table.insert(lines, center(c.title, width))
+		table.insert(lines, "")
+		sep_row = #lines
+		table.insert(lines, string.rep("─", width))
+		table.insert(lines, "")
+	end
+	vim.list_extend(lines, content_lines)
+
 	local height = resolve_dim(c.height, vim.o.lines, #lines)
 	height = math.min(height, math.floor(vim.o.lines * c.max_height))
 
@@ -1327,7 +1374,7 @@ function M.info(content, opts)
 
 	api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
-	local win_cfg = {
+	local win = api.nvim_open_win(buf, true, {
 		relative = "editor",
 		width = width,
 		height = height,
@@ -1335,13 +1382,7 @@ function M.info(content, opts)
 		col = col,
 		style = "minimal",
 		border = resolve_border(c.border),
-	}
-	if c.title then
-		win_cfg.title = { { " " .. c.title .. " ", "LvimUiTitle" } }
-		win_cfg.title_pos = "center"
-	end
-
-	local win = api.nvim_open_win(buf, true, win_cfg)
+	})
 
 	api.nvim_set_option_value("scrolloff", 0, { win = win })
 	api.nvim_set_option_value("wrap", false, { win = win })
@@ -1353,6 +1394,12 @@ function M.info(content, opts)
 		"NormalFloat:LvimUiNormal,FloatBorder:LvimUiBorder,CursorLine:LvimUiNormal",
 		{ win = win }
 	)
+
+	-- apply header highlights (must be after buf_set_lines)
+	if title_row then
+		hl_line(buf, title_row, "LvimUiTitle")
+		hl_line(buf, sep_row, "LvimUiSeparator")
+	end
 
 	make_readonly(buf)
 	setup_horizontal_lock(buf, win)
@@ -1367,7 +1414,7 @@ function M.info(content, opts)
 		vim.keymap.set("n", map[1], map[2], ko)
 	end
 
-	pcall(api.nvim_win_set_cursor, win, { 1, 0 })
+	pcall(api.nvim_win_set_cursor, win, { title_row and 5 or 1, 0 })
 
 	if c.markview then
 		local ok, markview = pcall(require, "markview")

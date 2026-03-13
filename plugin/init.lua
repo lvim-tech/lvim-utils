@@ -1,20 +1,20 @@
 require("lvim-utils.cursor").setup({ ft = { "lvim-utils-ui" } })
 
 require("lvim-utils").setup({
-    ui = {
+	ui = {
 
-        border = {"", "", "", " ", " ", " ", " ", " "},
-    },
+		border = { "", "", "", " ", " ", " ", " ", " " },
+	},
 	highlights = {
 		LvimUiNormal = { bg = "#1e1e2e" },
 		LvimUiBorder = { bg = "#1e1e2e" },
 		LvimUiTitle = { fg = "#cba6f7", bold = true },
 		LvimUiSubtitle = { fg = "#6c7086" },
-		LvimUiInfo     = { fg = "#89dceb" },
+		LvimUiInfo = { fg = "#89dceb" },
 		LvimUiCursorLine = { bg = "#2a2b3d", fg = "#cdd6f4" },
-		LvimUiTabActive      = { bg = "#89b4fa", bold = true },
-		LvimUiTabInactive    = { bg = "#45475a" },
-		LvimUiButtonActive   = { bg = "#89b4fa", bold = true },
+		LvimUiTabActive = { bg = "#89b4fa", bold = true },
+		LvimUiTabInactive = { bg = "#45475a" },
+		LvimUiButtonActive = { bg = "#89b4fa", bold = true },
 		LvimUiButtonInactive = { bg = "#45475a" },
 		LvimUiSeparator = { fg = "#313244" },
 		LvimUiFooter = { fg = "#0000ff", italic = true },
@@ -29,7 +29,7 @@ local p = require("lvim-utils.ui")
 
 -- :LvimDemoQuit
 vim.api.nvim_create_user_command("LvimDemoQuit", function()
-  require("lvim-utils.quit").open()
+	require("lvim-utils.quit").open()
 end, {})
 
 -- :LvimDemoInfo
@@ -72,16 +72,16 @@ vim.api.nvim_create_user_command("LvimDemoInfo", function()
 		"| tabs (items) | `{ tab, index, item }`       |",
 		"| tabs (rows)  | `table<name, value>`         |",
 		"| info         | `buf, win`                   |",
-	}, { title = "lvim-utils", markview = true })
+	}, { title = "LVIM UTILS", subtitle = "lele", markview = true })
 end, {})
 
 -- :LvimDemoSelect
 vim.api.nvim_create_user_command("LvimDemoSelect", function()
 	p.select({
-		title    = "Choose colorscheme",
+		title = "Choose colorscheme",
 		subtitle = "Active on next restart",
-		info     = "Requires a full Neovim restart to apply",
-		items    = { "catppuccin", "tokyonight", "gruvbox", "nord", "rose-pine", "kanagawa" },
+		info = "Requires a full Neovim restart to apply",
+		items = { "catppuccin", "tokyonight", "gruvbox", "nord", "rose-pine", "kanagawa" },
 		callback = function(ok, idx)
 			if ok then
 				vim.notify("Selected: " .. idx)
@@ -93,10 +93,10 @@ end, {})
 -- :LvimDemoMultiselect
 vim.api.nvim_create_user_command("LvimDemoMultiselect", function()
 	p.multiselect({
-		title    = "Enable LSP servers",
+		title = "Enable LSP servers",
 		subtitle = "Will be installed automatically",
-		info     = "Use <Space> to toggle, <CR> to confirm",
-		items    = { "lua_ls", "tsserver", "pyright", "rust_analyzer", "gopls", "clangd" },
+		info = "Use <Space> to toggle, <CR> to confirm",
+		items = { "lua_ls", "tsserver", "pyright", "rust_analyzer", "gopls", "clangd" },
 		callback = function(ok, sel)
 			if ok then
 				vim.notify(vim.inspect(sel))
@@ -108,9 +108,9 @@ end, {})
 -- :LvimDemoInput
 vim.api.nvim_create_user_command("LvimDemoInput", function()
 	p.input({
-		title       = "Project name",
-		subtitle    = "Used for session and workspace",
-		info        = "Alphanumeric characters and dashes only",
+		title = "Project name",
+		subtitle = "Used for session and workspace",
+		info = "Alphanumeric characters and dashes only",
 		placeholder = "my-project",
 		callback = function(ok, val)
 			if ok then
@@ -123,10 +123,7 @@ end, {})
 -- :LvimDemoTabs  (simple tabs — items only)
 vim.api.nvim_create_user_command("LvimDemoTabs", function()
 	p.tabs({
-		title    = "Package manager",
-		subtitle = "lazy.nvim",
-		info     = "Plugins are loaded from ~/.config/nvim/lua/plugins",
-		tabs     = {
+		tabs = {
 			{ label = "Installed", items = { "lazy.nvim", "mason.nvim", "nvim-treesitter", "telescope.nvim" } },
 			{ label = "Updates", items = { "blink.cmp", "heirline.nvim" } },
 			{ label = "Removed", items = { "nvim-cmp", "nvim-lsp-installer" } },
