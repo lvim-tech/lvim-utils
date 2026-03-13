@@ -192,6 +192,47 @@ local function next_selectable(rows, from, delta)
 	return nil
 end
 
+-- ─── position helper ──────────────────────────────────────────────────────────
+
+--- Compute the (row, col) for nvim_open_win (both 0-based, relative = "editor").
+--- "editor" → centered in the full Neovim editor area.
+--- "win"    → centered within the current window.
+--- "cursor" → below the cursor when space allows, otherwise above; column aligned
+---            with the cursor and clamped to the screen.
+---@param height   integer
+---@param width    integer
+---@param position "editor"|"win"|"cursor"|nil
+---@return integer row, integer col
+local function calc_pos(height, width, position)
+	if position == "cursor" then
+		local sr   = vim.fn.screenrow() - 1
+		local sc   = vim.fn.screencol() - 1
+		local lines = vim.o.lines
+		local cols  = vim.o.columns
+		local row
+		if sr + 2 + height <= lines then
+			row = sr + 1
+		else
+			row = math.max(0, sr - height - 1)
+		end
+		local col = math.min(sc, math.max(0, cols - width - 2))
+		return row, col
+	end
+	if position == "win" then
+		local src_win = vim.api.nvim_get_current_win()
+		local wpos    = vim.api.nvim_win_get_position(src_win)  -- {row, col} 0-based screen
+		local wh      = vim.api.nvim_win_get_height(src_win)
+		local ww      = vim.api.nvim_win_get_width(src_win)
+		local row = wpos[1] + math.max(0, math.floor((wh - height) / 2))
+		local col = wpos[2] + math.max(0, math.floor((ww - width)  / 2))
+		return row, col
+	end
+	-- "editor": full editor area (default)
+	return
+		math.floor((vim.o.lines   - height) / 2),
+		math.floor((vim.o.columns - width)  / 2)
+end
+
 -- ─── core open ────────────────────────────────────────────────────────────────
 
 ---@alias UiMode "select"|"multiselect"|"input"|"tabs"
@@ -211,6 +252,7 @@ end
 ---@field initial_selected?    table<string, boolean>
 ---@field current_item?        string
 ---@field horizontal_actions?  boolean  -- tabs mode: render action rows as a horizontal bar
+---@field position?            "editor"|"win"|"cursor"  -- popup placement strategy
 
 ---@param opts UiOpts
 local function open(opts)
@@ -228,6 +270,7 @@ local function open(opts)
 	local initial_selected = opts.initial_selected or {}
 	local current_item = opts.current_item
 	local horizontal_actions = (opts.horizontal_actions == true) and (mode == "tabs")
+	local position = opts.position or cfg().position or "center"
 
 	local saved_win = api.nvim_get_current_win()
 	local saved_view = vim.fn.winsaveview()
@@ -561,12 +604,19 @@ local function open(opts)
 	vim.bo[buf].swapfile = false
 	vim.bo[buf].filetype = FT
 
+	-- Input mode: exempt this buffer from cursor hiding before cursor.update runs.
+	-- The cursor module's BufDelete autocmd will clean up the registry on wipe.
+	if mode == "input" then
+		pcall(require("lvim-utils.cursor").mark_input_buffer, buf, true)
+	end
+
+	local _row, _col = calc_pos(total_height, width, position)
 	local win = api.nvim_open_win(buf, true, {
 		relative = "editor",
 		width = width,
 		height = total_height,
-		row = math.floor((vim.o.lines - total_height) / 2),
-		col = math.floor((vim.o.columns - width) / 2),
+		row = _row,
+		col = _col,
 		border = resolve_border(border_style),
 		style = "minimal",
 	})
@@ -1364,8 +1414,7 @@ function M.info(content, opts)
 	local height = resolve_dim(c.height, vim.o.lines, #lines)
 	height = math.min(height, math.floor(vim.o.lines * c.max_height))
 
-	local row = math.floor((vim.o.lines - height) / 2)
-	local col = math.floor((vim.o.columns - width) / 2)
+	local _row, _col = calc_pos(height, width, c.position)
 
 	local buf = api.nvim_create_buf(false, true)
 	vim.bo[buf].bufhidden = "wipe"
@@ -1378,8 +1427,8 @@ function M.info(content, opts)
 		relative = "editor",
 		width = width,
 		height = height,
-		row = row,
-		col = col,
+		row = _row,
+		col = _col,
 		style = "minimal",
 		border = resolve_border(c.border),
 	})

@@ -53,7 +53,7 @@ require("lvim-utils.cursor").setup({
 
 ### `highlight`
 
-Dynamic highlight group registration that survives colorscheme changes. Groups registered here are automatically re-applied on every `ColorScheme` event.
+Dynamic highlight group registration that survives colorscheme changes, plus color manipulation helpers.
 
 ```lua
 local hl = require("lvim-utils.highlight")
@@ -71,29 +71,60 @@ hl.register({ MyGroup = { fg = "#ff0000" } }, true)
 hl.setup()
 ```
 
+**Color helpers**
+
+```lua
+local hl = require("lvim-utils.highlight")
+
+hl.blend("#cba6f7", "#1e1e2e", 0.3)  -- blend two hex colors (alpha 0–1)
+hl.lighten("#cba6f7", 0.2)           -- blend toward white
+hl.darken("#cba6f7", 0.2)            -- blend toward black
+```
+
+**Group utilities**
+
+```lua
+hl.define("MyGroup", { fg = "#ff0000", bold = true })  -- set (always)
+hl.define_if_missing("MyGroup", { fg = "#ff0000" })    -- set only if not defined
+hl.clear("MyGroup")                                     -- reset to empty
+hl.get("MyGroup")                                       -- → attribute table or nil
+hl.link("MyGroup", "Normal")                            -- link to another group
+hl.group_exists("MyGroup")                              -- → boolean
+```
+
 **API**
 
 | Function | Description |
 |---|---|
 | `register(groups, force?)` | Register and immediately apply highlight groups |
 | `setup()` | Install the `ColorScheme` autocmd |
+| `blend(fg, bg, alpha)` | Blend two hex colors |
+| `lighten(color, amount)` | Blend toward white |
+| `darken(color, amount)` | Blend toward black |
+| `define(name, opts)` | Set a group (always applied) |
+| `define_if_missing(name, opts)` | Set a group only if not already defined |
+| `clear(name)` | Reset a group to empty |
+| `get(name)` | Get group attributes |
+| `link(name, link_to)` | Link one group to another |
+| `group_exists(name)` | Check if a group is defined |
 
 ---
 
 ### `ui`
 
-Floating popup components. All popups are centered on screen and share a unified visual style driven by highlight groups and config.
+Floating popup components. All popups share a unified visual style driven by highlight groups and config.
 
 #### `select`
 
-Pick one item from a list.
+Pick one item from a list. Pass `current_item` to mark the currently active value with a `➤` indicator regardless of cursor position.
 
 ```lua
 require("lvim-utils.ui").select({
-  title    = "Choose colorscheme",
-  subtitle = "Active on next restart",
-  info     = "Requires a full Neovim restart",
-  items    = { "catppuccin", "tokyonight", "gruvbox" },
+  title        = "Choose colorscheme",
+  subtitle     = "Active on next restart",
+  info         = "Requires a full Neovim restart",
+  items        = { "catppuccin", "tokyonight", "gruvbox" },
+  current_item = "tokyonight",   -- shows ➤ next to this item
   callback = function(ok, index)
     if ok then
       print("Selected index:", index)
@@ -150,10 +181,13 @@ require("lvim-utils.ui").tabs({
 })
 ```
 
-**Typed rows** — settings-style UI with bool toggles, selects, number inputs, and actions:
+**Typed rows** — settings-style UI with bool toggles, selects, number inputs, and actions. Supports `title`, `subtitle`, and `info` above the tab bar:
 
 ```lua
 require("lvim-utils.ui").tabs({
+  title    = "Settings",
+  subtitle = "lvim",
+  info     = "Changes apply on save",
   tabs = {
     {
       label = "Editor",
@@ -193,6 +227,31 @@ require("lvim-utils.ui").tabs({
 | `spacer_line` | horizontal divider | — |
 
 Set `horizontal_actions = true` to render all `action` rows as a button bar at the bottom.
+
+#### Popup positioning
+
+All popup functions accept a `position` option (overrides the global default):
+
+| Value | Behaviour |
+|---|---|
+| `"editor"` | Centered in the full Neovim editor area (default) |
+| `"win"` | Centered within the current window |
+| `"cursor"` | Below the cursor when space allows, otherwise above |
+
+```lua
+require("lvim-utils.ui").select({
+  title    = "Pick one",
+  items    = { "a", "b", "c" },
+  position = "cursor",
+  callback = function(ok, idx) end,
+})
+```
+
+Set a global default in `setup()`:
+
+```lua
+require("lvim-utils").setup({ ui = { position = "win" } })
+```
 
 #### `info`
 

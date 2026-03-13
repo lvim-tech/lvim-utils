@@ -1,5 +1,6 @@
 return {
 	border = "rounded", -- "rounded"|"single"|"double"|"none"
+	position = "editor", -- "editor" (full editor) | "win" (current window) | "cursor" (near cursor)
 	max_items = 15,
 	max_height = 0.8, -- fraction of screen height
 	width = "auto", -- info window: "auto" | fraction 0-1 | integer
