@@ -1,24 +1,29 @@
 return {
-	border = "rounded", -- "rounded"|"single"|"double"|"none"
-	position = "editor", -- "editor" (full editor) | "win" (current window) | "cursor" (near cursor)
+	border     = { "", "", "", "", " ", " ", " ", " " },
+	position = "editor",
 	max_items = 15,
-	max_height = 0.8, -- fraction of screen height
-	width = "auto", -- info window: "auto" | fraction 0-1 | integer
-	height = "auto", -- info window: "auto" | fraction 0-1 | integer
+	max_height = 0.8,
+	width = "auto",
+	height = "auto",
 	filetype = "lvim-utils-ui",
 	close_keys = { "q", "<Esc>" },
-	markview = false, -- render info content as markdown via markview.nvim
+	markview = false,
+
+	-- tab_hl, button_hl, footer_hl, item_hl, checkbox_hl have no defaults.
+	-- When absent the rendering code falls back to the named LvimUi* groups.
+	-- Set any of them in setup({ ui = { tab_hl = { active = { ... } } } })
+	-- only when you want an inline HlDef instead of a named group.
 
 	icons = {
-		bool_on = "󰱒",
-		bool_off = "󰄱",
-		select = "󰒓",
-		number = "󰬷",
-		string = "󰴓",
-		action = "󱐋",
-		spacer = "─",
-		multi_selected = "●",
-		multi_empty = "○",
+		bool_on = "󰄬",
+		bool_off = "󰍴",
+		select = "󰘮",
+		number = "󰎠",
+		string = "󰬴",
+		action = "",
+		spacer = "   ──────",
+		multi_selected = "󰄬",
+		multi_empty = "󰍴",
 		current = "➤",
 	},
 
@@ -53,7 +58,6 @@ return {
 
 		multiselect = {
 			toggle = "<Space>",
-			toggle_alt = "x",
 			confirm = "<CR>",
 			cancel = "<Esc>",
 		},

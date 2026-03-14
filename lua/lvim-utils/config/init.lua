@@ -7,9 +7,10 @@
 local M = {}
 
 -- Load defaults as independent deep copies so modules can mutate them freely.
-M.ui     = vim.deepcopy(require("lvim-utils.config.ui"))
+M.colors = vim.deepcopy(require("lvim-utils.config.colors"))
+M.ui = vim.deepcopy(require("lvim-utils.config.ui"))
 M.cursor = vim.deepcopy(require("lvim-utils.config.cursor"))
-M.gx     = vim.deepcopy(require("lvim-utils.config.gx"))
+M.gx = vim.deepcopy(require("lvim-utils.config.gx"))
 
 ---Merge user-provided options into each module's config.
 ---@param opts? { ui?: table, cursor?: table, gx?: table }
