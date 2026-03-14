@@ -148,11 +148,11 @@ end
 -- ─── build / hl ───────────────────────────────────────────────────────────────
 
 --- Build the 3 footer lines and return byte ranges for key/label highlights.
----@param ctx table
+---@param ctx table  Pass ctx.hints directly to skip mode-based hint resolution.
 ---@return string[] lines
 ---@return table[]  hint_ranges  {s, e, kind}
 function M.build(ctx)
-	local hints        = M.hints(ctx)
+	local hints        = ctx.hints or M.hints(ctx)
 	local text, ranges = assemble(hints)
 	local offset       = math.floor((ctx.width - util.dw(text)) / 2)
 	local final_ranges = {}

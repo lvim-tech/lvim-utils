@@ -1,5 +1,5 @@
 return {
-	border     = { "", "", "", "", " ", " ", " ", " " },
+	border = "rounded",
 	position = "editor",
 	max_items = 15,
 	max_height = 0.8,

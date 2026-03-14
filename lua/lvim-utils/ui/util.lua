@@ -108,11 +108,20 @@ M.BORDERS = {
 }
 
 --- Resolve a border spec to a concrete 8-element table.
+--- Normalizes custom tables: corners between non-empty edges cannot be "".
 ---@param b string|table
 ---@return table
 function M.resolve_border(b)
-	if type(b) == "table" then return b end
-	return M.BORDERS[b] or M.BORDERS.rounded
+	if type(b) ~= "table" then return M.BORDERS[b] or M.BORDERS.rounded end
+	local t = vim.list_extend({}, b)
+	-- corners: {1=TL,3=TR,5=BR,7=BL}, adjacent edges: TL={8,2}, TR={2,4}, BR={4,6}, BL={6,8}
+	local adj = { { 8, 2 }, { 2, 4 }, { 4, 6 }, { 6, 8 } }
+	for i, edges in ipairs(adj) do
+		if t[i * 2 - 1] == "" and (t[edges[1]] ~= "" or t[edges[2]] ~= "") then
+			t[i * 2 - 1] = " "
+		end
+	end
+	return t
 end
 
 -- ─── position helper ──────────────────────────────────────────────────────────
