@@ -1,10 +1,9 @@
 -- lua/lvim-utils/ui/mode/input.lua
-local util = require("lvim-utils.ui.util")
-local api  = vim.api
+local api = vim.api
 local M    = {}
 
 function M.attach(s)
-	local k  = util.cfg().keys
+	local k  = s.cfg.keys
 	local ko = s.ko
 
 	vim.schedule(function() vim.cmd("startinsert") end)

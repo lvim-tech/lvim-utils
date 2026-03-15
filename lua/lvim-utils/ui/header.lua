@@ -83,10 +83,10 @@ end
 ---@param centered_offset integer
 function M.apply_hl(buf, ctx, tab_ranges, centered_offset)
 	local NS         = util.NS
-	local resolve_hl = (ctx and ctx.resolve_hl) or util.resolve_hl
+	local resolve_hl = ctx.resolve_hl
 	local merge_bg   = util.merge_bg
 	local hl_line    = util.hl_line
-	local cfg        = (ctx and ctx.cfg) or util.cfg()
+	local cfg        = ctx.cfg
 
 	-- Apply hl only over the centered text (not the full line).
 	local function hl_centered(row, text, group)

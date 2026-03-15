@@ -20,7 +20,6 @@
 local hl     = require("lvim-utils.highlight")
 local colors = require("lvim-utils.config").colors
 local popup  = require("lvim-utils.ui.popup")
-local info   = require("lvim-utils.ui.info")
 
 local M = {}
 
@@ -66,8 +65,32 @@ function M.tabs(opts)
 	popup.open(opts)
 end
 
-M.info       = info.info
-M.close_info = info.close_info
+--- Opens an info window through popup.open() with mode="info".
+---@param content string|string[]
+---@param opts?   table
+---@return integer buf, integer win
+function M.info(content, opts)
+	opts = opts or {}
+	local lines = type(content) == "string" and vim.split(content, "\n") or vim.list_extend({}, content)
+	local buf_ref, win_ref
+	local user_on_open = opts.on_open
+	opts.mode    = "info"
+	opts.content = lines
+	opts.on_open = function(b, w)
+		buf_ref = b; win_ref = w
+		if user_on_open then user_on_open(b, w) end
+	end
+	popup.open(opts)
+	return buf_ref, win_ref
+end
+
+--- Programmatically close an info window.
+---@param win integer
+function M.close_info(win)
+	if win and vim.api.nvim_win_is_valid(win) then
+		vim.api.nvim_win_close(win, true)
+	end
+end
 
 --- Create an independent UI instance with its own config overrides.
 --- Useful when multiple plugins share lvim-utils but need different colours/icons.
@@ -100,6 +123,21 @@ function M.new(instance_cfg)
 	function inst.tabs(opts)
 		opts.mode = "tabs"
 		popup.open(opts, instance_cfg)
+	end
+
+	function inst.info(content, opts)
+		opts = opts or {}
+		local lines = type(content) == "string" and vim.split(content, "\n") or vim.list_extend({}, content)
+		local buf_ref, win_ref
+		local user_on_open = opts.on_open
+		opts.mode    = "info"
+		opts.content = lines
+		opts.on_open = function(b, w)
+			buf_ref = b; win_ref = w
+			if user_on_open then user_on_open(b, w) end
+		end
+		popup.open(opts, instance_cfg)
+		return buf_ref, win_ref
 	end
 
 	return inst

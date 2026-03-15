@@ -12,7 +12,7 @@ local M = {}
 
 function M.attach(s)
 	local function map(lhs, fn) vim.keymap.set("n", lhs, fn, s.ko) end
-	local k = util.cfg().keys
+	local k = s.cfg.keys
 
 	local function move_row(delta)
 		local rrows = s.cur_rows()

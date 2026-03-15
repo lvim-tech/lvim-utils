@@ -85,6 +85,12 @@ function M.hints(ctx)
 			}
 		end
 
+	elseif mode == "info" then
+		return {
+			{ key = k.down .. "/" .. k.up, label = l.navigate },
+			{ key = k.cancel,              label = l.close },
+		}
+
 	else -- select
 		return {
 			{ key = k.down .. "/" .. k.up, label = l.navigate },
@@ -106,11 +112,11 @@ local function assemble(hints)
 	for i, h in ipairs(hints) do
 		local key_s = #text
 		text = text .. h.key
-		table.insert(ranges, { s = key_s, e = #text, kind = "key" })
+		table.insert(ranges, { s = key_s, e = #text, kind = "key", hl = h.key_hl })
 		text = text .. " "
 		local lbl_s = #text
 		text = text .. h.label
-		table.insert(ranges, { s = lbl_s, e = #text, kind = "label" })
+		table.insert(ranges, { s = lbl_s, e = #text, kind = "label", hl = h.label_hl })
 		text = text .. (i < #hints and "   " or "  ")
 	end
 	return text, ranges
@@ -172,8 +178,8 @@ end
 ---@param hint_ranges table[]
 function M.apply_hl(buf, total_lines, hint_ranges, ctx)
 	local NS         = util.NS
-	local resolve_hl = (ctx and ctx.resolve_hl) or util.resolve_hl
-	local cfg        = (ctx and ctx.cfg) or util.cfg()
+	local resolve_hl = ctx.resolve_hl
+	local cfg        = ctx.cfg
 	local footer_hl  = cfg.footer_hl or {}
 
 	util.hl_line(buf, total_lines - 2, "LvimUiSeparator")
@@ -189,9 +195,10 @@ function M.apply_hl(buf, total_lines, hint_ranges, ctx)
 	})
 
 	for _, r in ipairs(hint_ranges or {}) do
-		local group = r.kind == "key"
-			and resolve_hl(footer_hl.key   or "LvimUiFooterKey")
-			or  resolve_hl(footer_hl.label or "LvimUiFooterLabel")
+		local default = r.kind == "key"
+			and (footer_hl.key   or "LvimUiFooterKey")
+			or  (footer_hl.label or "LvimUiFooterLabel")
+		local group = resolve_hl(r.hl or default)
 		api.nvim_buf_set_extmark(buf, NS, total_lines - 1, r.s, {
 			end_col  = r.e,
 			hl_group = group,

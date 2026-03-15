@@ -1,10 +1,9 @@
 -- lua/lvim-utils/ui/mode/multiselect.lua
-local util = require("lvim-utils.ui.util")
-local M    = {}
+local M = {}
 
 function M.attach(s)
 	local function map(lhs, fn) vim.keymap.set("n", lhs, fn, s.ko) end
-	local k = util.cfg().keys
+	local k = s.cfg.keys
 
 	local function move(delta)
 		local ci  = s.cur_items()

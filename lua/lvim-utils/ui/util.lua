@@ -117,7 +117,7 @@ function M.resolve_border(b)
 	-- corners: {1=TL,3=TR,5=BR,7=BL}, adjacent edges: TL={8,2}, TR={2,4}, BR={4,6}, BL={6,8}
 	local adj = { { 8, 2 }, { 2, 4 }, { 4, 6 }, { 6, 8 } }
 	for i, edges in ipairs(adj) do
-		if t[i * 2 - 1] == "" and (t[edges[1]] ~= "" or t[edges[2]] ~= "") then
+		if t[i * 2 - 1] == "" and (t[edges[1]] ~= "" and t[edges[2]] ~= "") then
 			t[i * 2 - 1] = " "
 		end
 	end

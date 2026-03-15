@@ -15,7 +15,7 @@ local red = "#cb4f4f"
 
 -- ──────────────────────────────────────────────────────────────────────────────
 
-require("lvim-utils.cursor").setup({ ft = { "lvim-utils-ui" } })
+-- require("lvim-utils.cursor").setup({ ft = { "lvim-utils-ui" } })
 
 require("lvim-utils").setup()
 
@@ -28,48 +28,48 @@ local p = require("lvim-utils.ui")
 -- 	require("lvim-utils.quit").open()
 -- end, {})
 --
--- -- :LvimDemoInfo
--- vim.api.nvim_create_user_command("LvimDemoInfo", function()
--- 	p.info({
--- 		"# lvim-utils",
--- 		"",
--- 		"## Modules",
--- 		"",
--- 		"### cursor",
--- 		"Hide the cursor for specific filetypes.",
--- 		"",
--- 		"### highlight",
--- 		"Dynamic highlight group registration that survives colorscheme changes.",
--- 		"",
--- 		"### popups",
--- 		"Floating UI components:",
--- 		"",
--- 		"- **select** — pick one item from a list",
--- 		"- **multiselect** — pick multiple items",
--- 		"- **input** — text input field",
--- 		"- **tabs** — tabbed view with typed rows",
--- 		"- **info** — read-only display *(this window)*",
--- 		"",
--- 		"## Usage",
--- 		"",
--- 		"```lua",
--- 		'require("lvim-utils").setup({ ... })',
--- 		"```",
--- 		"",
--- 		"> All modules are independently usable.",
--- 		"",
--- 		"## Popup modes",
--- 		"",
--- 		"| Mode         | Callback result              |",
--- 		"| ------------ | ---------------------------- |",
--- 		"| select       | `index` (integer)            |",
--- 		"| multiselect  | `table<string, boolean>`     |",
--- 		"| input        | `string`                     |",
--- 		"| tabs (items) | `{ tab, index, item }`       |",
--- 		"| tabs (rows)  | `table<name, value>`         |",
--- 		"| info         | `buf, win`                   |",
--- 	}, { title = "LVIM UTILS", markview = true })
--- end, {})
+-- :LvimDemoInfo
+vim.api.nvim_create_user_command("LvimDemoInfo", function()
+	p.info({
+		"# lvim-utils",
+		"",
+		"## Modules",
+		"",
+		"### cursor",
+		"Hide the cursor for specific filetypes.",
+		"",
+		"### highlight",
+		"Dynamic highlight group registration that survives colorscheme changes.",
+		"",
+		"### popups",
+		"Floating UI components:",
+		"",
+		"- **select** — pick one item from a list",
+		"- **multiselect** — pick multiple items",
+		"- **input** — text input field",
+		"- **tabs** — tabbed view with typed rows",
+		"- **info** — read-only display *(this window)*",
+		"",
+		"## Usage",
+		"",
+		"```lua",
+		'require("lvim-utils").setup({ ... })',
+		"```",
+		"",
+		"> All modules are independently usable.",
+		"",
+		"## Popup modes",
+		"",
+		"| Mode         | Callback result              |",
+		"| ------------ | ---------------------------- |",
+		"| select       | `index` (integer)            |",
+		"| multiselect  | `table<string, boolean>`     |",
+		"| input        | `string`                     |",
+		"| tabs (items) | `{ tab, index, item }`       |",
+		"| tabs (rows)  | `table<name, value>`         |",
+		"| info         | `buf, win`                   |",
+	}, { title = "LVIM UTILS", markview = true })
+end, {})
 --
 -- -- :LvimDemoSelect
 -- vim.api.nvim_create_user_command("LvimDemoSelect", function()
