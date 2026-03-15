@@ -302,7 +302,9 @@ function M.open(opts, instance_cfg)
 		s.header_lines = {}
 		if title then
 			table.insert(s.header_lines, title)
-			table.insert(s.header_lines, "")
+			if subtitle or info then
+				table.insert(s.header_lines, "")
+			end
 		end
 		if subtitle then
 			table.insert(s.header_lines, subtitle)
@@ -315,7 +317,9 @@ function M.open(opts, instance_cfg)
 		s.meta_lines = {}
 		if title then
 			table.insert(s.meta_lines, title)
-			table.insert(s.meta_lines, "")
+			if subtitle or info then
+				table.insert(s.meta_lines, "")
+			end
 		end
 		if subtitle then
 			table.insert(s.meta_lines, subtitle)
