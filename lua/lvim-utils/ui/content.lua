@@ -219,13 +219,16 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 			for _, hl in ipairs(ctx.info_highlights) do
 				local row = ctx.header_height + hl.line - ctx.scroll
 				if row >= ctx.header_height and row < ctx.header_height + ctx.content_height then
-					local line_text = api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
-					local col_end = (hl.col_end == nil or hl.col_end == -1) and #line_text or hl.col_end
-					api.nvim_buf_set_extmark(buf, NS, row, hl.col_start or 0, {
-						end_col = col_end,
-						hl_group = resolve_hl(hl.group),
-						priority = 210,
-					})
+					local line_text  = api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+					local col_start  = math.min(hl.col_start or 0, #line_text)
+					local col_end    = (hl.col_end == nil or hl.col_end == -1) and #line_text or math.min(hl.col_end, #line_text)
+					if col_start < col_end then
+						api.nvim_buf_set_extmark(buf, NS, row, col_start, {
+							end_col  = col_end,
+							hl_group = resolve_hl(hl.group),
+							priority = 210,
+						})
+					end
 				end
 			end
 		end

@@ -350,12 +350,17 @@ function M.open(opts, instance_cfg)
 	local function recalc_heights()
 		s.action_bar_ht = (s.horizontal_actions and tab_has_rows() and #cur_action_rows() > 0) and 1 or 0
 		s.footer_height = s.show_footer and (3 + s.action_bar_ht) or 0
-		s.content_height = max_items and math.min(get_content_count(), max_items) or get_content_count()
 		local max_total = type(s_cfg.height) == "number"
 			and resolve_height(s_cfg.height)
 			or  math.floor(vim.o.lines * s_cfg.max_height)
-		s.total_height   = math.min(s.header_height + s.content_height + s.footer_height, max_total)
-		s.content_height = math.max(1, s.total_height - s.header_height - s.footer_height)
+		if type(s_cfg.height) == "number" then
+			-- explicit height drives content — max_items controls only virtual scroll buffer
+			local avail = math.max(1, max_total - s.header_height - s.footer_height)
+			s.content_height = math.min(get_content_count(), avail)
+		else
+			s.content_height = max_items and math.min(get_content_count(), max_items) or get_content_count()
+		end
+		s.content_height = math.max(1, s.content_height)
 		s.total_height   = s.header_height + s.content_height + s.footer_height
 	end
 
