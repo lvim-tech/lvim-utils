@@ -317,7 +317,6 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 		end
 	else
 		-- select / multiselect
-		local ico = ctx.cfg.icons or rows.icons()
 		for i = 1, ctx.content_height do
 			local global = ctx.scroll + i - 1
 			local row_idx = ctx.header_height + i - 1

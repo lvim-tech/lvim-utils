@@ -210,17 +210,29 @@ function M.attach(s)
 		return first_selectable(s.cur_rows())
 	end
 
-	local function do_tab_switch()
+	-- Per-tab saved position: tab_index → { row_cursor, scroll }
+	local tab_state = {}
+
+	local function do_tab_switch(from_tab)
+		-- Save position of the tab we are leaving.
+		if from_tab then
+			tab_state[from_tab] = { row_cursor = s.row_cursor, scroll = s.scroll }
+		end
 		s.current_idx = 0
-		s.scroll      = 0
-		s.row_cursor  = first_tab_cursor()
+		-- Restore saved position for this tab, or default to first selectable.
+		local saved = tab_state[s.active_tab]
+		if saved then
+			s.row_cursor = saved.row_cursor
+			s.scroll     = saved.scroll
+		else
+			s.row_cursor = first_tab_cursor()
+			s.scroll     = 0
+		end
 		s.recalc_heights()
 		if s.position ~= "cursor" then
-			s._row, s._col = calc_pos(s.total_height, s.width, s.position)
+			s._row, s._col = calc_pos(s.total_height + (s._bh or 0), s.width + (s._bw or 0), s.position)
 		end
-		pcall(api.nvim_win_set_config, s.win, {
-			relative = "editor", height = s.total_height, row = s._row, col = s._col,
-		})
+		s.sync_layout()
 		pcall(api.nvim_win_set_cursor, s.win, { 1, 0 })
 		s.render()
 	end
@@ -230,13 +242,21 @@ function M.attach(s)
 		local rr = s.cur_rows()
 		local on_action = s.horizontal_actions and rr[s.row_cursor] and rr[s.row_cursor].type == "action"
 		if on_action and move_action(1) then return end
-		if s.active_tab < #s.tabs then s.active_tab = s.active_tab + 1; do_tab_switch() end
+		if s.active_tab < #s.tabs then
+			local from = s.active_tab
+			s.active_tab = s.active_tab + 1
+			do_tab_switch(from)
+		end
 	end)
 	map(k.tabs.prev, function()
 		local rr = s.cur_rows()
 		local on_action = s.horizontal_actions and rr[s.row_cursor] and rr[s.row_cursor].type == "action"
 		if on_action and move_action(-1) then return end
-		if s.active_tab > 1 then s.active_tab = s.active_tab - 1; do_tab_switch() end
+		if s.active_tab > 1 then
+			local from = s.active_tab
+			s.active_tab = s.active_tab - 1
+			do_tab_switch(from)
+		end
 	end)
 
 	if s.tab_has_rows() then

@@ -181,11 +181,10 @@ function M.open(opts)
   })
 
   ui.tabs({
-    title              = "Quit",
-    subtitle           = #unsaved .. " file(s) with unsaved changes",
-    horizontal_actions = true,
-    tabs               = { { label = "Unsaved Files", rows = rows } },
-    callback           = function() end,
+    title    = "Quit",
+    subtitle = #unsaved .. " file(s) with unsaved changes",
+    tabs     = { { label = "Unsaved Files", rows = rows } },
+    callback = function() end,
   })
 end
 

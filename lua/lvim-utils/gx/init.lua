@@ -127,7 +127,7 @@ end
 ---@return boolean
 local function is_dir(p)
 	local st = uv.fs_stat(p)
-	return st and st.type == "directory"
+	return st ~= nil and st.type == "directory"
 end
 
 --- Return true when the string looks like a bare "domain.tld/owner/repo"

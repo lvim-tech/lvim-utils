@@ -1,89 +1,93 @@
 -- lua/lvim-utils/config/colors.lua
--- Default hex colors for all LvimUi* highlight groups.
+-- Highlight group definitions for lvim-utils UI components.
+-- All colors come from lvim-utils.colors so external plugins can share the palette.
 
-local highlight = require("lvim-utils.highlight")
+local c = require("lvim-utils.colors")
+local hl = require("lvim-utils.highlight")
 
--- ── palette ────────────────────────────────────────────────────────────────────
-local none = "NONE"
-local white = "#ffffff"
-
-local bg_base = "#21262b"
-local bg_dark = "#2c3339"
-local bg_light = "#374047"
-
-local fg = "#5a6158"
-
-local red = "#cb4f4f"
-local orange = "#cc7942"
-local yellow = "#af9e6b"
-local green = "#75783a"
-local teal = "#357b6d"
-local cyan = "#527a57"
-local blue = "#42728b"
--- local magenta = "#bb755e"
-local purple = "#635d71"
-
-local blueBlend = highlight.blend(blue, bg_dark, 0.15)
-local redBlend = highlight.blend(red, bg_dark, 0.15)
-
--- ── group definitions ─────────────────────────────────────────────────────────
-
-
+local blueBlend = hl.blend(c.blue, c.bg, 0.15)
+local redBlend = hl.blend(c.red, c.bg, 0.15)
 
 return {
 	-- Window chrome
-	LvimUiNormal = { bg = bg_base, fg = fg },
-	LvimUiBorder = { bg = bg_base, fg = blue },
-	LvimUiSeparator = { fg = purple },
+	LvimUiNormal = { bg = c.bg_soft_dark, fg = c.fg },
+	LvimUiBorder = { bg = c.bg_soft_dark, fg = c.blue },
+	LvimUiSeparator = { fg = c.cyan },
 
 	-- Title block
-	LvimUiTitle = { bg = blueBlend, fg = blue, bold = true },
-	LvimUiSubtitle = { fg = orange },
-	LvimUiInfo = { fg = yellow },
+	LvimUiTitle = { bg = blueBlend, fg = c.blue, bold = true },
+	LvimUiSubtitle = { fg = c.orange },
+	LvimUiInfo = { fg = c.yellow },
 
 	-- Tab bar
-	LvimUiTabActive = { bg = redBlend, fg = white },
-	LvimUiTabInactive = { bg = none, fg = red },
-	LvimUiTabIconActive = { fg = yellow },
-	LvimUiTabIconInactive = { fg = yellow },
-	LvimUiTabTextActive = { fg = red },
-	LvimUiTabTextInactive = { fg = red },
+	LvimUiTabActive = { bg = redBlend, fg = c.white },
+	LvimUiTabInactive = { bg = c.none, fg = c.red },
+	LvimUiTabIconActive = { fg = c.yellow },
+	LvimUiTabIconInactive = { fg = c.yellow },
+	LvimUiTabTextActive = { fg = c.red },
+	LvimUiTabTextInactive = { fg = c.red },
 
 	-- Action bar buttons
-	LvimUiButtonActive = { bg = bg_light, fg = fg },
-	LvimUiButtonInactive = { bg = bg_base, fg = "#50574e" },
-	LvimUiButtonIconActive = { fg = orange },
-	LvimUiButtonIconInactive = { fg = "#50574e" },
-	LvimUiButtonTextActive = { fg = fg, bold = true },
-	LvimUiButtonTextInactive = { fg = "#50574e" },
+	LvimUiButtonActive = { bg = c.bg_light, fg = c.fg },
+	LvimUiButtonInactive = { bg = c.bg_soft_dark, fg = c.fg_dim },
+	LvimUiButtonIconActive = { fg = c.orange },
+	LvimUiButtonIconInactive = { fg = c.fg_dim },
+	LvimUiButtonTextActive = { fg = c.fg, bold = true },
+	LvimUiButtonTextInactive = { fg = c.fg_dim },
 
 	-- Cursor line
-	LvimUiCursorLine = { bg = bg_dark },
+	LvimUiCursorLine = { bg = c.bg },
 
 	-- Tabs rows icon / text
-	LvimUiRowIconActive    = { fg = yellow },
-	LvimUiRowIconInactive  = { fg = yellow },
-	LvimUiRowTextActive    = { fg = yellow, bold = true },
-	LvimUiRowTextInactive  = { fg = fg },
+	LvimUiRowIconActive = { fg = c.yellow },
+	LvimUiRowIconInactive = { fg = c.yellow },
+	LvimUiRowTextActive = { fg = c.yellow, bold = true },
+	LvimUiRowTextInactive = { fg = c.fg },
 
 	-- Select / multiselect items
-	LvimUiItemIconActive = { fg = teal },
-	LvimUiItemIconInactive = { fg = "#50574e" },
-	LvimUiItemTextActive = { fg = fg },
-	LvimUiItemTextInactive = { fg = "#565c53" },
+	LvimUiItemIconActive = { fg = c.teal },
+	LvimUiItemIconInactive = { fg = c.fg_dim },
+	LvimUiItemTextActive = { fg = c.fg },
+	LvimUiItemTextInactive = { fg = c.fg_muted },
 
 	-- Multiselect checkboxes
-	LvimUiCheckboxSelected = { fg = green },
-	LvimUiCheckboxEmpty = { fg = "#50574e" },
+	LvimUiCheckboxSelected = { fg = c.green },
+	LvimUiCheckboxEmpty = { fg = c.fg_dim },
 
 	-- Input field
-	LvimUiInput = { bg = "#272e33", fg = fg },
+	LvimUiInput = { bg = c.bg_input, fg = c.fg },
 
 	-- Footer hint bar
-	LvimUiFooter = { fg = blue, bold = true },
-	LvimUiFooterKey = { fg = blue },
-	LvimUiFooterLabel = { fg = yellow },
+	LvimUiFooter = { fg = c.blue, bold = true },
+	LvimUiFooterKey = { fg = c.blue },
+	LvimUiFooterLabel = { fg = c.yellow },
 
 	-- Spacer / divider rows
-	LvimUiSpacer = { fg = cyan },
+	LvimUiSpacer = { fg = c.magenta },
+
+	-- Notify toast panel
+	LvimNotifyNormal = { bg = c.bg_dark, fg = c.fg },
+	LvimNotifyTitle = { fg = c.white, bold = true },
+	LvimNotifyInfo = { fg = c.teal },
+	LvimNotifyWarn = { fg = c.orange },
+	LvimNotifyError = { fg = c.red },
+	LvimNotifyDebug = { fg = c.purple },
+
+	-- Notify entry title (per level)
+	LvimNotifyTitleInfo = { fg = c.teal, bold = true },
+	LvimNotifyTitleWarn = { fg = c.orange, bold = true },
+	LvimNotifyTitleError = { fg = c.red, bold = true },
+	LvimNotifyTitleDebug = { fg = c.purple, bold = true },
+
+	-- Notify header bars (top stripe, full-line bg)
+	LvimNotifyHeaderInfo = { bg = hl.blend(c.teal, c.bg, 0.5), fg = c.white, bold = true },
+	LvimNotifyHeaderWarn = { bg = hl.blend(c.orange, c.bg, 0.5), fg = c.white, bold = true },
+	LvimNotifyHeaderError = { bg = hl.blend(c.red, c.bg, 0.5), fg = c.white, bold = true },
+	LvimNotifyHeaderDebug = { bg = hl.blend(c.purple, c.bg, 0.5), fg = c.white, bold = true },
+
+	-- Notify separator lines (per level)
+	LvimNotifySepInfo = { bg = c.bg_soft_dark, fg = hl.blend(c.teal, c.bg, 0.5) },
+	LvimNotifySepWarn = { bg = c.bg_soft_dark, fg = hl.blend(c.orange, c.bg, 0.5) },
+	LvimNotifySepError = { bg = c.bg_soft_dark, fg = hl.blend(c.red, c.bg, 0.5) },
+	LvimNotifySepDebug = { bg = c.bg_soft_dark, fg = hl.blend(c.purple, c.bg, 0.5) },
 }

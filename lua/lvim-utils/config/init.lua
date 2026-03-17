@@ -11,9 +11,10 @@ M.colors = vim.deepcopy(require("lvim-utils.config.colors"))
 M.ui = vim.deepcopy(require("lvim-utils.config.ui"))
 M.cursor = vim.deepcopy(require("lvim-utils.config.cursor"))
 M.gx = vim.deepcopy(require("lvim-utils.config.gx"))
+M.notify = vim.deepcopy(require("lvim-utils.config.notify"))
 
 ---Merge user-provided options into each module's config.
----@param opts? { ui?: table, cursor?: table, gx?: table }
+---@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table }
 function M.setup(opts)
 	opts = opts or {}
 	if opts.ui then
@@ -24,6 +25,9 @@ function M.setup(opts)
 	end
 	if opts.gx then
 		M.gx = vim.tbl_deep_extend("force", M.gx, opts.gx)
+	end
+	if opts.notify then
+		M.notify = vim.tbl_deep_extend("force", M.notify, opts.notify)
 	end
 end
 

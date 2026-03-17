@@ -15,6 +15,14 @@ function M.hints(ctx)
 	local k    = c.keys
 	local l    = c.labels
 	local mode = ctx.mode
+	local back = ctx.back_key and { key = ctx.back_key, label = "back" } or nil
+	local function with_back(hints)
+		if not back then return hints end
+		local out = {}
+		for _, h in ipairs(hints) do table.insert(out, h) end
+		table.insert(out, back)
+		return out
+	end
 
 	if mode == "input" then
 		return {
@@ -34,7 +42,7 @@ function M.hints(ctx)
 			if ctx.horizontal_actions then
 				local cur = ctx.rows[ctx.row_cursor]
 				if cur and cur.type == "action" then
-					return {
+					return with_back {
 						{ key = k.tabs.prev .. "/" .. k.tabs.next, label = l.navigate },
 						{ key = k.confirm, label = l.execute },
 						{ key = k.cancel,  label = l.close },
@@ -44,40 +52,40 @@ function M.hints(ctx)
 			local row = ctx.rows[ctx.row_cursor]
 			local t   = row and row.type or ""
 			if t == "bool" or t == "boolean" then
-				return {
+				return with_back {
 					{ key = k.down .. "/" .. k.up, label = l.navigate },
 					{ key = k.confirm, label = l.toggle },
 					{ key = k.cancel,  label = l.close },
 				}
 			elseif t == "select" then
-				return {
-					{ key = k.down .. "/" .. k.up,                           label = l.navigate },
-					{ key = k.list.next_option .. "/" .. k.list.prev_option, label = l.cycle },
+				return with_back {
+					{ key = k.down .. "/" .. k.up,                    label = l.navigate },
+					{ key = k.confirm .. "/" .. k.list.prev_option,   label = l.cycle },
 					{ key = k.cancel, label = l.close },
 				}
 			elseif t == "int" or t == "integer" or t == "float"
 				or t == "number" or t == "string" or t == "text"
 			then
-				return {
+				return with_back {
 					{ key = k.down .. "/" .. k.up, label = l.navigate },
 					{ key = k.confirm, label = l.edit },
 					{ key = k.cancel,  label = l.close },
 				}
 			elseif t == "action" then
-				return {
+				return with_back {
 					{ key = k.down .. "/" .. k.up, label = l.navigate },
 					{ key = k.confirm, label = l.execute },
 					{ key = k.cancel,  label = l.close },
 				}
 			else
-				return {
+				return with_back {
 					{ key = k.tabs.prev .. "/" .. k.tabs.next, label = l.tabs },
 					{ key = k.down .. "/" .. k.up,             label = l.navigate },
 					{ key = k.cancel, label = l.close },
 				}
 			end
 		else
-			return {
+			return with_back {
 				{ key = k.tabs.prev .. "/" .. k.tabs.next, label = l.tabs },
 				{ key = k.down .. "/" .. k.up,             label = l.navigate },
 				{ key = k.confirm, label = l.confirm },
@@ -86,7 +94,7 @@ function M.hints(ctx)
 		end
 
 	elseif mode == "info" then
-		return {
+		return with_back {
 			{ key = k.down .. "/" .. k.up, label = l.navigate },
 			{ key = k.cancel,              label = l.close },
 		}

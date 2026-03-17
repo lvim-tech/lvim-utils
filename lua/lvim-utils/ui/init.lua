@@ -71,7 +71,7 @@ end
 ---@return integer buf, integer win
 function M.info(content, opts)
 	opts = opts or {}
-	local lines = type(content) == "string" and vim.split(content, "\n") or vim.list_extend({}, content)
+	local lines = type(content) == "string" and vim.split(content, "\n") or vim.list_extend({}, content --[[@as table]])
 	local buf_ref, win_ref
 	local user_on_open = opts.on_open
 	opts.mode    = "info"
