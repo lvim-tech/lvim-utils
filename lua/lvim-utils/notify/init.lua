@@ -567,20 +567,224 @@ function M.progress_clear_all()
 	_rebuild_all()
 end
 
-function M.history()
-	local ui    = require("lvim-utils.ui")
-	local lines = {}
-	for i = #_history, 1, -1 do
-		local item  = _history[i]
-		local key   = LEVEL_KEY[item.level] or "info"
-		local icon  = (_cfg.icons or {})[key] or " "
-		local ts    = os.date("%H:%M:%S", item.time)
-		local title = item.opts and item.opts.title
-		local pre   = title and ("[" .. title .. "] ") or ""
-		table.insert(lines, icon .. " " .. ts .. "  " .. pre .. item.msg)
+-- ── history window ────────────────────────────────────────────────────────
+
+local _hist_NS = api.nvim_create_namespace("lvim_utils_notify_history")
+
+--- Build lines + highlights for the history popup. Returns them without touching any buffer.
+local function _history_build(filter)
+	local lines      = {}
+	local highlights = {}  -- { line, col_start, col_end, group }
+
+	local function push_hl(group, col_s, col_e)
+		table.insert(highlights, { line = #lines - 1, col_start = col_s, col_end = col_e, group = group })
 	end
-	if #lines == 0 then lines = { "  No notifications yet" } end
-	ui.info(lines, { title = " Notifications" })
+
+	local function push_header(label)
+		local text = "  " .. label
+		table.insert(lines, text)
+		push_hl("LvimUiTitle", 0, #text)
+	end
+
+	-- progress channels
+	if #_prog_order > 0 then
+		push_header("Progress channels")
+		for _, id in ipairs(_prog_order) do
+			local ch     = _prog_channels[id]
+			local icon   = ch.icon or (_cfg.icons or {}).progress or "󱦟"
+			local name   = ch.name or tostring(id)
+			local active = ch.lines and #ch.lines > 0
+			local badge  = active and "  active " or "  idle "
+			table.insert(lines, "   " .. icon .. "  " .. name .. badge)
+			push_hl(ch.header_hl or "LvimNotifyHeaderInfo", 3, 3 + #icon)
+			local badge_s = 3 + #icon + 2 + #name
+			push_hl(active and "LvimNotifyInfo" or "LvimUiInfo", badge_s, badge_s + #badge)
+			if active then
+				for _, l in ipairs(ch.lines) do
+					table.insert(lines, "      " .. l)
+				end
+			end
+		end
+		table.insert(lines, "")
+	end
+
+	-- notifications
+	local label = "Notifications"
+	push_header(label)
+	local shown = 0
+	for i = #_history, 1, -1 do
+		local item = _history[i]
+		if not filter or filter == (LEVEL_KEY[item.level] or "info") then
+			local key    = LEVEL_KEY[item.level] or "info"
+			local meta   = _panel_meta[item.level] or {}
+			local icon   = (_cfg.icons or {})[key] or " "
+			local ts     = os.date("%H:%M:%S", item.time) --[[@as string]]
+			local title  = item.opts and item.opts.title
+			local pre    = title and ("[" .. title .. "] ") or ""
+			local icon_s = 3
+			local icon_e = icon_s + #icon
+			local ts_s   = icon_e + 2
+			table.insert(lines, "   " .. icon .. "  " .. ts .. "  " .. pre .. item.msg)
+			push_hl(meta.title_hl or "LvimNotifyInfo",  icon_s, icon_e)
+			push_hl("LvimUiFooterLabel", ts_s, ts_s + #ts)
+			shown = shown + 1
+		end
+	end
+	if shown == 0 then
+		table.insert(lines, "    —")
+	end
+
+	return lines, highlights
+end
+
+--- Write pre-built lines + highlights into buf.
+local function _history_write(buf, lines, highlights)
+	vim.bo[buf].readonly   = false
+	vim.bo[buf].modifiable = true
+	api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+	vim.bo[buf].modifiable = false
+	vim.bo[buf].readonly   = true
+	api.nvim_buf_clear_namespace(buf, _hist_NS, 0, -1)
+	for _, m in ipairs(highlights) do
+		api.nvim_buf_set_extmark(buf, _hist_NS, m.line, m.col_start, {
+			end_col  = m.col_end,
+			hl_group = m.group,
+			priority = 100,
+		})
+	end
+end
+
+local _lvl_map    = { i = "info", w = "warn", e = "error", d = "debug" }
+local _lvl_labels = { i = "Info", w = "Warn", e = "Error", d = "Debug" }
+
+function M.history()
+	local ui     = require("lvim-utils.ui")
+	local filter = nil
+	local buf_ref ---@type integer
+
+	local function rerender()
+		if buf_ref and api.nvim_buf_is_valid(buf_ref) then
+			local lines, hls = _history_build(filter)
+			_history_write(buf_ref, lines, hls)
+		end
+	end
+
+	local lines, hls = _history_build(filter)
+
+	local keymaps = {
+		r = { fn = rerender, label = "Refresh" },
+	}
+	for key, lvl in pairs(_lvl_map) do
+		local lbl = _lvl_labels[key]
+		keymaps[key] = { fn = function()
+			filter = filter == lvl and nil or lvl
+			rerender()
+		end, label = lbl }
+	end
+
+	ui.info(lines, {
+		title       = " Notifications",
+		highlights  = hls,
+		keymaps     = keymaps,
+		hide_cursor = false,
+		on_open     = function(b, _)
+			buf_ref = b
+			vim.schedule(function() vim.cmd("redraw!") end)
+		end,
+	})
+end
+
+-- ── ext_messages (vim.ui_attach) ──────────────────────────────────────────
+
+-- Map message kind → vim.log.levels
+local _KIND_LEVEL = {
+	emsg      = levels.ERROR,
+	echoerr   = levels.ERROR,
+	lua_error = levels.ERROR,
+	rpc_error = levels.ERROR,
+	shell_err = levels.ERROR,
+	wmsg      = levels.WARN,
+	echomsg   = levels.INFO,
+	echo      = levels.INFO,
+	[""]      = levels.INFO,
+	bufwrite  = levels.INFO,
+	undo      = levels.INFO,
+	shell_out = levels.DEBUG,
+	lua_print = levels.DEBUG,
+	verbose   = levels.DEBUG,
+}
+
+--- Convert content fragments [{attr_id, text}, …] to a plain string.
+local function _fragments_to_text(content)
+	local parts = {}
+	for _, frag in ipairs(content) do
+		table.insert(parts, frag[2] or "")
+	end
+	return vim.trim(table.concat(parts))
+end
+
+local _ui_attached  = false
+local _dedup_last   = {}   -- [text] = uv_hrtime of last dispatch
+local _DEDUP_WINDOW = 500  -- ms — same text within this window is dropped
+
+local function _dedup_check(text)
+	local now = vim.uv.hrtime() / 1e6  -- ms
+	local last = _dedup_last[text]
+	if last and (now - last) < _DEDUP_WINDOW then return true end
+	_dedup_last[text] = now
+	-- keep table small
+	if vim.tbl_count(_dedup_last) > 50 then
+		local oldest, oldest_key = math.huge, nil
+		for k, t in pairs(_dedup_last) do
+			if t < oldest then oldest, oldest_key = t, k end
+		end
+		if oldest_key then _dedup_last[oldest_key] = nil end
+	end
+	return false
+end
+
+local function _attach_ui()
+	if _ui_attached then return end
+	_ui_attached = true
+
+	local ns = api.nvim_create_namespace("lvim_utils_ext_messages")
+
+	vim.ui_attach(ns, { ext_messages = true }, function(event, ...)
+		if event == "msg_show" then
+			local kind, content, _replace = ...
+
+			-- capture args before scheduling (varargs don't survive yield)
+			local text_raw = _fragments_to_text(content)
+
+			if kind == "return_prompt" then
+				vim.schedule(function()
+					api.nvim_feedkeys(
+						api.nvim_replace_termcodes("<CR>", true, false, true), "n", false)
+				end)
+				return
+			end
+
+			local behaviour = ((_cfg.ext_kinds or {})[kind]) or "history"
+			if behaviour == "ignore" then return end
+
+			vim.schedule(function()
+				local text = vim.trim(text_raw)
+				if text == "" then return end
+				if _dedup_check(text) then return end
+
+				local lvl     = _KIND_LEVEL[kind] or levels.INFO
+				local timeout = (lvl == levels.INFO or lvl == levels.DEBUG)
+					and (_cfg.ext_echo_timeout or 3000)
+					or  (_cfg.timeout or 5000)
+
+				_append_history(text, lvl, {})
+
+				if behaviour == "toast" then
+					_show_toast(text, lvl, { timeout = timeout })
+				end
+			end)
+		end
+	end)
 end
 
 function M.setup(user_cfg)
@@ -606,6 +810,10 @@ function M.setup(user_cfg)
 			_dispatch(table.concat(parts, "\t"), levels.DEBUG, { title = "print" })
 		end
 	end
+
+	if _cfg.ext_messages then
+		_attach_ui()
+	end
 end
 
 -- ── module init ───────────────────────────────────────────────────────────
@@ -621,6 +829,10 @@ end
 
 M.add_printer("toast",   _show_toast)
 M.add_printer("history", _append_history)
+
+if _cfg.ext_messages then
+	vim.schedule(_attach_ui)
+end
 
 vim.notify = function(msg, level, opts) _dispatch(msg, level, opts) end ---@diagnostic disable-line: duplicate-set-field
 

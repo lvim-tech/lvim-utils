@@ -1,4 +1,4 @@
--- lua/lvim-utils/config/colors.lua
+-- lua/lvim-utils/config/highlight.lua
 -- Highlight group definitions for lvim-utils UI components.
 -- All colors come from lvim-utils.colors so external plugins can share the palette.
 
@@ -10,8 +10,8 @@ local redBlend = hl.blend(c.red, c.bg, 0.15)
 
 return {
 	-- Window chrome
-	LvimUiNormal = { bg = c.bg_soft_dark, fg = c.fg },
-	LvimUiBorder = { bg = c.bg_soft_dark, fg = c.blue },
+	LvimUiNormal = { bg = c.bg_dark, fg = c.fg },
+	LvimUiBorder = { bg = c.bg_dark, fg = c.blue },
 	LvimUiSeparator = { fg = c.cyan },
 
 	-- Title block
@@ -86,8 +86,8 @@ return {
 	LvimNotifyHeaderDebug = { bg = hl.blend(c.purple, c.bg, 0.5), fg = c.white, bold = true },
 
 	-- Notify separator lines (per level)
-	LvimNotifySepInfo = { bg = c.bg_soft_dark, fg = hl.blend(c.teal, c.bg, 0.5) },
-	LvimNotifySepWarn = { bg = c.bg_soft_dark, fg = hl.blend(c.orange, c.bg, 0.5) },
-	LvimNotifySepError = { bg = c.bg_soft_dark, fg = hl.blend(c.red, c.bg, 0.5) },
-	LvimNotifySepDebug = { bg = c.bg_soft_dark, fg = hl.blend(c.purple, c.bg, 0.5) },
+	LvimNotifySepInfo = { bg = c.bg_dark, fg = hl.blend(c.teal, c.bg, 0.5) },
+	LvimNotifySepWarn = { bg = c.bg_dark, fg = hl.blend(c.orange, c.bg, 0.5) },
+	LvimNotifySepError = { bg = c.bg_dark, fg = hl.blend(c.red, c.bg, 0.5) },
+	LvimNotifySepDebug = { bg = c.bg_dark, fg = hl.blend(c.purple, c.bg, 0.5) },
 }
