@@ -63,9 +63,9 @@ end
 ---@param row Row
 ---@return string
 function M.row_display(row, ico)
-	local t     = row.type or "string"
+	local t = row.type or "string"
 	local label = row.label or row.name or ""
-	local val   = tostring(row.value ~= nil and row.value or row.default or "")
+	local val = tostring(row.value ~= nil and row.value or row.default or "")
 	ico = ico or M.icons()
 
 	if t == "bool" or t == "boolean" then
@@ -91,7 +91,7 @@ end
 ---@param row Row
 ---@return string icon_str, integer sep_bytes
 function M.row_icon_info(row, ico)
-	local t   = row.type or "string"
+	local t = row.type or "string"
 	ico = ico or M.icons()
 	if t == "bool" or t == "boolean" then
 		return (row.value and ico.bool_on or ico.bool_off), 2
@@ -115,7 +115,9 @@ end
 ---@param item string|SelectItem
 ---@return string
 function M.item_label(item)
-	if type(item) == "table" then return tostring(item.label or "") end
+	if type(item) == "table" then
+		return tostring(item.label or "")
+	end
 	return tostring(item or "")
 end
 
@@ -123,7 +125,9 @@ end
 ---@param item string|SelectItem
 ---@return string|nil
 function M.item_icon(item)
-	if type(item) == "table" then return item.icon end
+	if type(item) == "table" then
+		return item.icon
+	end
 	return nil
 end
 
@@ -131,7 +135,9 @@ end
 ---@param item string|SelectItem
 ---@return table|nil
 function M.item_hl(item)
-	if type(item) == "table" then return item.hl end
+	if type(item) == "table" then
+		return item.hl
+	end
 	return nil
 end
 
@@ -149,7 +155,9 @@ end
 ---@return integer
 function M.first_selectable(rows)
 	for i, r in ipairs(rows) do
-		if M.is_selectable(r) then return i end
+		if M.is_selectable(r) then
+			return i
+		end
 	end
 	return 1
 end
@@ -177,7 +185,9 @@ end
 ---@param hint string|integer|nil
 ---@return integer
 function M.resolve_initial_row(rows, hint)
-	if not hint then return M.first_selectable(rows) end
+	if not hint then
+		return M.first_selectable(rows)
+	end
 	if type(hint) == "number" then
 		local idx = math.floor(hint)
 		if idx >= 1 and idx <= #rows and M.is_selectable(rows[idx]) then

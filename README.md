@@ -1,6 +1,6 @@
 # lvim-utils
 
-A collection of independent Neovim utility modules — floating UI components, cursor management, highlight registration, a quit dialog, and a universal "open under cursor" extension.
+A collection of independent Neovim utility modules — floating UI components, cursor management, highlight registration, a quit dialog, a notification system, and a universal "open under cursor" extension.
 
 ---
 
@@ -12,13 +12,18 @@ A collection of independent Neovim utility modules — floating UI components, c
   "biserstoilov/lvim-utils",
   config = function()
     require("lvim-utils").setup({
+      colors = {
+        blue = "#569cd6",
+      },
       highlights = {
-        LvimUiNormal  = { bg = "#1e1e2e" },
-        LvimUiBorder  = { bg = "#1e1e2e" },
-        LvimUiTitle   = { fg = "#cba6f7", bold = true },
+        LvimUiTitle = { fg = "#cba6f7", bold = true },
       },
       ui = {
         border = "rounded",
+        position = "editor",
+      },
+      notify = {
+        timeout = 4000,
       },
     })
   end,
@@ -27,9 +32,57 @@ A collection of independent Neovim utility modules — floating UI components, c
 
 Each module is independently usable — `setup()` is optional.
 
+**`setup()` options**
+
+| Key | Description |
+|---|---|
+| `colors` | Override palette colors (see [colors](#colors)) |
+| `highlights` | Register highlight group overrides (always applied) |
+| `ui` | UI popup config (see [ui config](#ui-config)) |
+| `cursor` | Cursor module config |
+| `gx` | gx module config (see [gx](#gx)) |
+| `notify` | Notify module config (see [notify config](#notify-config)) |
+
 ---
 
 ## Modules
+
+### `colors`
+
+Public color palette shared by all lvim-utils modules. Automatically syncs from `lvim-colorscheme` when available.
+
+```lua
+local c = require("lvim-utils.colors")
+
+c.red        -- "#cb4f4f"
+c.bg_light   -- "#2c3339"
+c.git.add    -- "#5f7240"
+c.blend(c.teal, c.bg, 0.3)
+```
+
+**Override palette via `setup()`:**
+
+```lua
+require("lvim-utils").setup({
+  colors = {
+    red  = "#ff5555",
+    blue = "#569cd6",
+  },
+})
+```
+
+**API**
+
+| Function | Description |
+|---|---|
+| `setup(overrides)` | Override palette colors; derived colors recomputed automatically |
+| `sync_from_lcs()` | Pull palette from `lvim-colorscheme` and fire `on_change` listeners |
+| `on_change(fn)` | Register a callback fired whenever the palette changes |
+| `blend(fg, bg, alpha)` | Blend two hex colors (alpha 1.0 = fully fg) |
+| `lighten(color, amount)` | Blend toward white |
+| `darken(color, amount)` | Blend toward black |
+
+---
 
 ### `cursor`
 
@@ -64,7 +117,7 @@ hl.register({
   MyGroupTitle  = { fg = "#cba6f7", bold = true },
 })
 
--- Register as user overrides (always applied, even over colorscheme)
+-- Register as overrides (always applied, even over colorscheme)
 hl.register({ MyGroup = { fg = "#ff0000" } }, true)
 
 -- Install the ColorScheme autocmd (call once during plugin init)
@@ -228,6 +281,27 @@ require("lvim-utils.ui").tabs({
 
 Set `horizontal_actions = true` to render all `action` rows as a button bar at the bottom.
 
+#### `info`
+
+Read-only scrollable info window. Optionally renders content as Markdown via [markview.nvim](https://github.com/OXY2DEV/markview.nvim).
+
+```lua
+local buf, win = require("lvim-utils.ui").info(
+  { "# Title", "", "Some **markdown** content." },
+  { title = "About", markview = true }
+)
+```
+
+#### `close_info`
+
+Programmatically close an info window returned by `ui.info()`.
+
+```lua
+local buf, win = require("lvim-utils.ui").info(lines, opts)
+-- later:
+require("lvim-utils.ui").close_info(win)
+```
+
 #### Popup positioning
 
 All popup functions accept a `position` option (overrides the global default):
@@ -253,16 +327,42 @@ Set a global default in `setup()`:
 require("lvim-utils").setup({ ui = { position = "win" } })
 ```
 
-#### `info`
+#### `ui.new()` — isolated instances
 
-Read-only scrollable info window. Optionally renders content as Markdown via [markview.nvim](https://github.com/OXY2DEV/markview.nvim).
+Create an independent UI instance with its own config overrides. Useful when multiple plugins share lvim-utils but need different colors, icons, or keymaps.
 
 ```lua
-local buf, win = require("lvim-utils.ui").info(
-  { "# Title", "", "Some **markdown** content." },
-  { title = "About", markview = true }
-)
+local my_ui = require("lvim-utils.ui").new({
+  highlights = {
+    LvimUiTitle = { fg = "#ff5555", bold = true },
+  },
+  icons = {
+    bool_on = "✓",
+  },
+})
+
+my_ui.select({ title = "Pick", items = { "a", "b" }, callback = function(ok, idx) end })
+my_ui.tabs({ ... })
+my_ui.input({ ... })
+my_ui.multiselect({ ... })
+my_ui.info(lines, opts)
 ```
+
+#### UI config
+
+| Key | Default | Description |
+|---|---|---|
+| `border` | `{ "", "", "", " ", … }` | Border style (string or array) |
+| `position` | `"editor"` | Default popup position |
+| `width` | `0.8` | Popup width as fraction of editor |
+| `max_width` | `0.8` | Max width fraction |
+| `height` | `0.8` | Popup height as fraction |
+| `max_height` | `0.8` | Max height fraction |
+| `max_items` | `15` | Max visible items before scrolling |
+| `markview` | `false` | Enable markview.nvim rendering in info mode |
+| `icons` | see below | Icon overrides |
+| `labels` | see below | Footer label overrides |
+| `keys` | see below | Keymap overrides |
 
 **Callback signatures**
 
@@ -274,6 +374,140 @@ local buf, win = require("lvim-utils.ui").info(
 | `tabs` (items) | `result` = `{ tab, index, item }` |
 | `tabs` (rows) | `result` = `table<name, value>` |
 | `info` | returns `buf, win` directly |
+
+---
+
+### `notify`
+
+Notification hub: intercepts `vim.notify` and `print`, routes messages through pluggable printers, and ships two built-in printers:
+
+- **toast** — one floating panel per severity level, stacked at the bottom-right corner
+- **history** — ring-buffer; browsable with `M.history()`
+
+Works out-of-the-box after `require()` — no `setup()` call needed.
+
+```lua
+-- Standard usage (intercepted automatically)
+vim.notify("Hello!", vim.log.levels.INFO)
+vim.notify("Oops", vim.log.levels.ERROR, { title = "My Plugin", timeout = 0 })
+print("debug message")   -- routed as DEBUG level
+
+-- Browse history
+require("lvim-utils.notify").history()
+
+-- Get raw history table
+local entries = require("lvim-utils.notify").get_history()
+-- entries[i] = { msg, level, opts, time }
+```
+
+#### Progress channels
+
+Independent floating panels for long-running operations (LSP, builds, etc.).
+
+```lua
+local notify = require("lvim-utils.notify")
+
+-- Register a named channel
+notify.progress_register("lsp", {
+  name      = "LSP",
+  icon      = "󰄭",
+  header_hl = "LvimNotifyHeaderInfo",
+})
+
+-- Update its content (auto-registers if not yet registered)
+notify.progress_update("lsp", {
+  "  Indexing workspace…",
+  "  42 / 300 files",
+})
+
+-- Clear content and close the panel
+notify.progress_clear("lsp")
+
+-- Clear all progress channels at once
+notify.progress_clear_all()
+```
+
+#### Custom panels
+
+Push messages to a named panel with custom appearance, independent of the standard severity levels.
+
+```lua
+local notify = require("lvim-utils.notify")
+
+notify.register_panel("build", {
+  name      = "Build",
+  icon      = "󰗼",
+  hl        = "LvimNotifyInfo",
+  header_hl = "LvimNotifyHeaderInfo",
+})
+
+notify.push("build", "Compiling…", { timeout = 0 })
+notify.push("build", "Done.",      { timeout = 3000 })
+```
+
+#### Custom printers
+
+```lua
+local notify = require("lvim-utils.notify")
+
+notify.add_printer("my_printer", function(msg, level, opts)
+  -- handle notification however you like
+  io.stderr:write("[" .. tostring(level) .. "] " .. msg .. "\n")
+end)
+
+notify.remove_printer("my_printer")
+notify.has_printer("my_printer")  -- → boolean
+```
+
+**API**
+
+| Function | Description |
+|---|---|
+| `setup(opts)` | Configure the notify module |
+| `notify(msg, level, opts)` | Dispatch a notification through all printers |
+| `get_history()` | Return a deep copy of the history ring-buffer |
+| `clear()` | Clear the history ring-buffer |
+| `history()` | Open the history browser popup |
+| `add_printer(name, fn)` | Register a custom printer function |
+| `remove_printer(name)` | Unregister a printer by name |
+| `has_printer(name)` | Check if a printer is registered |
+| `push(key, msg, opts)` | Push directly to a panel by key or `vim.log.levels` value |
+| `register_panel(key, opts)` | Register a custom panel with its own appearance |
+| `progress_register(id, opts)` | Register a named progress channel |
+| `progress_update(id, lines, marks?)` | Update content for a progress channel |
+| `progress_clear(id)` | Clear content and close a progress channel's panel |
+| `progress_clear_all()` | Clear all progress channels |
+
+#### Notify config
+
+| Key | Default | Description |
+|---|---|---|
+| `timeout` | `5000` | Auto-dismiss delay in ms; `0` = sticky |
+| `min_width` | `50` | Minimum panel width in columns |
+| `max_width` | `100` | Maximum panel width in columns |
+| `padding` | `1` | Horizontal padding inside the panel |
+| `bottom_margin` | `1` | Rows from the bottom of the editor |
+| `panel_gap` | `0` | Rows between stacked level panels |
+| `border` | `"none"` | Border style passed to `nvim_open_win` |
+| `zindex` | `1000` | Floating window z-index |
+| `separator` | `"─"` | Character repeated as entry separator |
+| `max_history` | `100` | Ring-buffer size |
+| `override_print` | `false` | Replace global `print()` (always routed as DEBUG) |
+| `ext_messages` | `true` | Intercept all Neovim messages via `vim.ui_attach` |
+| `ext_echo_timeout` | `3000` | Timeout for echo/info-level ext messages |
+| `ext_kinds` | see below | Per-kind behaviour: `"toast"`, `"history"`, or `"ignore"` |
+| `printers` | `{ "toast", "history" }` | Active printers on load |
+| `icons` | see below | Level icons |
+| `level_names` | see below | Singular/plural level names in the header bar |
+
+**Default `ext_kinds` behaviour**
+
+| Kind | Default |
+|---|---|
+| `emsg`, `echoerr`, `lua_error`, `rpc_error`, `shell_err` | `"toast"` |
+| `wmsg`, `echomsg`, `echo`, `bufwrite`, `undo` | `"toast"` |
+| `shell_out`, `lua_print`, `verbose`, `""` | `"history"` |
+| `search_count`, `search_cmd`, `wildlist`, `completion` | `"ignore"` |
 
 ---
 
@@ -368,25 +602,75 @@ require("lvim-utils.gx").register_adapter({
 
 ## Highlight Groups
 
-All groups have sensible fallback links and can be overridden in `setup()`.
+All groups are defined with the active palette colors and reapplied whenever the palette changes. Override any group via `setup({ highlights = { ... } })`.
 
-| Group | Default link | Used for |
-|---|---|---|
-| `LvimUiNormal` | `NormalFloat` | Popup background |
-| `LvimUiBorder` | `FloatBorder` | Popup border |
-| `LvimUiTitle` | `Title` | Popup title |
-| `LvimUiSubtitle` | `Comment` | Popup subtitle |
-| `LvimUiInfo` | `DiagnosticInfo` | Info line |
-| `LvimUiCursorLine` | `CursorLine` | Selected row |
-| `LvimUiTabActive` | `TabLineSel` | Active tab label |
-| `LvimUiTabInactive` | `TabLine` | Inactive tab label |
-| `LvimUiButtonActive` | `TabLineSel` | Active action button |
-| `LvimUiButtonInactive` | `TabLine` | Inactive action button |
-| `LvimUiSeparator` | `WinSeparator` | Header / footer separator lines |
-| `LvimUiFooter` | `Comment` | Footer key-hints line |
-| `LvimUiInput` | `CurSearch` | Input field row |
-| `LvimUiSpacer` | `Comment` | Spacer / section label rows |
-| `LvimUtilsHiddenCursor` | — | Transparent cursor (cursor module) |
+### UI popup groups
+
+| Group | Used for |
+|---|---|
+| `LvimUiNormal` | Popup background |
+| `LvimUiBorder` | Popup border |
+| `LvimUiSeparator` | Header / footer separator lines |
+| `LvimUiTitle` | Popup title |
+| `LvimUiSubtitle` | Popup subtitle |
+| `LvimUiInfo` | Info line |
+| `LvimUiCursorLine` | Selected row background |
+| `LvimUiInput` | Input field row |
+| `LvimUiSpacer` | Spacer / section label rows |
+| `LvimUiFooter` | Footer key-hints line |
+| `LvimUiFooterKey` | Key indicator in footer |
+| `LvimUiFooterLabel` | Label text in footer |
+| `LvimUiTabActive` | Active tab label |
+| `LvimUiTabInactive` | Inactive tab label |
+| `LvimUiTabIconActive` | Icon inside active tab |
+| `LvimUiTabIconInactive` | Icon inside inactive tab |
+| `LvimUiTabTextActive` | Text inside active tab |
+| `LvimUiTabTextInactive` | Text inside inactive tab |
+| `LvimUiButtonActive` | Active action button |
+| `LvimUiButtonInactive` | Inactive action button |
+| `LvimUiButtonIconActive` | Icon inside active button |
+| `LvimUiButtonIconInactive` | Icon inside inactive button |
+| `LvimUiButtonTextActive` | Text inside active button |
+| `LvimUiButtonTextInactive` | Text inside inactive button |
+| `LvimUiRowIconActive` | Icon in active tab row |
+| `LvimUiRowIconInactive` | Icon in inactive tab row |
+| `LvimUiRowTextActive` | Text in active tab row |
+| `LvimUiRowTextInactive` | Text in inactive tab row |
+| `LvimUiItemIconActive` | Icon for selected list item |
+| `LvimUiItemIconInactive` | Icon for unselected list item |
+| `LvimUiItemTextActive` | Text for selected list item |
+| `LvimUiItemTextInactive` | Text for unselected list item |
+| `LvimUiCheckboxSelected` | Checked multiselect checkbox |
+| `LvimUiCheckboxEmpty` | Unchecked multiselect checkbox |
+
+### Notify groups
+
+| Group | Used for |
+|---|---|
+| `LvimNotifyNormal` | Notify panel background |
+| `LvimNotifyTitle` | Notify panel title text |
+| `LvimNotifyInfo` | Info-level content |
+| `LvimNotifyWarn` | Warn-level content |
+| `LvimNotifyError` | Error-level content |
+| `LvimNotifyDebug` | Debug-level content |
+| `LvimNotifyTitleInfo` | Info-level entry title |
+| `LvimNotifyTitleWarn` | Warn-level entry title |
+| `LvimNotifyTitleError` | Error-level entry title |
+| `LvimNotifyTitleDebug` | Debug-level entry title |
+| `LvimNotifyHeaderInfo` | Info-level panel header bar |
+| `LvimNotifyHeaderWarn` | Warn-level panel header bar |
+| `LvimNotifyHeaderError` | Error-level panel header bar |
+| `LvimNotifyHeaderDebug` | Debug-level panel header bar |
+| `LvimNotifySepInfo` | Info-level entry separator line |
+| `LvimNotifySepWarn` | Warn-level entry separator line |
+| `LvimNotifySepError` | Error-level entry separator line |
+| `LvimNotifySepDebug` | Debug-level entry separator line |
+
+### Other
+
+| Group | Used for |
+|---|---|
+| `LvimUtilsHiddenCursor` | Transparent cursor (cursor module) |
 
 ---
 
@@ -400,6 +684,6 @@ All groups have sensible fallback links and can be overridden in `setup()`.
 | `q` | Close (tabs mode) |
 | `l` / `h` | Next / prev tab (or action button) |
 | `<Tab>` / `<BS>` | Cycle select option forward / backward |
-| `<Space>` / `x` | Toggle item (multiselect) |
+| `<Space>` | Toggle item (multiselect) |
 
 All keys are configurable via `ui.keys` in `setup()`.

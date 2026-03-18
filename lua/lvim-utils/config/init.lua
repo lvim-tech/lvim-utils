@@ -7,7 +7,8 @@
 local M = {}
 
 -- Load defaults as independent deep copies so modules can mutate them freely.
-M.colors = vim.deepcopy(require("lvim-utils.config.highlight"))
+local _hl_factory = require("lvim-utils.config.highlight")
+M.colors = vim.deepcopy(_hl_factory())
 M.ui = vim.deepcopy(require("lvim-utils.config.ui"))
 M.cursor = vim.deepcopy(require("lvim-utils.config.cursor"))
 M.gx = vim.deepcopy(require("lvim-utils.config.gx"))
@@ -30,5 +31,12 @@ function M.setup(opts)
 		M.notify = vim.tbl_deep_extend("force", M.notify, opts.notify)
 	end
 end
+
+-- Re-compute and re-register all highlight groups when lvim-colorscheme changes.
+require("lvim-utils.colors").on_change(function()
+	local new_colors = _hl_factory()
+	M.colors = new_colors
+	require("lvim-utils.highlight").register(new_colors, true)
+end)
 
 return M

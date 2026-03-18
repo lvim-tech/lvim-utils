@@ -1,7 +1,7 @@
 -- lua/lvim-utils/ui/util.lua
 -- Shared utilities for lvim-utils UI components.
 local config = require("lvim-utils.config")
-local api    = vim.api
+local api = vim.api
 
 local M = {}
 
@@ -14,8 +14,12 @@ M.FT = "lvim-utils-ui"
 --- Tables are registered as dynamic groups and their name is cached.
 local _hl_cache = {}
 function M.resolve_hl(val)
-	if type(val) == "string" then return val end
-	if type(val) ~= "table" then return nil end
+	if type(val) == "string" then
+		return val
+	end
+	if type(val) ~= "table" then
+		return nil
+	end
 	local key = vim.inspect(val)
 	if not _hl_cache[key] then
 		local name = "LvimUiInline_" .. vim.tbl_count(_hl_cache)
@@ -49,7 +53,9 @@ end
 function M.center(s, width)
 	s = tostring(s or "")
 	local len = M.dw(s)
-	if len >= width then return s end
+	if len >= width then
+		return s
+	end
 	local l = math.floor((width - len) / 2)
 	return string.rep(" ", l) .. s .. string.rep(" ", width - len - l)
 end
@@ -72,7 +78,9 @@ end
 ---@param row   integer  0-based line number
 ---@param group string|nil  Highlight group name; no-op when nil
 function M.hl_line(buf, row, group)
-	if not group then return end
+	if not group then
+		return
+	end
 	api.nvim_buf_set_extmark(buf, M.NS, row, 0, { line_hl_group = group, priority = 200 })
 end
 
@@ -85,9 +93,13 @@ end
 ---@param overlay string|table|nil
 ---@return string|table|nil
 function M.merge_bg(base, overlay)
-	if not overlay then return base end
+	if not overlay then
+		return base
+	end
 	local new_bg = type(overlay) == "table" and overlay.bg or nil
-	if not new_bg then return base end
+	if not new_bg then
+		return base
+	end
 	if type(base) == "string" then
 		local attrs = api.nvim_get_hl(0, { name = base, link = false })
 		attrs.bg = new_bg
@@ -102,9 +114,9 @@ end
 
 M.BORDERS = {
 	rounded = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" },
-	single  = { "┌", "─", "┐", "│", "┘", "─", "└", "│" },
-	double  = { "╔", "═", "╗", "║", "╝", "═", "╚", "║" },
-	none    = { "", "", "", "", "", "", "", "" },
+	single = { "┌", "─", "┐", "│", "┘", "─", "└", "│" },
+	double = { "╔", "═", "╗", "║", "╝", "═", "╚", "║" },
+	none = { "", "", "", "", "", "", "", "" },
 }
 
 --- Resolve a border spec to a concrete 8-element table.
@@ -112,7 +124,9 @@ M.BORDERS = {
 ---@param b string|table
 ---@return table
 function M.resolve_border(b)
-	if type(b) ~= "table" then return M.BORDERS[b] or M.BORDERS.rounded end
+	if type(b) ~= "table" then
+		return M.BORDERS[b] or M.BORDERS.rounded
+	end
 	local t = vim.list_extend({}, b)
 	-- corners: {1=TL,3=TR,5=BR,7=BL}, adjacent edges: TL={8,2}, TR={2,4}, BR={4,6}, BL={6,8}
 	local adj = { { 8, 2 }, { 2, 4 }, { 4, 6 }, { 6, 8 } }
@@ -136,10 +150,10 @@ end
 ---@return integer row, integer col
 function M.calc_pos(height, width, position)
 	if position == "cursor" then
-		local sr    = vim.fn.screenrow() - 1
-		local sc    = vim.fn.screencol() - 1
+		local sr = vim.fn.screenrow() - 1
+		local sc = vim.fn.screencol() - 1
 		local lines = vim.o.lines
-		local cols  = vim.o.columns
+		local cols = vim.o.columns
 		local row
 		if sr + 2 + height <= lines then
 			row = sr + 1
@@ -151,17 +165,15 @@ function M.calc_pos(height, width, position)
 	end
 	if position == "win" then
 		local src_win = vim.api.nvim_get_current_win()
-		local wpos    = vim.api.nvim_win_get_position(src_win)
-		local wh      = vim.api.nvim_win_get_height(src_win)
-		local ww      = vim.api.nvim_win_get_width(src_win)
+		local wpos = vim.api.nvim_win_get_position(src_win)
+		local wh = vim.api.nvim_win_get_height(src_win)
+		local ww = vim.api.nvim_win_get_width(src_win)
 		local row = wpos[1] + math.max(0, math.floor((wh - height) / 2))
-		local col = wpos[2] + math.max(0, math.floor((ww - width)  / 2))
+		local col = wpos[2] + math.max(0, math.floor((ww - width) / 2))
 		return row, col
 	end
 	-- "editor": full editor area (default)
-	return
-		math.floor((vim.o.lines   - height) / 2),
-		math.floor((vim.o.columns - width)  / 2)
+	return math.floor((vim.o.lines - height) / 2), math.floor((vim.o.columns - width) / 2)
 end
 
 return M

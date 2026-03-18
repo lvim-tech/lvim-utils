@@ -17,22 +17,11 @@
 --   M.info(content, opts) – read-only markdown/text info window
 --   M.close_info(win)     – programmatically close an info window
 
-local hl     = require("lvim-utils.highlight")
+local hl = require("lvim-utils.highlight")
 local colors = require("lvim-utils.config").colors
-local popup  = require("lvim-utils.ui.popup")
+local popup = require("lvim-utils.ui.popup")
 
 local M = {}
-
--- Register with force=false so:
---   • colorscheme-defined LvimUi* groups take precedence (define_if_missing)
---   • setup({ highlights = {} }) with force=true overrides everything
---   • M.new({ highlights = {} }) overrides per-instance at call time
--- force=true: always apply on load — colorscheme's highlight clear cannot leave
--- LvimUi* groups undefined. setup({ highlights }) also uses force=true, so it
--- still wins. M.new({ highlights }) overrides per-instance at call time.
-hl.register(colors, true)
--- Survive :colorscheme changes (safe to call multiple times).
-hl.setup()
 
 --- callback(confirmed, index)
 ---@param opts UiOpts
@@ -71,14 +60,18 @@ end
 ---@return integer buf, integer win
 function M.info(content, opts)
 	opts = opts or {}
-	local lines = type(content) == "string" and vim.split(content, "\n") or vim.list_extend({}, content --[[@as table]])
+	local lines = type(content) == "string" and vim.split(content, "\n")
+		or (type(content) == "table" and vim.list_extend({}, content) or {})
 	local buf_ref, win_ref
 	local user_on_open = opts.on_open
-	opts.mode    = "info"
+	opts.mode = "info"
 	opts.content = lines
 	opts.on_open = function(b, w)
-		buf_ref = b; win_ref = w
-		if user_on_open then user_on_open(b, w) end
+		buf_ref = b
+		win_ref = w
+		if user_on_open then
+			user_on_open(b, w)
+		end
 	end
 	popup.open(opts)
 	return buf_ref, win_ref
@@ -127,14 +120,18 @@ function M.new(instance_cfg)
 
 	function inst.info(content, opts)
 		opts = opts or {}
-		local lines = type(content) == "string" and vim.split(content, "\n") or vim.list_extend({}, content)
+		local lines = type(content) == "string" and vim.split(content, "\n")
+			or (type(content) == "table" and vim.list_extend({}, content) or {})
 		local buf_ref, win_ref
 		local user_on_open = opts.on_open
-		opts.mode    = "info"
+		opts.mode = "info"
 		opts.content = lines
 		opts.on_open = function(b, w)
-			buf_ref = b; win_ref = w
-			if user_on_open then user_on_open(b, w) end
+			buf_ref = b
+			win_ref = w
+			if user_on_open then
+				user_on_open(b, w)
+			end
 		end
 		popup.open(opts, instance_cfg)
 		return buf_ref, win_ref

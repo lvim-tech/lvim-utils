@@ -154,8 +154,8 @@ function M.open(opts, instance_cfg)
 	local callback = opts.callback or function() end
 	local on_change = opts.on_change
 	local border_style = opts.border or s_cfg.border
-	local max_items    = opts.max_items or s_cfg.max_items
-	local close_keys   = opts.close_keys or s_cfg.close_keys
+	local max_items = opts.max_items or s_cfg.max_items
+	local close_keys = opts.close_keys or s_cfg.close_keys
 	local initial_selected = opts.initial_selected or {}
 	local current_item = opts.current_item
 	local horizontal_actions = (opts.horizontal_actions == true) and (mode == "tabs")
@@ -188,7 +188,7 @@ function M.open(opts, instance_cfg)
 
 	local s = {
 		-- config / opts
-		cfg  = s_cfg,
+		cfg = s_cfg,
 		mode = mode,
 		horizontal_actions = horizontal_actions,
 		position = position,
@@ -225,9 +225,9 @@ function M.open(opts, instance_cfg)
 		_row = 0,
 		_col = 0,
 
-		close_keys    = close_keys,
-		show_footer   = opts.show_footer ~= false,
-		back_key      = opts.back_key,
+		close_keys = close_keys,
+		show_footer = opts.show_footer ~= false,
+		back_key = opts.back_key,
 
 		-- info mode
 		info_readonly = opts.readonly ~= false,
@@ -368,9 +368,8 @@ function M.open(opts, instance_cfg)
 	local function recalc_heights()
 		s.action_bar_ht = (s.horizontal_actions and tab_has_rows() and #cur_action_rows() > 0) and 1 or 0
 		s.footer_height = s.show_footer and (3 + s.action_bar_ht) or 0
-		local max_total = type(s_cfg.height) == "number"
-			and resolve_height(s_cfg.height)
-			or  math.floor(vim.o.lines * s_cfg.max_height)
+		local max_total = type(s_cfg.height) == "number" and resolve_height(s_cfg.height)
+			or math.floor(vim.o.lines * s_cfg.max_height)
 		if type(s_cfg.height) == "number" then
 			-- explicit height drives content — max_items controls only virtual scroll buffer
 			local avail = math.max(1, max_total - s.header_height - s.footer_height)
@@ -441,7 +440,9 @@ function M.open(opts, instance_cfg)
 		end
 		local hard_max = vim.o.columns - 6
 		local function resolve_max(v)
-			if not v then return hard_max end
+			if not v then
+				return hard_max
+			end
 			local abs = v <= 1.0 and math.floor(vim.o.columns * v) or math.floor(v)
 			return math.min(abs, hard_max)
 		end
@@ -462,10 +463,10 @@ function M.open(opts, instance_cfg)
 	end
 	recalc_heights()
 	if opts.height then
-		local max_total  = resolve_height(opts.height)
-		s.total_height   = math.min(s.total_height, max_total)
+		local max_total = resolve_height(opts.height)
+		s.total_height = math.min(s.total_height, max_total)
 		s.content_height = math.max(1, s.total_height - s.header_height - s.footer_height)
-		s.total_height   = s.header_height + s.content_height + s.footer_height
+		s.total_height = s.header_height + s.content_height + s.footer_height
 	end
 
 	-- ── windows ───────────────────────────────────────────────────────────────
@@ -486,18 +487,18 @@ function M.open(opts, instance_cfg)
 	-- Content buffer (receives keyboard input / focus)
 	s.buf = api.nvim_create_buf(false, true)
 	vim.bo[s.buf].bufhidden = "wipe"
-	vim.bo[s.buf].swapfile  = false
-	vim.bo[s.buf].filetype  = FT
+	vim.bo[s.buf].swapfile = false
+	vim.bo[s.buf].filetype = FT
 
 	-- Header buffer (read-only display)
 	s.buf_header = api.nvim_create_buf(false, true)
 	vim.bo[s.buf_header].bufhidden = "wipe"
-	vim.bo[s.buf_header].swapfile  = false
+	vim.bo[s.buf_header].swapfile = false
 
 	-- Footer buffer (read-only display)
 	s.buf_footer = api.nvim_create_buf(false, true)
 	vim.bo[s.buf_footer].bufhidden = "wipe"
-	vim.bo[s.buf_footer].swapfile  = false
+	vim.bo[s.buf_footer].swapfile = false
 
 	if mode == "input" or opts.hide_cursor == false then
 		pcall(require("lvim-utils.cursor").mark_input_buffer, s.buf, true)
@@ -517,35 +518,38 @@ function M.open(opts, instance_cfg)
 	local has_footer_win = s.show_footer and real_footer_height > 0
 
 	local bc = resolve_border(border_style)
-	local TL, top, TR, R, BR, bot, BL, L =
-		bc[1], bc[2], bc[3], bc[4], bc[5], bc[6], bc[7], bc[8]
+	local TL, top, TR, R, BR, bot, BL, L = bc[1], bc[2], bc[3], bc[4], bc[5], bc[6], bc[7], bc[8]
 
 	-- A side contributes space only when its char is non-empty.
-	local bro = top ~= "" and 1 or 0   -- top-border row overhead (header window)
-	local bbo = bot ~= "" and 1 or 0   -- bottom-border row overhead (footer window)
-	local blo = L   ~= "" and 1 or 0   -- left-border col overhead
-	local bro_w = R ~= "" and 1 or 0   -- right-border col overhead
+	local bro = top ~= "" and 1 or 0 -- top-border row overhead (header window)
+	local bbo = bot ~= "" and 1 or 0 -- bottom-border row overhead (footer window)
+	local blo = L ~= "" and 1 or 0 -- left-border col overhead
+	local bro_w = R ~= "" and 1 or 0 -- right-border col overhead
 	local use_border = bro + bbo + blo + bro_w > 0
 
 	local b_header, b_content, b_footer
 	if use_border then
-		b_header  = { TL, top, TR, R, "",  "",   "",   L }
+		b_header = { TL, top, TR, R, "", "", "", L }
 		b_content = {
-			has_header_win and "" or TL,  has_header_win and "" or top,  has_header_win and "" or TR,
+			has_header_win and "" or TL,
+			has_header_win and "" or top,
+			has_header_win and "" or TR,
 			R,
-			has_footer_win and "" or BR,  has_footer_win and "" or bot,  has_footer_win and "" or BL,
+			has_footer_win and "" or BR,
+			has_footer_win and "" or bot,
+			has_footer_win and "" or BL,
 			L,
 		}
-		b_footer  = { "", "", "", R, BR, bot, BL, L }
+		b_footer = { "", "", "", R, BR, bot, BL, L }
 	else
-		b_header  = "none"
+		b_header = "none"
 		b_content = "none"
-		b_footer  = "none"
+		b_footer = "none"
 	end
 
 	-- Store border overhead so that any later recalc_pos call (e.g. tab switch)
 	-- uses the same offsets as the initial open.
-	local _bh = bro + bbo   -- total row overhead (top + bottom borders)
+	local _bh = bro + bbo -- total row overhead (top + bottom borders)
 	local _bw = blo + bro_w -- total col overhead (left + right borders)
 	s._bh, s._bw, s._blo = _bh, _bw, blo
 
@@ -560,15 +564,15 @@ function M.open(opts, instance_cfg)
 	s.win_header = nil
 	if real_header_height > 0 then
 		s.win_header = api.nvim_open_win(s.buf_header, false, {
-			relative  = "editor",
-			width     = s.width,
-			height    = real_header_height,
-			row       = s._row,
-			col       = s._col,
-			border    = b_header,
-			style     = "minimal",
+			relative = "editor",
+			width = s.width,
+			height = real_header_height,
+			row = s._row,
+			col = s._col,
+			border = b_header,
+			style = "minimal",
 			focusable = false,
-			zindex    = opts.zindex,
+			zindex = opts.zindex,
 		})
 	end
 
@@ -579,13 +583,13 @@ function M.open(opts, instance_cfg)
 	vim.o.eventignore = "all"
 	s.win = api.nvim_open_win(s.buf, true, {
 		relative = "editor",
-		width    = s.width,
-		height   = s.content_height,
-		row      = content_row,
-		col      = s._col,
-		border   = b_content,
-		style    = "minimal",
-		zindex   = opts.zindex,
+		width = s.width,
+		height = s.content_height,
+		row = content_row,
+		col = s._col,
+		border = b_content,
+		style = "minimal",
+		zindex = opts.zindex,
 	})
 	vim.o.eventignore = _ei
 
@@ -593,15 +597,15 @@ function M.open(opts, instance_cfg)
 	s.win_footer = nil
 	if s.show_footer and real_footer_height > 0 then
 		s.win_footer = api.nvim_open_win(s.buf_footer, false, {
-			relative  = "editor",
-			width     = s.width,
-			height    = real_footer_height,
-			row       = content_row + s.content_height,
-			col       = s._col,
-			border    = b_footer,
-			style     = "minimal",
+			relative = "editor",
+			width = s.width,
+			height = real_footer_height,
+			row = content_row + s.content_height,
+			col = s._col,
+			border = b_footer,
+			style = "minimal",
 			focusable = false,
-			zindex    = opts.zindex,
+			zindex = opts.zindex,
 		})
 	end
 
@@ -609,8 +613,8 @@ function M.open(opts, instance_cfg)
 
 	local normal_hl = hl_map["LvimUiNormal"] or "LvimUiNormal"
 	local border_hl = hl_map["LvimUiBorder"] or "LvimUiBorder"
-	api.nvim_set_option_value("wrap",      false, { win = s.win })
-	api.nvim_set_option_value("scrolloff", 0,     { win = s.win })
+	api.nvim_set_option_value("wrap", false, { win = s.win })
+	api.nvim_set_option_value("scrolloff", 0, { win = s.win })
 
 	-- Mode files see a 0-based content buffer (no header/footer rows in s.buf).
 	s.header_height = 0
@@ -621,16 +625,18 @@ function M.open(opts, instance_cfg)
 	local winhighlight_val = "Normal:" .. normal_hl .. ",NormalFloat:" .. normal_hl .. ",FloatBorder:" .. border_hl
 
 	local function set_win_opts(win, wrap_val)
-		if not api.nvim_win_is_valid(win) then return end
-		api.nvim_set_option_value("number",         false,             { win = win })
-		api.nvim_set_option_value("relativenumber", false,             { win = win })
-		api.nvim_set_option_value("signcolumn",      "no",             { win = win })
-		api.nvim_set_option_value("cursorline",      false,            { win = win })
-		api.nvim_set_option_value("cursorcolumn",    false,            { win = win })
-		api.nvim_set_option_value("winblend",        0,                { win = win })
-		api.nvim_set_option_value("winhighlight",    winhighlight_val, { win = win })
-		api.nvim_set_option_value("wrap",            wrap_val,         { win = win })
-		api.nvim_set_option_value("scrolloff",       0,                { win = win })
+		if not api.nvim_win_is_valid(win) then
+			return
+		end
+		api.nvim_set_option_value("number", false, { win = win })
+		api.nvim_set_option_value("relativenumber", false, { win = win })
+		api.nvim_set_option_value("signcolumn", "no", { win = win })
+		api.nvim_set_option_value("cursorline", false, { win = win })
+		api.nvim_set_option_value("cursorcolumn", false, { win = win })
+		api.nvim_set_option_value("winblend", 0, { win = win })
+		api.nvim_set_option_value("winhighlight", winhighlight_val, { win = win })
+		api.nvim_set_option_value("wrap", wrap_val, { win = win })
+		api.nvim_set_option_value("scrolloff", 0, { win = win })
 	end
 
 	local function render()
@@ -638,40 +644,40 @@ function M.open(opts, instance_cfg)
 		-- header_height = 0 so content.apply_hl uses 0-based row indices
 		-- (matching the content buffer which starts at line 0).
 		local ctx = {
-			cfg      = s_cfg,
+			cfg = s_cfg,
 			resolve_hl = resolve_hl,
-			mode     = s.mode,
-			width    = s.width,
-			buf      = s.buf,
-			tabs     = s.tabs,
-			active_tab    = s.active_tab,
-			meta_lines    = s.meta_lines,
-			header_lines  = s.header_lines,
-			meta_offset   = s.meta_offset,
+			mode = s.mode,
+			width = s.width,
+			buf = s.buf,
+			tabs = s.tabs,
+			active_tab = s.active_tab,
+			meta_lines = s.meta_lines,
+			header_lines = s.header_lines,
+			meta_offset = s.meta_offset,
 			header_height = 0,
-			title    = s.title,
+			title = s.title,
 			subtitle = s.subtitle,
-			info     = s.info,
-			title_hl    = s.title_hl,
+			info = s.info,
+			title_hl = s.title_hl,
 			subtitle_hl = s.subtitle_hl,
-			info_hl     = s.info_hl,
-			content_height     = s.content_height,
-			scroll             = s.scroll,
-			row_cursor         = s.row_cursor,
-			selected           = s.selected,
-			current_item       = current_item,
-			current_idx        = s.current_idx,
+			info_hl = s.info_hl,
+			content_height = s.content_height,
+			scroll = s.scroll,
+			row_cursor = s.row_cursor,
+			selected = s.selected,
+			current_item = current_item,
+			current_idx = s.current_idx,
 			horizontal_actions = s.horizontal_actions,
-			action_bar_ht      = s.action_bar_ht,
-			placeholder        = s.placeholder,
-			items        = cur_items(),
-			rows         = cur_rows(),
-			has_rows     = tab_has_rows(),
+			action_bar_ht = s.action_bar_ht,
+			placeholder = s.placeholder,
+			items = cur_items(),
+			rows = cur_rows(),
+			has_rows = tab_has_rows(),
 			content_rows = cur_content_rows(),
-			action_rows  = cur_action_rows(),
+			action_rows = cur_action_rows(),
 			info_highlights = s.info_highlights,
-			info_readonly   = s.info_readonly,
-			back_key        = s.back_key,
+			info_readonly = s.info_readonly,
+			back_key = s.back_key,
 		}
 
 		ctx.hints = opts.footer_hints
@@ -706,11 +712,15 @@ function M.open(opts, instance_cfg)
 		local cnt_lines, action_bar_ranges, action_bar_offset = content_mod.build(ctx)
 		local info_editable = s.mode == "info" and not s.info_readonly
 		local was_readonly = vim.bo[s.buf].readonly
-		if was_readonly then vim.bo[s.buf].readonly = false end
+		if was_readonly then
+			vim.bo[s.buf].readonly = false
+		end
 		vim.bo[s.buf].modifiable = true
 		api.nvim_buf_set_lines(s.buf, 0, -1, false, cnt_lines)
 		vim.bo[s.buf].modifiable = (s.mode == "input") or info_editable
-		if was_readonly then vim.bo[s.buf].readonly = true end
+		if was_readonly then
+			vim.bo[s.buf].readonly = true
+		end
 
 		content_mod.apply_hl(s.buf, ctx, action_bar_ranges, action_bar_offset)
 
@@ -726,23 +736,27 @@ function M.open(opts, instance_cfg)
 		end
 
 		-- ── cursor positioning (0-based in content window) ───────────────────
-		if not api.nvim_win_is_valid(s.win) then return end
+		if not api.nvim_win_is_valid(s.win) then
+			return
+		end
 
 		if s.mode == "input" then
 			api.nvim_win_set_cursor(s.win, { 1, #s.placeholder + 2 })
 		elseif s.mode == "info" then
-			local line      = s.info_line or 1
+			local line = s.info_line or 1
 			local row_in_win = line - s.scroll
-			local cur_col   = 0
-			local ok, pos   = pcall(api.nvim_win_get_cursor, s.win)
-			if ok then cur_col = pos[2] end
+			local cur_col = 0
+			local ok, pos = pcall(api.nvim_win_get_cursor, s.win)
+			if ok then
+				cur_col = pos[2]
+			end
 			pcall(api.nvim_win_set_cursor, s.win, { row_in_win, cur_col })
 		elseif s.mode == "tabs" and tab_has_rows() then
-			local cur_r    = cur_rows()[s.row_cursor]
+			local cur_r = cur_rows()[s.row_cursor]
 			local on_action = s.horizontal_actions and cur_r and cur_r.type == "action"
 			if on_action then
 				local bar_line = s.content_height + 1
-				local seg_col  = action_bar_offset
+				local seg_col = action_bar_offset
 				for _, seg in ipairs(action_bar_ranges) do
 					if seg.row_abs == s.row_cursor then
 						seg_col = action_bar_offset + seg.s
@@ -755,7 +769,10 @@ function M.open(opts, instance_cfg)
 				local cp = s.row_cursor
 				if s.horizontal_actions then
 					for ci, r in ipairs(drows) do
-						if r == cur_r then cp = ci; break end
+						if r == cur_r then
+							cp = ci
+							break
+						end
 					end
 				end
 				if cp >= s.scroll + 1 and cp <= s.scroll + s.content_height then
@@ -778,7 +795,9 @@ function M.open(opts, instance_cfg)
 
 	local closed = false
 	local function close(confirmed, result)
-		if closed then return end
+		if closed then
+			return
+		end
 		closed = true
 		pcall(api.nvim_win_close, s.win, true)
 		if s.win_header then
@@ -799,15 +818,21 @@ function M.open(opts, instance_cfg)
 
 	local function recalc_win_height()
 		-- Only relevant for wrap mode.
-		if not s.info_wrap then return end
-		if not api.nvim_win_is_valid(s.win) then return end
+		if not s.info_wrap then
+			return
+		end
+		if not api.nvim_win_is_valid(s.win) then
+			return
+		end
 		-- Measure actual rendered height of content rows.
 		local ok, result = pcall(api.nvim_win_text_height, s.win, {
 			start_row = 0,
-			end_row   = s.content_height - 1,
+			end_row = s.content_height - 1,
 		})
-		if not ok then return end
-		local max_total  = math.floor(vim.o.lines * s_cfg.max_height)
+		if not ok then
+			return
+		end
+		local max_total = math.floor(vim.o.lines * s_cfg.max_height)
 		local new_content = math.min(result.all, max_total - real_header_height - real_footer_height)
 		new_content = math.max(1, new_content)
 		api.nvim_win_set_height(s.win, new_content)
@@ -817,16 +842,16 @@ function M.open(opts, instance_cfg)
 			local new_ftr_row = s._row + (has_header_win and (real_header_height + bro) or 0) + s.content_height
 			api.nvim_win_set_config(s.win_footer, {
 				relative = "editor",
-				row      = new_ftr_row,
-				col      = s._col,
-				width    = s.width,
-				height   = real_footer_height,
+				row = new_ftr_row,
+				col = s._col,
+				width = s.width,
+				height = real_footer_height,
 			})
 		end
 	end
 
-	s.render           = render
-	s.close            = close
+	s.render = render
+	s.close = close
 	s.recalc_win_height = recalc_win_height
 	s.ko = { buffer = s.buf, silent = true, nowait = true }
 
@@ -850,22 +875,28 @@ function M.open(opts, instance_cfg)
 		if s.win_header and api.nvim_win_is_valid(s.win_header) then
 			api.nvim_win_set_config(s.win_header, {
 				relative = "editor",
-				row = s._row, col = s._col,
-				width = s.width, height = real_header_height,
+				row = s._row,
+				col = s._col,
+				width = s.width,
+				height = real_header_height,
 			})
 		end
 		if api.nvim_win_is_valid(s.win) then
 			api.nvim_win_set_config(s.win, {
 				relative = "editor",
-				row = c_row, col = s._col,
-				width = s.width, height = s.content_height,
+				row = c_row,
+				col = s._col,
+				width = s.width,
+				height = s.content_height,
 			})
 		end
 		if s.win_footer and api.nvim_win_is_valid(s.win_footer) then
 			api.nvim_win_set_config(s.win_footer, {
 				relative = "editor",
-				row = c_row + s.content_height, col = s._col,
-				width = s.width, height = real_footer_height,
+				row = c_row + s.content_height,
+				col = s._col,
+				width = s.width,
+				height = real_footer_height,
 			})
 		end
 	end

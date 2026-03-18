@@ -4,9 +4,9 @@
 
 local M = {}
 
-M.config  = require("lvim-utils.config")
-M.colors  = require("lvim-utils.colors")
-M.cursor  = require("lvim-utils.cursor")
+M.config = require("lvim-utils.config")
+M.colors = require("lvim-utils.colors")
+M.cursor = require("lvim-utils.cursor")
 M.highlight = require("lvim-utils.highlight")
 M.ui = require("lvim-utils.ui")
 M.quit = require("lvim-utils.quit")
@@ -18,12 +18,12 @@ M.notify = require("lvim-utils.notify")
 function M.setup(opts)
 	opts = opts or {}
 
-	-- Colors first — other modules may read palette at require time.
+	-- 1. Palette overrides first — other modules read colors after this.
 	if opts.colors then
 		M.colors.setup(opts.colors)
 	end
 
-	-- Merge all module configs first so each module reads updated values.
+	-- 2. Merge module configs so each module reads updated values.
 	M.config.setup({
 		ui = opts.ui,
 		cursor = opts.cursor,
@@ -31,18 +31,28 @@ function M.setup(opts)
 		notify = opts.notify,
 	})
 
+	-- 3. Register UI highlight groups from the fully-configured palette,
+	--    then install the ColorScheme autocmd that re-applies them.
+	M.highlight.register(M.config.colors, true)
 	if opts.highlights then
 		M.highlight.register(opts.highlights, true)
 	end
-
 	M.highlight.setup()
+
+	-- 4. Activate palette sync from lvim-colorscheme (idempotent).
+	M.colors._activate()
+
+	if opts.cursor then
+		M.cursor.setup(opts.cursor)
+	end
 
 	if opts.gx then
 		M.gx.setup()
 	end
 
-	if opts.notify then
-		M.notify.setup(opts.notify)
+	-- notify = false opts out entirely; any other value (including nil) activates with defaults.
+	if opts.notify ~= false then
+		M.notify.setup(opts.notify or {})
 	end
 end
 

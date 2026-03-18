@@ -13,7 +13,30 @@ local function make_readonly(buf, ko)
 	vim.bo[buf].readonly = true
 	vim.bo[buf].modified = false
 	vim.bo[buf].buftype = "nofile"
-	for _, k in ipairs({ "a", "i", "o", "A", "I", "O", "c", "C", "d", "D", "s", "S", "r", "R", "x", "X", "p", "P", "<Del>", "u", "U", "<C-r>" }) do
+	for _, k in ipairs({
+		"a",
+		"i",
+		"o",
+		"A",
+		"I",
+		"O",
+		"c",
+		"C",
+		"d",
+		"D",
+		"s",
+		"S",
+		"r",
+		"R",
+		"x",
+		"X",
+		"p",
+		"P",
+		"<Del>",
+		"u",
+		"U",
+		"<C-r>",
+	}) do
 		vim.keymap.set("n", k, "<Nop>", ko)
 	end
 	for _, k in ipairs({ "d", "c", "x", "p" }) do
@@ -74,13 +97,27 @@ function M.attach(s)
 	end)
 
 	-- extended navigation
-	local function half() return math.max(1, math.floor(s.content_height / 2)) end
-	map("gg", function() move(1 - s.info_line) end)
-	map("G",  function() move(#s.items - s.info_line) end)
-	map("<C-d>", function() move(half()) end)
-	map("<C-u>", function() move(-half()) end)
-	map("<C-f>", function() move(s.content_height) end)
-	map("<C-b>", function() move(-s.content_height) end)
+	local function half()
+		return math.max(1, math.floor(s.content_height / 2))
+	end
+	map("gg", function()
+		move(1 - s.info_line)
+	end)
+	map("G", function()
+		move(#s.items - s.info_line)
+	end)
+	map("<C-d>", function()
+		move(half())
+	end)
+	map("<C-u>", function()
+		move(-half())
+	end)
+	map("<C-f>", function()
+		move(s.content_height)
+	end)
+	map("<C-b>", function()
+		move(-s.content_height)
+	end)
 
 	-- close
 	for _, k in ipairs(s.close_keys) do
@@ -109,9 +146,9 @@ function M.attach(s)
 
 	-- folds: custom collapse-in-items (works with virtual scroll)
 	if s.info_folds and #s.info_folds > 0 then
-		local raw_items  = vim.deepcopy(s.items)
-		local raw_hl     = s.info_highlights and vim.deepcopy(s.info_highlights) or {}
-		local fold_icon  = s.info_fold_icon or ""
+		local raw_items = vim.deepcopy(s.items)
+		local raw_hl = s.info_highlights and vim.deepcopy(s.info_highlights) or {}
+		local fold_icon = s.info_fold_icon or ""
 
 		-- Sort largest first so outer folds cover inner ones in skip detection.
 		local sorted_folds = vim.tbl_filter(function(f)
@@ -121,8 +158,8 @@ function M.attach(s)
 			return (a.end_line - a.start_line) > (b.end_line - b.start_line)
 		end)
 
-		local collapsed    = {}  -- raw_0 start → true
-		local disp_to_raw  = {}  -- 1-based displayed index → 0-based raw index
+		local collapsed = {} -- raw_0 start → true
+		local disp_to_raw = {} -- 1-based displayed index → 0-based raw index
 
 		local function rebuild()
 			-- Determine which raw lines are inside a collapsed fold (children only).
@@ -135,10 +172,10 @@ function M.attach(s)
 				end
 			end
 
-			local new_items   = {}
-			local raw_to_disp = {}  -- 0-based raw → 1-based displayed
-			local col_shifts  = {}  -- raw_0 → byte shift applied after leading whitespace
-			disp_to_raw       = {}
+			local new_items = {}
+			local raw_to_disp = {} -- 0-based raw → 1-based displayed
+			local col_shifts = {} -- raw_0 → byte shift applied after leading whitespace
+			disp_to_raw = {}
 
 			for raw_1 = 1, #raw_items do
 				local raw_0 = raw_1 - 1
@@ -151,9 +188,9 @@ function M.attach(s)
 					-- Decorate collapsed fold headers and record the column shift.
 					for _, fold in ipairs(sorted_folds) do
 						if fold.start_line == raw_0 and collapsed[raw_0] then
-							local count   = fold.end_line - fold.start_line
+							local count = fold.end_line - fold.start_line
 							local leading = #(line:match("^%s*") or "")
-							local prefix  = fold_icon .. " "
+							local prefix = fold_icon .. " "
 							col_shifts[raw_0] = { at = leading, shift = #prefix }
 							line = line:gsub("^(%s*)", "%1" .. prefix) .. " (" .. count .. ")"
 							break
@@ -169,22 +206,26 @@ function M.attach(s)
 				local disp_1 = raw_to_disp[hl.line]
 				if disp_1 then
 					local h = {}
-					for k, v in pairs(hl) do h[k] = v end
-					h.line = disp_1 - 1  -- keep 0-based
+					for k, v in pairs(hl) do
+						h[k] = v
+					end
+					h.line = disp_1 - 1 -- keep 0-based
 					local cs = col_shifts[hl.line]
 					if cs and h.col_start >= cs.at then
 						h.col_start = h.col_start + cs.shift
-						if h.col_end then h.col_end = h.col_end + cs.shift end
+						if h.col_end then
+							h.col_end = h.col_end + cs.shift
+						end
 					end
 					table.insert(new_hl, h)
 				end
 			end
 
-			s.items           = new_items
+			s.items = new_items
 			s.info_highlights = new_hl
 			-- Clamp cursor/scroll to new size.
 			s.info_line = math.max(1, math.min(s.info_line, math.max(1, #new_items)))
-			s.scroll    = math.max(0, math.min(s.scroll, math.max(0, #new_items - s.content_height)))
+			s.scroll = math.max(0, math.min(s.scroll, math.max(0, #new_items - s.content_height)))
 		end
 
 		-- Collapse all folds by default so the window opens compact.
@@ -192,15 +233,17 @@ function M.attach(s)
 			collapsed[fold.start_line] = true
 		end
 		rebuild()
-		s.render()  -- re-render with all folds collapsed
+		s.render() -- re-render with all folds collapsed
 
 		-- Returns the 0-based raw index under the actual buffer cursor, or nil.
 		-- Uses the real cursor position rather than s.info_line so it works
 		-- even when the cursor moved without going through move() (mouse, arrows, etc.).
 		local function cursor_raw()
 			local ok, pos = pcall(api.nvim_win_get_cursor, s.win)
-			if not ok then return nil end
-			local disp_idx = s.scroll + pos[1]  -- 1-based index into s.items
+			if not ok then
+				return nil
+			end
+			local disp_idx = s.scroll + pos[1] -- 1-based index into s.items
 			return disp_to_raw[disp_idx]
 		end
 
@@ -210,7 +253,9 @@ function M.attach(s)
 		local function fold_at(raw_0)
 			-- Exact header match first (direct toggle).
 			for _, fold in ipairs(sorted_folds) do
-				if fold.start_line == raw_0 then return fold end
+				if fold.start_line == raw_0 then
+					return fold
+				end
 			end
 			-- Fall back to innermost enclosing fold.
 			for i = #sorted_folds, 1, -1 do
@@ -222,42 +267,71 @@ function M.attach(s)
 		end
 
 		local function toggle_fold()
-			local r = cursor_raw(); if not r then return end
-			local fold = fold_at(r); if not fold then return end
+			local r = cursor_raw()
+			if not r then
+				return
+			end
+			local fold = fold_at(r)
+			if not fold then
+				return
+			end
 			collapsed[fold.start_line] = not collapsed[fold.start_line]
-			rebuild(); s.render()
+			rebuild()
+			s.render()
 		end
 		map("<CR>", toggle_fold)
-		map("za",   toggle_fold)
+		map("za", toggle_fold)
 		map("zc", function()
-			local r = cursor_raw(); if not r then return end
-			local fold = fold_at(r); if not fold or collapsed[fold.start_line] then return end
+			local r = cursor_raw()
+			if not r then
+				return
+			end
+			local fold = fold_at(r)
+			if not fold or collapsed[fold.start_line] then
+				return
+			end
 			collapsed[fold.start_line] = true
-			rebuild(); s.render()
+			rebuild()
+			s.render()
 		end)
 		map("zo", function()
-			local r = cursor_raw(); if not r then return end
-			local fold = fold_at(r); if not fold or not collapsed[fold.start_line] then return end
+			local r = cursor_raw()
+			if not r then
+				return
+			end
+			local fold = fold_at(r)
+			if not fold or not collapsed[fold.start_line] then
+				return
+			end
 			collapsed[fold.start_line] = false
-			rebuild(); s.render()
+			rebuild()
+			s.render()
 		end)
 		map("zM", function()
 			local changed = false
 			for _, fold in ipairs(sorted_folds) do
 				if not collapsed[fold.start_line] then
-					collapsed[fold.start_line] = true; changed = true
+					collapsed[fold.start_line] = true
+					changed = true
 				end
 			end
-			if changed then rebuild(); s.render() end
+			if changed then
+				rebuild()
+				s.render()
+			end
 		end)
 		map("zR", function()
 			local changed = false
 			for _, fold in ipairs(sorted_folds) do
 				if collapsed[fold.start_line] then
-					collapsed[fold.start_line] = false; changed = true
+					collapsed[fold.start_line] = false
+					changed = true
 				end
 			end
-			if changed then rebuild(); s.render() end
+			if changed then
+				rebuild()
+				s.render()
+			end
 		end)
 		-- Prevent accidental fold-creation attempts in readonly buffers.
 		map("zf", "<Nop>")
@@ -367,12 +441,16 @@ function M.attach(s)
 		-- visual d: delete selected lines from s.items
 		vim.keymap.set("v", "d", function()
 			local ok, cur = pcall(api.nvim_win_get_cursor, s.win)
-			if not ok then return end
+			if not ok then
+				return
+			end
 			local vstart = vim.fn.line("v")
-			local vend   = cur[1]
-			if vstart > vend then vstart, vend = vend, vstart end
+			local vend = cur[1]
+			if vstart > vend then
+				vstart, vend = vend, vstart
+			end
 			local i1 = math.max(1, s.scroll + (vstart - s.header_height))
-			local i2 = math.min(#s.items, s.scroll + (vend   - s.header_height))
+			local i2 = math.min(#s.items, s.scroll + (vend - s.header_height))
 			for _ = i1, i2 do
 				table.remove(s.items, i1)
 			end
@@ -388,8 +466,8 @@ function M.attach(s)
 		-- sync all visible content lines from buffer → s.items, then re-render
 		-- to restore header/footer extmarks (lost after undo/redo).
 		local function sync_visible()
-			local total    = api.nvim_buf_line_count(s.buf)
-			local cnt      = math.min(total - s.footer_height, s.header_height + s.content_height)
+			local total = api.nvim_buf_line_count(s.buf)
+			local cnt = math.min(total - s.footer_height, s.header_height + s.content_height)
 			local buf_lines = api.nvim_buf_get_lines(s.buf, s.header_height, cnt, false)
 			for i, line in ipairs(buf_lines) do
 				s.items[s.scroll + i] = line
@@ -398,7 +476,9 @@ function M.attach(s)
 			local ok, pos = pcall(api.nvim_win_get_cursor, s.win)
 			s.render()
 			syncing = false
-			if ok then pcall(api.nvim_win_set_cursor, s.win, pos) end
+			if ok then
+				pcall(api.nvim_win_set_cursor, s.win, pos)
+			end
 		end
 
 		api.nvim_create_autocmd("TextChanged", {
@@ -431,15 +511,17 @@ function M.attach(s)
 	-- markview: render only content rows (header_height .. header_height+content_height)
 	-- so header/footer are not touched, and hybrid_mode is bypassed entirely.
 	if s.info_markview then
-		local p_ok, mv_parser   = pcall(require, "markview.parser")
+		local p_ok, mv_parser = pcall(require, "markview.parser")
 		local r_ok, mv_renderer = pcall(require, "markview.renderer")
-		local a_ok, mv_actions  = pcall(require, "markview.actions")
+		local a_ok, mv_actions = pcall(require, "markview.actions")
 		if p_ok and r_ok then
 			vim.bo[s.buf].filetype = "markdown"
 			local function mv_render()
-				if a_ok then pcall(mv_actions.clear, s.buf) end
+				if a_ok then
+					pcall(mv_actions.clear, s.buf)
+				end
 				local start_row = s.header_height
-				local end_row   = s.header_height + s.content_height
+				local end_row = s.header_height + s.content_height
 				local ok2, content = pcall(mv_parser.parse, s.buf, start_row, end_row, true)
 				if ok2 and content then
 					pcall(mv_renderer.render, s.buf, content)

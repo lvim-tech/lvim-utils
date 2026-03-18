@@ -14,6 +14,8 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 
+local _NS = vim.api.nvim_create_namespace("LvimGxTempHL")
+
 ---@class GxConfig
 ---@field highlight_match           boolean         Briefly highlight the matched token
 ---@field highlight_duration_ms     integer         Milliseconds to keep the highlight
@@ -44,19 +46,25 @@ local adapters_initialized = false
 --- Always returns false on Windows (Windows handles its own open commands).
 ---@return boolean
 local function env_headless()
-	if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then return false end
-	return not os.getenv("DISPLAY")
-		and not os.getenv("WAYLAND_DISPLAY")
-		and not os.getenv("WSL_DISTRO_NAME")
+	if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
+		return false
+	end
+	return not os.getenv("DISPLAY") and not os.getenv("WAYLAND_DISPLAY") and not os.getenv("WSL_DISTRO_NAME")
 end
 
 --- Return the appropriate system opener command for the current OS.
 --- Respects cfg.system_open_cmd when set explicitly.
 ---@return string  "open" (macOS) | "start" (Windows) | "xdg-open" (Linux)
 local function detect_opener()
-	if cfg.system_open_cmd then return cfg.system_open_cmd end
-	if vim.fn.has("mac")   == 1 then return "open" end
-	if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then return "start" end
+	if cfg.system_open_cmd then
+		return cfg.system_open_cmd
+	end
+	if vim.fn.has("mac") == 1 then
+		return "open"
+	end
+	if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
+		return "start"
+	end
 	return "xdg-open"
 end
 
@@ -68,7 +76,9 @@ end
 ---@return string
 local function normalize(p)
 	p = p:gsub("\\", "/"):gsub("//+", "/")
-	if #p > 1 and p:sub(-1) == "/" then p = p:sub(1, -2) end
+	if #p > 1 and p:sub(-1) == "/" then
+		p = p:sub(1, -2)
+	end
 	return p
 end
 
@@ -90,7 +100,9 @@ end
 ---@param s string
 ---@return string
 local function unquote(s)
-	if s:match('^".*"$') or s:match("^'.*'$") then return s:sub(2, -2) end
+	if s:match('^".*"$') or s:match("^'.*'$") then
+		return s:sub(2, -2)
+	end
 	return s
 end
 
@@ -108,9 +120,13 @@ end
 ---@return integer|nil  column number
 local function split_file_loc(s)
 	local f, l, c = s:match("^(.+):(%d+):(%d+)$")
-	if f then return f, tonumber(l), tonumber(c) end
+	if f then
+		return f, tonumber(l), tonumber(c)
+	end
 	f, l = s:match("^(.+):(%d+)$")
-	if f then return f, tonumber(l), nil end
+	if f then
+		return f, tonumber(l), nil
+	end
 	return s, nil, nil
 end
 
@@ -118,7 +134,9 @@ end
 ---@param p string|nil
 ---@return boolean
 local function exists(p)
-	if not p then return false end
+	if not p then
+		return false
+	end
 	return uv.fs_stat(p) ~= nil
 end
 
@@ -135,7 +153,9 @@ end
 ---@param s string
 ---@return boolean
 local function is_domain_repo(s)
-	if not cfg.allow_bare_domains then return false end
+	if not cfg.allow_bare_domains then
+		return false
+	end
 	return s:match("^[%w%.%-]+%.[%w%.%-]+/.+") ~= nil
 end
 
@@ -144,9 +164,15 @@ end
 ---@param token string|nil
 ---@return boolean
 local function is_icon(token)
-	if not cfg.icon_guard then return false end
-	if not token or token == "" then return true end
-	if token:match("[%w%./~]") then return false end
+	if not cfg.icon_guard then
+		return false
+	end
+	if not token or token == "" then
+		return true
+	end
+	if token:match("[%w%./~]") then
+		return false
+	end
 	return vim.fn.strchars(token) <= 6
 end
 
@@ -159,20 +185,23 @@ end
 ---@param s     integer  Start byte column (0-based)
 ---@param e     integer|nil  End byte column; defaults to end-of-line
 local function highlight_temp(buf, lnum0, s, e)
-	if not cfg.highlight_match then return end
-	local ns = vim.api.nvim_create_namespace("LvimGxTempHL")
+	if not cfg.highlight_match then
+		return
+	end
 	if not e then
 		e = #(vim.api.nvim_buf_get_lines(buf, lnum0, lnum0 + 1, false)[1] or "")
 	end
-	local ok, id = pcall(vim.api.nvim_buf_set_extmark, buf, ns, lnum0, s, {
-		end_col  = e,
+	local ok, id = pcall(vim.api.nvim_buf_set_extmark, buf, _NS, lnum0, s, {
+		end_col = e,
 		hl_group = "Visual",
-		hl_mode  = "combine",
+		hl_mode = "combine",
 		priority = 150,
 	})
-	if not ok then return end
+	if not ok then
+		return
+	end
 	vim.defer_fn(function()
-		pcall(vim.api.nvim_buf_del_extmark, buf, ns, id)
+		pcall(vim.api.nvim_buf_del_extmark, buf, _NS, id)
 	end, cfg.highlight_duration_ms)
 end
 
@@ -191,10 +220,12 @@ local function scan_tokens(line, pattern)
 	local out, idx = {}, 1
 	while true do
 		local s, e = line:find(pattern, idx)
-		if not s then break end
+		if not s then
+			break
+		end
 		local text = strip_punct(unquote(line:sub(s, e)))
 		out[#out + 1] = { s = s, e = e, text = text }
-		idx = e + 1
+		idx = e >= idx and e + 1 or idx + 1 -- guard against zero-length matches
 	end
 	return out
 end
@@ -207,7 +238,9 @@ end
 ---@return GxToken|nil
 local function token_at(line, col1, pattern)
 	for _, t in ipairs(scan_tokens(line, pattern)) do
-		if col1 >= t.s and col1 <= t.e and not is_icon(t.text) then return t end
+		if col1 >= t.s and col1 <= t.e and not is_icon(t.text) then
+			return t
+		end
 	end
 end
 
@@ -218,7 +251,9 @@ end
 local function tokens_in(line, pattern)
 	local out = {}
 	for _, t in ipairs(scan_tokens(line, pattern)) do
-		if not is_icon(t.text) and t.text ~= "" then out[#out + 1] = t end
+		if not is_icon(t.text) and t.text ~= "" then
+			out[#out + 1] = t
+		end
 	end
 	return out
 end
@@ -239,9 +274,11 @@ end
 ---@return GxAdapter
 local function adapter_neo_tree()
 	return {
-		name   = "neo_tree",
-		detect = function(ctx) return ctx.filetype == "neo-tree" end,
-		get    = function(ctx)
+		name = "neo_tree",
+		detect = function(ctx)
+			return ctx.filetype == "neo-tree"
+		end,
+		get = function(ctx)
 			local ok, renderer = pcall(require, "neo-tree.ui.renderer")
 			if ok then
 				local ok2, node = pcall(renderer.get_node)
@@ -269,11 +306,15 @@ end
 ---@return GxAdapter
 local function adapter_nvim_tree()
 	return {
-		name   = "nvim_tree",
-		detect = function(ctx) return ctx.filetype == "NvimTree" end,
-		get    = function()
+		name = "nvim_tree",
+		detect = function(ctx)
+			return ctx.filetype == "NvimTree"
+		end,
+		get = function()
 			local ok, api = pcall(require, "nvim-tree.api")
-			if not ok then return end
+			if not ok then
+				return
+			end
 			local ok2, node = pcall(api.tree.get_node_under_cursor)
 			if ok2 and node and node.absolute_path then
 				return { path = node.absolute_path, type = node.type == "directory" and "dir" or "file" }
@@ -286,12 +327,16 @@ end
 ---@return GxAdapter
 local function adapter_oil()
 	return {
-		name   = "oil",
-		detect = function(ctx) return ctx.filetype == "oil" end,
-		get    = function()
+		name = "oil",
+		detect = function(ctx)
+			return ctx.filetype == "oil"
+		end,
+		get = function()
 			local ok, oil = pcall(require, "oil")
-			if not ok then return end
-			local ok_d, dir   = pcall(oil.get_current_dir)
+			if not ok then
+				return
+			end
+			local ok_d, dir = pcall(oil.get_current_dir)
 			local ok_e, entry = pcall(oil.get_cursor_entry)
 			if ok_d and type(dir) == "string" and ok_e and entry and entry.name then
 				return { path = normalize(dir .. entry.name), type = entry.type == "directory" and "dir" or "file" }
@@ -305,21 +350,31 @@ end
 ---@return GxAdapter
 local function adapter_mini_files()
 	return {
-		name   = "mini_files",
-		detect = function(ctx) return ctx.filetype == "minifiles" or ctx.filetype == "MiniFiles" end,
-		get    = function()
+		name = "mini_files",
+		detect = function(ctx)
+			return ctx.filetype == "minifiles" or ctx.filetype == "MiniFiles"
+		end,
+		get = function()
 			local ok, mf = pcall(require, "mini.files")
-			if not ok then return end
+			if not ok then
+				return
+			end
 			if mf.get_fs_entry then
 				local ok2, e = pcall(mf.get_fs_entry)
 				if ok2 and e and e.path then
-					return { path = normalize(e.path), type = e.fs_type == "directory" and "dir" or (e.fs_type or "file") }
+					return {
+						path = normalize(e.path),
+						type = e.fs_type == "directory" and "dir" or (e.fs_type or "file"),
+					}
 				end
 			end
 			if mf.get_cursor_entry then
 				local ok2, e = pcall(mf.get_cursor_entry)
 				if ok2 and e and e.path then
-					return { path = normalize(e.path), type = e.fs_type == "directory" and "dir" or (e.fs_type or "file") }
+					return {
+						path = normalize(e.path),
+						type = e.fs_type == "directory" and "dir" or (e.fs_type or "file"),
+					}
 				end
 			end
 		end,
@@ -332,13 +387,16 @@ end
 ---@return GxAdapter
 local function adapter_netrw()
 	return {
-		name   = "netrw",
-		detect = function(ctx) return ctx.filetype == "netrw" end,
-		get    = function(ctx)
+		name = "netrw",
+		detect = function(ctx)
+			return ctx.filetype == "netrw"
+		end,
+		get = function(ctx)
 			local line = (ctx.line or ""):gsub("^%s*[%d%.]+%s*", "")
 			local name = line:match("^(%S+)")
 			if name and name ~= "" and not is_icon(name) then
-				return { path = normalize(vim.fn.getcwd() .. "/" .. name), type = "unknown" }
+				local dir = vim.b[ctx.bufnr].netrw_curdir or uv.cwd() or ""
+				return { path = normalize(dir .. "/" .. name), type = "unknown" }
 			end
 		end,
 	}
@@ -347,11 +405,11 @@ end
 --- Map of adapter name → constructor function used during initialisation.
 ---@type table<string, fun(): GxAdapter>
 local builders = {
-	neo_tree   = adapter_neo_tree,
-	nvim_tree  = adapter_nvim_tree,
-	oil        = adapter_oil,
+	neo_tree = adapter_neo_tree,
+	nvim_tree = adapter_nvim_tree,
+	oil = adapter_oil,
 	mini_files = adapter_mini_files,
-	netrw      = adapter_netrw,
+	netrw = adapter_netrw,
 }
 
 -- ─── adapter registry ─────────────────────────────────────────────────────────
@@ -360,17 +418,23 @@ local builders = {
 --- The definition must have: name (string), detect (function), get (function).
 ---@param def GxAdapter
 function M.register_adapter(def)
-	if not def or not def.name or not def.detect or not def.get then return end
+	if not def or not def.name or not def.detect or not def.get then
+		return
+	end
 	adapters[#adapters + 1] = def
 end
 
 --- Build and register all enabled built-in adapters. Runs once per setup().
 local function ensure_adapters()
-	if adapters_initialized then return end
+	if adapters_initialized then
+		return
+	end
 	for k, b in pairs(builders) do
 		if cfg.adapters[k] then
 			local ok, d = pcall(b)
-			if ok and d then M.register_adapter(d) end
+			if ok and d then
+				M.register_adapter(d)
+			end
 		end
 	end
 	for _, d in ipairs(cfg.extra_adapters or {}) do
@@ -394,12 +458,12 @@ end
 local function build_ctx()
 	local cur = vim.api.nvim_win_get_cursor(0)
 	return {
-		bufnr    = vim.api.nvim_get_current_buf(),
-		winid    = vim.api.nvim_get_current_win(),
+		bufnr = vim.api.nvim_get_current_buf(),
+		winid = vim.api.nvim_get_current_win(),
 		filetype = vim.bo.filetype,
-		cursor   = { lnum = cur[1], col0 = cur[2], col1 = cur[2] + 1 },
-		line     = vim.api.nvim_get_current_line(),
-		cwd      = uv.cwd(),
+		cursor = { lnum = cur[1], col0 = cur[2], col1 = cur[2] + 1 },
+		line = vim.api.nvim_get_current_line(),
+		cwd = uv.cwd(),
 	}
 end
 
@@ -410,7 +474,9 @@ local function first_adapter(ctx)
 	ensure_adapters()
 	for _, ad in ipairs(adapters) do
 		local ok, res = pcall(ad.detect, ctx)
-		if ok and res then return ad end
+		if ok and res then
+			return ad
+		end
 	end
 end
 
@@ -424,8 +490,12 @@ end
 ---@return boolean  true on success
 local function sys_open(target, kind)
 	local opener = detect_opener()
-	if kind ~= "url" and not cfg.force_system_open_local then return false end
-	if kind ~= "url" and env_headless() then return false end
+	if kind ~= "url" and not cfg.force_system_open_local then
+		return false
+	end
+	if kind ~= "url" and env_headless() then
+		return false
+	end
 	local cmd = opener == "start" and { "cmd", "/c", "start", "", target } or { opener, target }
 	local ok, jid = pcall(vim.fn.jobstart, cmd, { detach = true })
 	return ok and jid > 0
@@ -451,10 +521,14 @@ end
 ---@param meta   table|nil  Optional metadata from the candidate (line, col)
 ---@return boolean  true when the target was successfully opened
 local function open_target(target, meta)
-	if not target or target == "" then return false end
+	if not target or target == "" then
+		return false
+	end
 
 	if is_url(target) then
-		if not sys_open(target, "url") then return false end
+		if not sys_open(target, "url") then
+			return false
+		end
 		return true
 	end
 
@@ -465,20 +539,26 @@ local function open_target(target, meta)
 	if not exists(file) then
 		local cwd = uv.cwd() or ""
 		local alt = normalize(cwd .. "/" .. file)
-		if exists(alt) then file = alt end
+		if exists(alt) then
+			file = alt
+		end
 	end
 	-- Resolve relative to the current buffer's directory.
 	if not exists(file) then
 		local bufname = vim.api.nvim_buf_get_name(0)
 		if bufname ~= "" then
 			local alt = normalize(vim.fn.fnamemodify(bufname, ":h") .. "/" .. file)
-			if exists(alt) then file = alt end
+			if exists(alt) then
+				file = alt
+			end
 		end
 	end
 	-- Percent-decode spaces (%20).
 	if not exists(file) then
 		local decoded = file:gsub("%%20", " ")
-		if decoded ~= file and exists(decoded) then file = decoded end
+		if decoded ~= file and exists(decoded) then
+			file = decoded
+		end
 	end
 
 	if not exists(file) then
@@ -492,7 +572,9 @@ local function open_target(target, meta)
 
 	if is_dir(file) then
 		if cfg.dir_open_strategy == "system" then
-			if not sys_open(file, "file") then vim.cmd.edit(vim.fn.fnameescape(file)) end
+			if not sys_open(file, "file") then
+				vim.cmd.edit(vim.fn.fnameescape(file))
+			end
 		else
 			vim.cmd.edit(vim.fn.fnameescape(file))
 		end
@@ -523,10 +605,10 @@ end
 ---@param ctx GxContext
 ---@return GxCandidate[]
 local function collect_candidates(ctx)
-	local buf     = ctx.bufnr
+	local buf = ctx.bufnr
 	local pattern = cfg.pattern
-	local lnum    = ctx.cursor.lnum
-	local col1    = ctx.cursor.col1
+	local lnum = ctx.cursor.lnum
+	local col1 = ctx.cursor.col1
 	local seen, order = {}, {}
 
 	---Add a candidate if it hasn't been seen yet.
@@ -540,7 +622,7 @@ local function collect_candidates(ctx)
 	end
 
 	-- 1. Token directly under the cursor (highest priority).
-	local line  = vim.api.nvim_buf_get_lines(buf, lnum - 1, lnum, false)[1] or ""
+	local line = ctx.line
 	local under = token_at(line, col1, pattern)
 	if under then
 		add(under.text, { lnum = lnum, start_col = under.s, end_col = under.e, origin = "under" })
@@ -554,26 +636,38 @@ local function collect_candidates(ctx)
 	end
 
 	-- 3. Expand outward, alternating up and down.
-	local total         = vim.api.nvim_buf_line_count(buf)
-	local max_l         = cfg.search_max_lines
+	-- Pre-fetch the entire scan window in two API calls instead of one per line.
+	local total = vim.api.nvim_buf_line_count(buf)
+	local max_l = cfg.search_max_lines
+	local lo = math.max(0, lnum - 1 - max_l) -- 0-based inclusive
+	local hi = math.min(total, lnum - 1 + max_l) -- 0-based inclusive
+	local fetched = (cfg.search_backward_if_none or cfg.search_forward_if_none)
+			and vim.api.nvim_buf_get_lines(buf, lo, hi + 1, false)
+		or {}
+	-- fetched[l - lo] = content of 1-based line l
+
 	local up_c, dn_c, r = 0, 0, 1
 	while (up_c < max_l or dn_c < max_l) and #order < cfg.max_sequential_candidates do
 		local did = false
 		if cfg.search_backward_if_none and lnum - r >= 1 and up_c < max_l then
 			local l = lnum - r
-			for _, t in ipairs(tokens_in(vim.api.nvim_buf_get_lines(buf, l - 1, l, false)[1] or "", pattern)) do
+			for _, t in ipairs(tokens_in(fetched[l - lo] or "", pattern)) do
 				add(t.text, { lnum = l, start_col = t.s, end_col = t.e, origin = "up" })
 			end
-			up_c = up_c + 1; did = true
+			up_c = up_c + 1
+			did = true
 		end
 		if cfg.search_forward_if_none and lnum + r <= total and dn_c < max_l then
 			local l = lnum + r
-			for _, t in ipairs(tokens_in(vim.api.nvim_buf_get_lines(buf, l - 1, l, false)[1] or "", pattern)) do
+			for _, t in ipairs(tokens_in(fetched[l - lo] or "", pattern)) do
 				add(t.text, { lnum = l, start_col = t.s, end_col = t.e, origin = "down" })
 			end
-			dn_c = dn_c + 1; did = true
+			dn_c = dn_c + 1
+			did = true
 		end
-		if not did then break end
+		if not did then
+			break
+		end
 		r = r + 1
 	end
 	return order
@@ -592,7 +686,7 @@ local function resolve(args)
 		return { { text = args, meta = { source = "argument" } } }, ctx
 	end
 	local adapter = first_adapter(ctx)
-	local list    = {}
+	local list = {}
 	if adapter then
 		local ok, data = pcall(adapter.get, ctx)
 		if ok and data and data.path and data.path ~= "" and not is_icon(data.path) then
@@ -611,7 +705,9 @@ end
 --- Highlights and repositions the cursor on the matched token.
 ---@param candidates GxCandidate[]
 local function execute(candidates)
-	if #candidates == 0 then return end
+	if #candidates == 0 then
+		return
+	end
 	for _, c in ipairs(candidates) do
 		if open_target(c.text, c.meta) then
 			if c.meta and c.meta.lnum and c.meta.start_col and c.meta.end_col then
@@ -629,7 +725,9 @@ local cmds_created = false
 
 --- Create the GxOpen and GxOpenDiag user commands (idempotent).
 local function create_commands()
-	if cmds_created then return end
+	if cmds_created then
+		return
+	end
 	cmds_created = true
 
 	-- :GxOpen [target]  — open the target under the cursor (or the given argument).
@@ -639,10 +737,10 @@ local function create_commands()
 
 	-- :GxOpenDiag  — print context, detected adapter, and first 10 candidates.
 	vim.api.nvim_create_user_command("GxOpenDiag", function()
-		local ctx     = build_ctx()
+		local ctx = build_ctx()
 		local adapter = first_adapter(ctx)
-		local list    = resolve("")
-		local lines   = {
+		local list = resolve("")
+		local lines = {
 			"=== GxOpenDiag ===",
 			"filetype : " .. ctx.filetype,
 			"cursor   : lnum=" .. ctx.cursor.lnum .. " col=" .. ctx.cursor.col0,
@@ -651,7 +749,10 @@ local function create_commands()
 			"candidates: " .. tostring(#list),
 		}
 		for i, c in ipairs(list) do
-			if i > 10 then lines[#lines + 1] = "..."; break end
+			if i > 10 then
+				lines[#lines + 1] = "..."
+				break
+			end
 			lines[#lines + 1] = i .. ": " .. c.text
 		end
 		vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
@@ -669,7 +770,7 @@ function M.setup(opts)
 		config.gx = vim.tbl_deep_extend("force", config.gx, opts)
 		cfg = config.gx
 	end
-	adapters             = {}
+	adapters = {}
 	adapters_initialized = false
 	ensure_adapters()
 	create_commands()

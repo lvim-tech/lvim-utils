@@ -27,12 +27,11 @@ local registry = {}
 ---@param hex string  Color in "#RRGGBB" format
 ---@return number r, number g, number b  Values in 0-255 range
 local function hex_to_rgb(hex)
-	if not hex or hex == "" then return 0, 0, 0 end
+	if not hex or hex == "" then
+		return 0, 0, 0
+	end
 	hex = hex:gsub("^#", "")
-	return
-		tonumber(hex:sub(1, 2), 16) or 0,
-		tonumber(hex:sub(3, 4), 16) or 0,
-		tonumber(hex:sub(5, 6), 16) or 0
+	return tonumber(hex:sub(1, 2), 16) or 0, tonumber(hex:sub(3, 4), 16) or 0, tonumber(hex:sub(5, 6), 16) or 0
 end
 
 --- Convert RGB components to a hex color string.
@@ -53,14 +52,12 @@ end
 ---@param alpha  number  Blend factor: 1.0 = fully fg, 0.0 = fully bg
 ---@return string  Blended color in hex format
 function M.blend(fg, bg, alpha)
-	if not fg or not bg then return fg or bg or "#000000" end
+	if not fg or not bg then
+		return fg or bg or "#000000"
+	end
 	local fr, fg_, fb = hex_to_rgb(fg)
 	local br, bg_, bb = hex_to_rgb(bg)
-	return rgb_to_hex(
-		fr * alpha + br * (1 - alpha),
-		fg_ * alpha + bg_ * (1 - alpha),
-		fb * alpha + bb * (1 - alpha)
-	)
+	return rgb_to_hex(fr * alpha + br * (1 - alpha), fg_ * alpha + bg_ * (1 - alpha), fb * alpha + bb * (1 - alpha))
 end
 
 ---Lighten a color by blending it toward white.
@@ -119,7 +116,9 @@ end
 ---@return table|nil  Attribute table, or nil if the group is not defined
 function M.get(name)
 	local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = name, link = false })
-	if ok and hl and not vim.tbl_isempty(hl) then return hl end
+	if ok and hl and not vim.tbl_isempty(hl) then
+		return hl
+	end
 	return nil
 end
 
@@ -163,9 +162,9 @@ end
 function M.setup()
 	local aug = vim.api.nvim_create_augroup("LvimUtilsHighlights", { clear = true })
 	vim.api.nvim_create_autocmd("ColorScheme", {
-		group    = aug,
+		group = aug,
 		callback = apply_all,
-		desc     = "Re-apply lvim-utils highlight groups after colorscheme change",
+		desc = "Re-apply lvim-utils highlight groups after colorscheme change",
 	})
 end
 
