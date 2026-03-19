@@ -42,18 +42,20 @@ return function()
 		-- Tabs rows icon / text
 		LvimUiRowIconActive = { fg = c.yellow },
 		LvimUiRowIconInactive = { fg = c.yellow },
+		LvimUiRowItemIconActive = { fg = c.teal },
+		LvimUiRowItemIconInactive = { fg = c.teal },
 		LvimUiRowTextActive = { fg = c.yellow, bold = true },
 		LvimUiRowTextInactive = { fg = c.fg },
 
 		-- Select / multiselect items
-		LvimUiItemIconActive = { fg = c.teal },
-		LvimUiItemIconInactive = { fg = c.fg_dim },
-		LvimUiItemTextActive = { fg = c.fg },
-		LvimUiItemTextInactive = { fg = c.fg_muted },
+		LvimUiItemIconActive = { fg = c.yellow },
+		LvimUiItemIconInactive = { fg = c.yellow },
+		LvimUiItemTextActive = { fg = c.yellow, bold = true },
+		LvimUiItemTextInactive = { fg = c.fg },
 
 		-- Multiselect checkboxes
-		LvimUiCheckboxSelected = { fg = c.green },
-		LvimUiCheckboxEmpty = { fg = c.fg_dim },
+		LvimUiCheckboxSelected = { fg = c.yellow },
+		LvimUiCheckboxEmpty = { fg = c.yellow },
 
 		-- Input field
 		LvimUiInput = { bg = c.bg_input, fg = c.fg },

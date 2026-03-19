@@ -268,7 +268,17 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 							priority = 200,
 						})
 					end
-					local text_s = 2 + #icon_str + sep_bytes
+					local after_type = 2 + #icon_str + sep_bytes
+					local text_s = after_type
+					if row.icon then
+						local ri_hl = is_active and "LvimUiRowItemIconActive" or "LvimUiRowItemIconInactive"
+						api.nvim_buf_set_extmark(buf, NS, row_idx, after_type, {
+							end_col = after_type + #row.icon,
+							hl_group = resolve_hl(ri_hl),
+							priority = 200,
+						})
+						text_s = after_type + #row.icon + 2
+					end
 					if text_s < 2 + #row_content then
 						api.nvim_buf_set_extmark(buf, NS, row_idx, text_s, {
 							end_col = 2 + #row_content,
@@ -361,20 +371,29 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 					})
 				end
 
-				-- text hl: split.text → text range; flat → whole line
+				-- text hl: split.text → text range; per-item flat → whole line; default → text range only
 				local text_hl = resolve_text_hl(item, is_active, cfg)
 				if text_hl then
 					local ihl_state = rows.item_hl(item)
-					local state = ihl_state and (is_active and ihl_state.active or ihl_state.inactive)
-					if rows.item_hl_is_split(state) then
+					local ihl_flat = ihl_state and (is_active and ihl_state.active or ihl_state.inactive)
+					if rows.item_hl_is_split(ihl_flat) then
+						-- per-item split: text range only
 						api.nvim_buf_set_extmark(buf, NS, row_idx, text_s, {
 							end_col = text_e,
 							hl_group = resolve_hl(text_hl),
 							priority = 300,
 						})
-					else
+					elseif ihl_flat then
+						-- per-item flat: whole line (icon takes the item color too)
 						api.nvim_buf_set_extmark(buf, NS, row_idx, 0, {
 							end_col = #_line,
+							hl_group = resolve_hl(text_hl),
+							priority = 300,
+						})
+					else
+						-- global default: text range only so checkbox/icon hl are not overridden
+						api.nvim_buf_set_extmark(buf, NS, row_idx, text_s, {
+							end_col = text_e,
 							hl_group = resolve_hl(text_hl),
 							priority = 300,
 						})

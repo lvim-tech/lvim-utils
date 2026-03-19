@@ -13,6 +13,8 @@ M.FT = "lvim-utils-ui"
 --- Accept either a highlight group name (string) or an inline hl definition (table).
 --- Tables are registered as dynamic groups and their name is cached.
 local _hl_cache = {}
+local _hl_count = 0
+local _hl_registry = require("lvim-utils.highlight")
 function M.resolve_hl(val)
 	if type(val) == "string" then
 		return val
@@ -22,8 +24,9 @@ function M.resolve_hl(val)
 	end
 	local key = vim.inspect(val)
 	if not _hl_cache[key] then
-		local name = "LvimUiInline_" .. vim.tbl_count(_hl_cache)
-		api.nvim_set_hl(0, name, val)
+		_hl_count = _hl_count + 1
+		local name = "LvimUiInline_" .. _hl_count
+		_hl_registry.register({ [name] = val }, true)
 		_hl_cache[key] = name
 	end
 	return _hl_cache[key]

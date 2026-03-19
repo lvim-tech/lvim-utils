@@ -9,7 +9,7 @@ A collection of independent Neovim utility modules — floating UI components, c
 ```lua
 -- lazy.nvim
 {
-  "biserstoilov/lvim-utils",
+  "lvim-tech/lvim-utils",
   config = function()
     require("lvim-utils").setup({
       colors = {
@@ -34,14 +34,14 @@ Each module is independently usable — `setup()` is optional.
 
 **`setup()` options**
 
-| Key | Description |
-|---|---|
-| `colors` | Override palette colors (see [colors](#colors)) |
-| `highlights` | Register highlight group overrides (always applied) |
-| `ui` | UI popup config (see [ui config](#ui-config)) |
-| `cursor` | Cursor module config |
-| `gx` | gx module config (see [gx](#gx)) |
-| `notify` | Notify module config (see [notify config](#notify-config)) |
+| Key          | Description                                                |
+| ------------ | ---------------------------------------------------------- |
+| `colors`     | Override palette colors (see [colors](#colors))            |
+| `highlights` | Register highlight group overrides (always applied)        |
+| `ui`         | UI popup config (see [ui config](#ui-config))              |
+| `cursor`     | Cursor module config                                       |
+| `gx`         | gx module config (see [gx](#gx))                           |
+| `notify`     | Notify module config (see [notify config](#notify-config)) |
 
 ---
 
@@ -64,23 +64,23 @@ c.blend(c.teal, c.bg, 0.3)
 
 ```lua
 require("lvim-utils").setup({
-  colors = {
-    red  = "#ff5555",
-    blue = "#569cd6",
-  },
+	colors = {
+		red = "#ff5555",
+		blue = "#569cd6",
+	},
 })
 ```
 
 **API**
 
-| Function | Description |
-|---|---|
-| `setup(overrides)` | Override palette colors; derived colors recomputed automatically |
-| `sync_from_lcs()` | Pull palette from `lvim-colorscheme` and fire `on_change` listeners |
-| `on_change(fn)` | Register a callback fired whenever the palette changes |
-| `blend(fg, bg, alpha)` | Blend two hex colors (alpha 1.0 = fully fg) |
-| `lighten(color, amount)` | Blend toward white |
-| `darken(color, amount)` | Blend toward black |
+| Function                 | Description                                                         |
+| ------------------------ | ------------------------------------------------------------------- |
+| `setup(overrides)`       | Override palette colors; derived colors recomputed automatically    |
+| `sync_from_lcs()`        | Pull palette from `lvim-colorscheme` and fire `on_change` listeners |
+| `on_change(fn)`          | Register a callback fired whenever the palette changes              |
+| `blend(fg, bg, alpha)`   | Blend two hex colors (alpha 1.0 = fully fg)                         |
+| `lighten(color, amount)` | Blend toward white                                                  |
+| `darken(color, amount)`  | Blend toward black                                                  |
 
 ---
 
@@ -90,17 +90,17 @@ Hides the cursor whenever a buffer with a registered filetype is visible in any 
 
 ```lua
 require("lvim-utils.cursor").setup({
-  ft = { "lvim-utils-ui", "neo-tree", "NvimTree" },
+	ft = { "lvim-utils-ui", "neo-tree", "NvimTree" },
 })
 ```
 
 **API**
 
-| Function | Description |
-|---|---|
-| `setup(opts)` | Register filetypes and install autocmds |
+| Function                          | Description                                          |
+| --------------------------------- | ---------------------------------------------------- |
+| `setup(opts)`                     | Register filetypes and install autocmds              |
 | `mark_input_buffer(bufnr, value)` | Exempt a buffer from hiding (e.g. text-input popups) |
-| `update()` | Force-refresh cursor state |
+| `update()`                        | Force-refresh cursor state                           |
 
 ---
 
@@ -113,8 +113,8 @@ local hl = require("lvim-utils.highlight")
 
 -- Register defaults (skips groups already set by the colorscheme)
 hl.register({
-  MyGroupNormal = { bg = "#1e1e2e" },
-  MyGroupTitle  = { fg = "#cba6f7", bold = true },
+	MyGroupNormal = { bg = "#1e1e2e" },
+	MyGroupTitle = { fg = "#cba6f7", bold = true },
 })
 
 -- Register as overrides (always applied, even over colorscheme)
@@ -127,9 +127,7 @@ hl.setup()
 **Color helpers**
 
 ```lua
-local hl = require("lvim-utils.highlight")
-
-hl.blend("#cba6f7", "#1e1e2e", 0.3)  -- blend two hex colors (alpha 0–1)
+hl.blend("#cba6f7", "#1e1e2e", 0.3) -- blend two hex colors (alpha 0–1)
 hl.lighten("#cba6f7", 0.2)           -- blend toward white
 hl.darken("#cba6f7", 0.2)            -- blend toward black
 ```
@@ -137,29 +135,29 @@ hl.darken("#cba6f7", 0.2)            -- blend toward black
 **Group utilities**
 
 ```lua
-hl.define("MyGroup", { fg = "#ff0000", bold = true })  -- set (always)
-hl.define_if_missing("MyGroup", { fg = "#ff0000" })    -- set only if not defined
-hl.clear("MyGroup")                                     -- reset to empty
-hl.get("MyGroup")                                       -- → attribute table or nil
-hl.link("MyGroup", "Normal")                            -- link to another group
-hl.group_exists("MyGroup")                              -- → boolean
+hl.define("MyGroup", { fg = "#ff0000", bold = true }) -- set (always)
+hl.define_if_missing("MyGroup", { fg = "#ff0000" })   -- set only if not defined
+hl.clear("MyGroup")                                   -- reset to empty
+hl.get("MyGroup")                                     -- → attribute table or nil
+hl.link("MyGroup", "Normal")                          -- link to another group
+hl.group_exists("MyGroup")                            -- → boolean
 ```
 
 **API**
 
-| Function | Description |
-|---|---|
-| `register(groups, force?)` | Register and immediately apply highlight groups |
-| `setup()` | Install the `ColorScheme` autocmd |
-| `blend(fg, bg, alpha)` | Blend two hex colors |
-| `lighten(color, amount)` | Blend toward white |
-| `darken(color, amount)` | Blend toward black |
-| `define(name, opts)` | Set a group (always applied) |
-| `define_if_missing(name, opts)` | Set a group only if not already defined |
-| `clear(name)` | Reset a group to empty |
-| `get(name)` | Get group attributes |
-| `link(name, link_to)` | Link one group to another |
-| `group_exists(name)` | Check if a group is defined |
+| Function                        | Description                                     |
+| ------------------------------- | ----------------------------------------------- |
+| `register(groups, force?)`      | Register and immediately apply highlight groups |
+| `setup()`                       | Install the `ColorScheme` autocmd               |
+| `blend(fg, bg, alpha)`          | Blend two hex colors                            |
+| `lighten(color, amount)`        | Blend toward white                              |
+| `darken(color, amount)`         | Blend toward black                              |
+| `define(name, opts)`            | Set a group (always applied)                    |
+| `define_if_missing(name, opts)` | Set a group only if not already defined         |
+| `clear(name)`                   | Reset a group to empty                          |
+| `get(name)`                     | Get group attributes                            |
+| `link(name, link_to)`           | Link one group to another                       |
+| `group_exists(name)`            | Check if a group is defined                     |
 
 ---
 
@@ -167,23 +165,37 @@ hl.group_exists("MyGroup")                              -- → boolean
 
 Floating popup components. All popups share a unified visual style driven by highlight groups and config.
 
+The only module that supports independent instances — see [`ui.new()`](#uinew--isolated-instances).
+
 #### `select`
 
 Pick one item from a list. Pass `current_item` to mark the currently active value with a `➤` indicator regardless of cursor position.
 
 ```lua
 require("lvim-utils.ui").select({
-  title        = "Choose colorscheme",
-  subtitle     = "Active on next restart",
-  info         = "Requires a full Neovim restart",
-  items        = { "catppuccin", "tokyonight", "gruvbox" },
-  current_item = "tokyonight",   -- shows ➤ next to this item
-  callback = function(ok, index)
-    if ok then
-      print("Selected index:", index)
-    end
-  end,
+	title = "Choose colorscheme",
+	subtitle = "Active on next restart",
+	info = "Requires a full Neovim restart",
+	items = { "catppuccin", "tokyonight", "gruvbox" },
+	current_item = "tokyonight",
+	callback = function(ok, index)
+		if ok then
+			print("Selected index:", index)
+		end
+	end,
 })
+```
+
+Items can be plain strings or `SelectItem` tables:
+
+```lua
+items = {
+	{ label = "catppuccin", icon = "󰄛" },
+	{ label = "tokyonight", icon = "󰖔", hl = {
+		active   = { fg = "#7aa2f7", bold = true },
+		inactive = { fg = "#565f89" },
+	}},
+}
 ```
 
 #### `multiselect`
@@ -192,12 +204,15 @@ Pick multiple items. `<Space>` toggles, `<CR>` confirms.
 
 ```lua
 require("lvim-utils.ui").multiselect({
-  title    = "Enable LSP servers",
-  items    = { "lua_ls", "tsserver", "pyright" },
-  callback = function(ok, selected)
-    -- selected = table<string, boolean>
-    if ok then vim.print(selected) end
-  end,
+	title = "Enable LSP servers",
+	items = { "lua_ls", "tsserver", "pyright" },
+	initial_selected = { lua_ls = true },
+	callback = function(ok, selected)
+		-- selected = table<string, boolean>
+		if ok then
+			vim.print(selected)
+		end
+	end,
 })
 ```
 
@@ -207,11 +222,13 @@ Free-text input field.
 
 ```lua
 require("lvim-utils.ui").input({
-  title       = "Project name",
-  placeholder = "my-project",
-  callback = function(ok, value)
-    if ok then print(value) end
-  end,
+	title = "Project name",
+	placeholder = "my-project",
+	callback = function(ok, value)
+		if ok then
+			print(value)
+		end
+	end,
 })
 ```
 
@@ -223,61 +240,79 @@ Tabbed view. Supports two content modes:
 
 ```lua
 require("lvim-utils.ui").tabs({
-  title = "Package manager",
-  tabs  = {
-    { label = "Installed", items = { "lazy.nvim", "mason.nvim" } },
-    { label = "Updates",   items = { "blink.cmp" } },
-  },
-  callback = function(ok, res)
-    -- res = { tab, index, item }
-  end,
+	title = "Package manager",
+	tabs = {
+		{ label = "Installed", items = { "lazy.nvim", "mason.nvim" } },
+		{ label = "Updates",   items = { "blink.cmp" } },
+	},
+	callback = function(ok, res)
+		-- res = { tab, index, item }
+	end,
 })
 ```
 
-**Typed rows** — settings-style UI with bool toggles, selects, number inputs, and actions. Supports `title`, `subtitle`, and `info` above the tab bar:
+**Typed rows** — settings-style UI with bool toggles, selects, number inputs, and actions:
 
 ```lua
 require("lvim-utils.ui").tabs({
-  title    = "Settings",
-  subtitle = "lvim",
-  info     = "Changes apply on save",
-  tabs = {
-    {
-      label = "Editor",
-      rows  = {
-        { type = "spacer",  label = "Appearance" },
-        { type = "bool",    name = "cursorline",   label = "Cursor line",       value = true },
-        { type = "select",  name = "colorscheme",  label = "Colorscheme",       value = "catppuccin",
-          options = { "catppuccin", "tokyonight", "gruvbox" } },
-        { type = "int",     name = "scrolloff",    label = "Scroll offset",     value = 8 },
-        { type = "float",   name = "timeout",      label = "Timeout (s)",       value = 2.0 },
-        { type = "string",  name = "exclude_ft",   label = "Exclude filetypes", value = "markdown" },
-        { type = "spacer_line" },
-        { type = "action",  label = "Reset to defaults", run = function() end },
-      },
-    },
-  },
-  on_change = function(row)
-    print(row.name, "=", row.value)
-  end,
-  callback = function(ok, snapshot)
-    -- snapshot = table<name, value> for all named rows
-  end,
+	title = "Settings",
+	tabs = {
+		{
+			label = "Editor",
+			rows = {
+				{ type = "spacer",     label = "Appearance" },
+				{ type = "bool",       name = "cursorline",  label = "Cursor line",   value = true },
+				{ type = "bool",       name = "cursorline",  label = "With icon",     value = true, icon = "󰇷" },
+				{
+					type = "select",
+					name = "colorscheme",
+					label = "Colorscheme",
+					value = "catppuccin",
+					options = { "catppuccin", "tokyonight", "gruvbox" },
+				},
+				{ type = "int",        name = "scrolloff",   label = "Scroll offset", value = 8 },
+				{ type = "float",      name = "timeout",     label = "Timeout (s)",   value = 2.0 },
+				{ type = "string",     name = "exclude_ft",  label = "Exclude ft",    value = "markdown" },
+				{ type = "spacer_line" },
+				{ type = "action",     label = "Reset to defaults", run = function() end },
+			},
+		},
+	},
+	on_change = function(row)
+		print(row.name, "=", row.value)
+	end,
+	callback = function(ok, snapshot)
+		-- snapshot = table<name, value> for all named rows
+	end,
 })
 ```
 
+**Row fields**
+
+| Field     | Type       | Description                                             |
+| --------- | ---------- | ------------------------------------------------------- |
+| `type`    | `RowType`  | Row type (see table below)                              |
+| `name`    | `string?`  | Key in the callback snapshot                            |
+| `label`   | `string?`  | Display text                                            |
+| `icon`    | `string?`  | Optional secondary icon shown between type icon & label |
+| `value`   | `any`      | Current value                                           |
+| `default` | `any`      | Fallback value when `value` is nil                      |
+| `options` | `string[]` | Choices for `select` type                               |
+| `run`     | `function` | Callback on change/execute                              |
+| `hl`      | `table?`   | `{ active?: HlDef, inactive?: HlDef }` per-row override |
+
 **Row types**
 
-| Type | Input method | Value |
-|---|---|---|
-| `bool` / `boolean` | `<CR>` toggles | `boolean` |
-| `select` | `<Tab>` / `<BS>` cycles | `string` |
-| `int` / `integer` | `<CR>` opens input | `integer` |
-| `float` / `number` | `<CR>` opens input | `number` |
-| `string` / `text` | `<CR>` opens input | `string` |
-| `action` | `<CR>` executes | — |
-| `spacer` | non-interactive label | — |
-| `spacer_line` | horizontal divider | — |
+| Type               | Input method            | Value     |
+| ------------------ | ----------------------- | --------- |
+| `bool` / `boolean` | `<CR>` toggles          | `boolean` |
+| `select`           | `<Tab>` / `<BS>` cycles | `string`  |
+| `int` / `integer`  | `<CR>` opens input      | `integer` |
+| `float` / `number` | `<CR>` opens input      | `number`  |
+| `string` / `text`  | `<CR>` opens input      | `string`  |
+| `action`           | `<CR>` executes         | —         |
+| `spacer`           | non-interactive label   | —         |
+| `spacer_line`      | horizontal divider      | —         |
 
 Set `horizontal_actions = true` to render all `action` rows as a button bar at the bottom.
 
@@ -287,8 +322,8 @@ Read-only scrollable info window. Optionally renders content as Markdown via [ma
 
 ```lua
 local buf, win = require("lvim-utils.ui").info(
-  { "# Title", "", "Some **markdown** content." },
-  { title = "About", markview = true }
+	{ "# Title", "", "Some **markdown** content." },
+	{ title = "About", markview = true }
 )
 ```
 
@@ -306,74 +341,90 @@ require("lvim-utils.ui").close_info(win)
 
 All popup functions accept a `position` option (overrides the global default):
 
-| Value | Behaviour |
-|---|---|
-| `"editor"` | Centered in the full Neovim editor area (default) |
-| `"win"` | Centered within the current window |
+| Value      | Behaviour                                           |
+| ---------- | --------------------------------------------------- |
+| `"editor"` | Centered in the full Neovim editor area (default)   |
+| `"win"`    | Centered within the current window                  |
 | `"cursor"` | Below the cursor when space allows, otherwise above |
 
 ```lua
 require("lvim-utils.ui").select({
-  title    = "Pick one",
-  items    = { "a", "b", "c" },
-  position = "cursor",
-  callback = function(ok, idx) end,
+	title = "Pick one",
+	items = { "a", "b", "c" },
+	position = "cursor",
+	callback = function(ok, idx) end,
 })
-```
-
-Set a global default in `setup()`:
-
-```lua
-require("lvim-utils").setup({ ui = { position = "win" } })
 ```
 
 #### `ui.new()` — isolated instances
 
-Create an independent UI instance with its own config overrides. Useful when multiple plugins share lvim-utils but need different colors, icons, or keymaps.
+Create an independent UI instance with its own config overrides. All other modules (`notify`, `highlight`, `cursor`, `colors`, `gx`) are global-only.
+
+Useful when multiple plugins share lvim-utils but need different colors, icons, or keymaps.
 
 ```lua
 local my_ui = require("lvim-utils.ui").new({
-  highlights = {
-    LvimUiTitle = { fg = "#ff5555", bold = true },
-  },
-  icons = {
-    bool_on = "✓",
-  },
+	highlights = {
+		LvimUiNormal  = { bg = "#1a1a2e", fg = "#eee" },
+		LvimUiTitle   = { fg = "#e94560", bold = true },
+		LvimUiBorder  = { fg = "#e94560" },
+	},
+	icons = {
+		bool_on  = "✓",
+		bool_off = "✗",
+	},
 })
 
 my_ui.select({ title = "Pick", items = { "a", "b" }, callback = function(ok, idx) end })
-my_ui.tabs({ ... })
-my_ui.input({ ... })
 my_ui.multiselect({ ... })
+my_ui.input({ ... })
+my_ui.tabs({ ... })
 my_ui.info(lines, opts)
 ```
 
+Instance `highlights` override the global `LvimUi*` groups **only for popups opened through that instance**. Inline table definitions (e.g. `{ fg = "#ff0000" }`) are registered in the highlight registry and survive colorscheme changes.
+
 #### UI config
 
-| Key | Default | Description |
-|---|---|---|
-| `border` | `{ "", "", "", " ", … }` | Border style (string or array) |
-| `position` | `"editor"` | Default popup position |
-| `width` | `0.8` | Popup width as fraction of editor |
-| `max_width` | `0.8` | Max width fraction |
-| `height` | `0.8` | Popup height as fraction |
-| `max_height` | `0.8` | Max height fraction |
-| `max_items` | `15` | Max visible items before scrolling |
-| `markview` | `false` | Enable markview.nvim rendering in info mode |
-| `icons` | see below | Icon overrides |
-| `labels` | see below | Footer label overrides |
-| `keys` | see below | Keymap overrides |
+| Key          | Default                  | Description                                 |
+| ------------ | ------------------------ | ------------------------------------------- |
+| `border`     | `{ "", "", "", " ", … }` | Border style (string or 8-element array)    |
+| `position`   | `"editor"`               | Default popup position                      |
+| `width`      | `0.8`                    | Popup width as fraction of editor           |
+| `max_width`  | `0.8`                    | Max width cap                               |
+| `height`     | `0.8`                    | Popup height as fraction                    |
+| `max_height` | `0.8`                    | Max height cap                              |
+| `max_items`  | `15`                     | Max visible items before scrolling          |
+| `markview`   | `false`                  | Enable markview.nvim rendering in info mode |
+| `icons`      | see below                | Icon overrides                              |
+| `labels`     | see below                | Footer label overrides                      |
+| `keys`       | see below                | Keymap overrides                            |
+
+**Default icons**
+
+| Key              | Default | Used for                        |
+| ---------------- | ------- | ------------------------------- |
+| `bool_on`        | `󰄬`     | Bool row — true                 |
+| `bool_off`       | `󰍴`     | Bool row — false                |
+| `select`         | `󰘮`     | Select row                      |
+| `number`         | `󰎠`     | Int / float row                 |
+| `string`         | `󰬴`     | String row                      |
+| `action`         | ``     | Action row                      |
+| `spacer`         | `──────` | Spacer row prefix               |
+| `multi_selected` | `󰄬`     | Checked multiselect item        |
+| `multi_empty`    | `󰍴`     | Unchecked multiselect item      |
+| `current`        | `➤`     | Current item indicator (select) |
 
 **Callback signatures**
 
-| Mode | `callback(ok, result)` |
-|---|---|
-| `select` | `result` = `integer` (1-based index) |
-| `multiselect` | `result` = `table<string, boolean>` |
-| `input` | `result` = `string` |
-| `tabs` (items) | `result` = `{ tab, index, item }` |
-| `tabs` (rows) | `result` = `table<name, value>` |
-| `info` | returns `buf, win` directly |
+| Mode           | `callback(ok, result)`               |
+| -------------- | ------------------------------------ |
+| `select`       | `result` = `integer` (1-based index) |
+| `multiselect`  | `result` = `table<string, boolean>`  |
+| `input`        | `result` = `string`                  |
+| `tabs` (items) | `result` = `{ tab, index, item }`    |
+| `tabs` (rows)  | `result` = `table<name, value>`      |
+| `info`         | returns `buf, win` directly          |
 
 ---
 
@@ -390,7 +441,7 @@ Works out-of-the-box after `require()` — no `setup()` call needed.
 -- Standard usage (intercepted automatically)
 vim.notify("Hello!", vim.log.levels.INFO)
 vim.notify("Oops", vim.log.levels.ERROR, { title = "My Plugin", timeout = 0 })
-print("debug message")   -- routed as DEBUG level
+print("debug message") -- routed as DEBUG level
 
 -- Browse history
 require("lvim-utils.notify").history()
@@ -400,24 +451,26 @@ local entries = require("lvim-utils.notify").get_history()
 -- entries[i] = { msg, level, opts, time }
 ```
 
+The history window shows only active progress channels (channels with content). Channels with no active content are not displayed.
+
 #### Progress channels
 
-Independent floating panels for long-running operations (LSP, builds, etc.).
+Independent floating panels for long-running operations (LSP, builds, etc.). A panel is shown only while its content is non-empty; it closes automatically when cleared.
 
 ```lua
 local notify = require("lvim-utils.notify")
 
 -- Register a named channel
 notify.progress_register("lsp", {
-  name      = "LSP",
-  icon      = "󰄭",
-  header_hl = "LvimNotifyHeaderInfo",
+	name = "LSP",
+	icon = "󰄭",
+	header_hl = "LvimNotifyHeaderInfo",
 })
 
--- Update its content (auto-registers if not yet registered)
+-- Update content (auto-registers if not yet registered)
 notify.progress_update("lsp", {
-  "  Indexing workspace…",
-  "  42 / 300 files",
+	"  Indexing workspace…",
+	"  42 / 300 files",
 })
 
 -- Clear content and close the panel
@@ -435,10 +488,10 @@ Push messages to a named panel with custom appearance, independent of the standa
 local notify = require("lvim-utils.notify")
 
 notify.register_panel("build", {
-  name      = "Build",
-  icon      = "󰗼",
-  hl        = "LvimNotifyInfo",
-  header_hl = "LvimNotifyHeaderInfo",
+	name = "Build",
+	icon = "󰗼",
+	hl = "LvimNotifyInfo",
+	header_hl = "LvimNotifyHeaderInfo",
 })
 
 notify.push("build", "Compiling…", { timeout = 0 })
@@ -451,63 +504,62 @@ notify.push("build", "Done.",      { timeout = 3000 })
 local notify = require("lvim-utils.notify")
 
 notify.add_printer("my_printer", function(msg, level, opts)
-  -- handle notification however you like
-  io.stderr:write("[" .. tostring(level) .. "] " .. msg .. "\n")
+	io.stderr:write("[" .. tostring(level) .. "] " .. msg .. "\n")
 end)
 
 notify.remove_printer("my_printer")
-notify.has_printer("my_printer")  -- → boolean
+notify.has_printer("my_printer") -- → boolean
 ```
 
 **API**
 
-| Function | Description |
-|---|---|
-| `setup(opts)` | Configure the notify module |
-| `notify(msg, level, opts)` | Dispatch a notification through all printers |
-| `get_history()` | Return a deep copy of the history ring-buffer |
-| `clear()` | Clear the history ring-buffer |
-| `history()` | Open the history browser popup |
-| `add_printer(name, fn)` | Register a custom printer function |
-| `remove_printer(name)` | Unregister a printer by name |
-| `has_printer(name)` | Check if a printer is registered |
-| `push(key, msg, opts)` | Push directly to a panel by key or `vim.log.levels` value |
-| `register_panel(key, opts)` | Register a custom panel with its own appearance |
-| `progress_register(id, opts)` | Register a named progress channel |
-| `progress_update(id, lines, marks?)` | Update content for a progress channel |
-| `progress_clear(id)` | Clear content and close a progress channel's panel |
-| `progress_clear_all()` | Clear all progress channels |
+| Function                             | Description                                               |
+| ------------------------------------ | --------------------------------------------------------- |
+| `setup(opts)`                        | Configure the notify module                               |
+| `notify(msg, level, opts)`           | Dispatch a notification through all printers              |
+| `get_history()`                      | Return a deep copy of the history ring-buffer             |
+| `clear()`                            | Clear the history ring-buffer                             |
+| `history()`                          | Open the history browser popup                            |
+| `add_printer(name, fn)`              | Register a custom printer function                        |
+| `remove_printer(name)`               | Unregister a printer by name                              |
+| `has_printer(name)`                  | Check if a printer is registered                          |
+| `push(key, msg, opts)`               | Push directly to a panel by key or `vim.log.levels` value |
+| `register_panel(key, opts)`          | Register a custom panel with its own appearance           |
+| `progress_register(id, opts)`        | Register a named progress channel                         |
+| `progress_update(id, lines, marks?)` | Update content for a progress channel                     |
+| `progress_clear(id)`                 | Clear content and close a progress channel's panel        |
+| `progress_clear_all()`               | Clear all progress channels                               |
 
 #### Notify config
 
-| Key | Default | Description |
-|---|---|---|
-| `timeout` | `5000` | Auto-dismiss delay in ms; `0` = sticky |
-| `min_width` | `50` | Minimum panel width in columns |
-| `max_width` | `100` | Maximum panel width in columns |
-| `padding` | `1` | Horizontal padding inside the panel |
-| `bottom_margin` | `1` | Rows from the bottom of the editor |
-| `panel_gap` | `0` | Rows between stacked level panels |
-| `border` | `"none"` | Border style passed to `nvim_open_win` |
-| `zindex` | `1000` | Floating window z-index |
-| `separator` | `"─"` | Character repeated as entry separator |
-| `max_history` | `100` | Ring-buffer size |
-| `override_print` | `false` | Replace global `print()` (always routed as DEBUG) |
-| `ext_messages` | `true` | Intercept all Neovim messages via `vim.ui_attach` |
-| `ext_echo_timeout` | `3000` | Timeout for echo/info-level ext messages |
-| `ext_kinds` | see below | Per-kind behaviour: `"toast"`, `"history"`, or `"ignore"` |
-| `printers` | `{ "toast", "history" }` | Active printers on load |
-| `icons` | see below | Level icons |
-| `level_names` | see below | Singular/plural level names in the header bar |
+| Key                | Default                  | Description                                               |
+| ------------------ | ------------------------ | --------------------------------------------------------- |
+| `timeout`          | `5000`                   | Auto-dismiss delay in ms; `0` = sticky                    |
+| `min_width`        | `50`                     | Minimum panel width in columns                            |
+| `max_width`        | `100`                    | Maximum panel width in columns                            |
+| `padding`          | `1`                      | Horizontal padding inside the panel                       |
+| `bottom_margin`    | `1`                      | Rows from the bottom of the editor                        |
+| `panel_gap`        | `0`                      | Rows between stacked level panels                         |
+| `border`           | `"none"`                 | Border style passed to `nvim_open_win`                    |
+| `zindex`           | `1000`                   | Floating window z-index                                   |
+| `separator`        | `"─"`                    | Character repeated as entry separator                     |
+| `max_history`      | `100`                    | Ring-buffer size                                          |
+| `override_print`   | `false`                  | Replace global `print()` (always routed as DEBUG)         |
+| `ext_messages`     | `true`                   | Intercept all Neovim messages via `vim.ui_attach`         |
+| `ext_echo_timeout` | `3000`                   | Timeout for echo/info-level ext messages                  |
+| `ext_kinds`        | see below                | Per-kind behaviour: `"toast"`, `"history"`, or `"ignore"` |
+| `printers`         | `{ "toast", "history" }` | Active printers on load                                   |
+| `icons`            | see below                | Level icons                                               |
+| `level_names`      | see below                | Singular/plural level names in the header bar             |
 
 **Default `ext_kinds` behaviour**
 
-| Kind | Default |
-|---|---|
-| `emsg`, `echoerr`, `lua_error`, `rpc_error`, `shell_err` | `"toast"` |
-| `wmsg`, `echomsg`, `echo`, `bufwrite`, `undo` | `"toast"` |
-| `shell_out`, `lua_print`, `verbose`, `""` | `"history"` |
-| `search_count`, `search_cmd`, `wildlist`, `completion` | `"ignore"` |
+| Kind                                                     | Default     |
+| -------------------------------------------------------- | ----------- |
+| `emsg`, `echoerr`, `lua_error`, `rpc_error`, `shell_err` | `"toast"`   |
+| `wmsg`, `echomsg`, `echo`, `bufwrite`, `undo`            | `"toast"`   |
+| `shell_out`, `lua_print`, `verbose`, `""`                | `"history"` |
+| `search_count`, `search_cmd`, `wildlist`, `completion`   | `"ignore"`  |
 
 ---
 
@@ -524,11 +576,11 @@ require("lvim-utils.quit").open()
 
 **Actions**
 
-| Button | Behaviour |
-|---|---|
+| Button               | Behaviour                                   |
+| -------------------- | ------------------------------------------- |
 | Save Selected & Quit | Writes checked buffers, then `:qa` / `:qa!` |
-| Quit without Saving | `:qa!` |
-| Cancel | Closes the dialog |
+| Quit without Saving  | `:qa!`                                      |
+| Cancel               | Closes the dialog                           |
 
 ---
 
@@ -538,152 +590,155 @@ Universal "open under cursor" that replaces Neovim's built-in `gx`. Resolves URL
 
 ```lua
 require("lvim-utils.gx").setup()
-require("lvim-utils.gx").map_default()  -- binds gx → :GxOpen
+require("lvim-utils.gx").map_default() -- binds gx → :GxOpen
 ```
 
 Or via the main setup:
 
 ```lua
 require("lvim-utils").setup({
-  gx = {
-    force_system_open_local = true,
-    dir_open_strategy       = "system",
-  },
+	gx = {
+		force_system_open_local = true,
+		dir_open_strategy = "system",
+	},
 })
 ```
 
 **Built-in adapters**
 
-| Adapter | Filetype |
-|---|---|
-| `neo_tree` | `neo-tree` |
-| `nvim_tree` | `NvimTree` |
-| `oil` | `oil` |
+| Adapter      | Filetype                  |
+| ------------ | ------------------------- |
+| `neo_tree`   | `neo-tree`                |
+| `nvim_tree`  | `NvimTree`                |
+| `oil`        | `oil`                     |
 | `mini_files` | `minifiles` / `MiniFiles` |
-| `netrw` | `netrw` |
+| `netrw`      | `netrw`                   |
 
 **Custom adapter**
 
 ```lua
 require("lvim-utils.gx").register_adapter({
-  name   = "my_fm",
-  detect = function(ctx) return ctx.filetype == "my-filemanager" end,
-  get    = function(ctx)
-    return { path = "/some/resolved/path", type = "file" }
-  end,
+	name = "my_fm",
+	detect = function(ctx)
+		return ctx.filetype == "my-filemanager"
+	end,
+	get = function(ctx)
+		return { path = "/some/resolved/path", type = "file" }
+	end,
 })
 ```
 
 **Commands**
 
-| Command | Description |
-|---|---|
+| Command            | Description                                     |
+| ------------------ | ----------------------------------------------- |
 | `:GxOpen [target]` | Open target under cursor (or explicit argument) |
-| `:GxOpenDiag` | Print context, adapter, and first 10 candidates |
+| `:GxOpenDiag`      | Print context, adapter, and first 10 candidates |
 
 **Config options**
 
-| Key | Default | Description |
-|---|---|---|
-| `highlight_match` | `true` | Briefly flash the matched token |
-| `highlight_duration_ms` | `300` | Flash duration in ms |
-| `system_open_cmd` | `nil` | Override opener (`xdg-open` / `open` / `start`) |
-| `force_system_open_local` | `true` | Use system opener for local files |
-| `allow_bare_domains` | `true` | Open `domain.tld/path` as HTTPS URL |
-| `icon_guard` | `true` | Skip Nerd Font glyph tokens |
-| `dir_open_strategy` | `"system"` | `"system"` or `"edit"` for directories |
-| `search_forward_if_none` | `true` | Scan lines below cursor as fallback |
-| `search_backward_if_none` | `true` | Scan lines above cursor as fallback |
-| `search_max_lines` | `60` | Max lines to scan in each direction |
-| `pattern` | `[%w%._~/#…]+` | Lua pattern for token extraction |
-| `adapters` | all `true` | Enable/disable built-in adapters by name |
+| Key                       | Default        | Description                                     |
+| ------------------------- | -------------- | ----------------------------------------------- |
+| `highlight_match`         | `true`         | Briefly flash the matched token                 |
+| `highlight_duration_ms`   | `300`          | Flash duration in ms                            |
+| `system_open_cmd`         | `nil`          | Override opener (`xdg-open` / `open` / `start`) |
+| `force_system_open_local` | `true`         | Use system opener for local files               |
+| `allow_bare_domains`      | `true`         | Open `domain.tld/path` as HTTPS URL             |
+| `icon_guard`              | `true`         | Skip Nerd Font glyph tokens                     |
+| `dir_open_strategy`       | `"system"`     | `"system"` or `"edit"` for directories          |
+| `search_forward_if_none`  | `true`         | Scan lines below cursor as fallback             |
+| `search_backward_if_none` | `true`         | Scan lines above cursor as fallback             |
+| `search_max_lines`        | `60`           | Max lines to scan in each direction             |
+| `pattern`                 | `[%w%._~/#…]+` | Lua pattern for token extraction                |
+| `adapters`                | all `true`     | Enable/disable built-in adapters by name        |
 
 ---
 
 ## Highlight Groups
 
-All groups are defined with the active palette colors and reapplied whenever the palette changes. Override any group via `setup({ highlights = { ... } })`.
+All groups are defined with the active palette colors and reapplied on every colorscheme change. Override any group via `setup({ highlights = { ... } })`.
 
 ### UI popup groups
 
-| Group | Used for |
-|---|---|
-| `LvimUiNormal` | Popup background |
-| `LvimUiBorder` | Popup border |
-| `LvimUiSeparator` | Header / footer separator lines |
-| `LvimUiTitle` | Popup title |
-| `LvimUiSubtitle` | Popup subtitle |
-| `LvimUiInfo` | Info line |
-| `LvimUiCursorLine` | Selected row background |
-| `LvimUiInput` | Input field row |
-| `LvimUiSpacer` | Spacer / section label rows |
-| `LvimUiFooter` | Footer key-hints line |
-| `LvimUiFooterKey` | Key indicator in footer |
-| `LvimUiFooterLabel` | Label text in footer |
-| `LvimUiTabActive` | Active tab label |
-| `LvimUiTabInactive` | Inactive tab label |
-| `LvimUiTabIconActive` | Icon inside active tab |
-| `LvimUiTabIconInactive` | Icon inside inactive tab |
-| `LvimUiTabTextActive` | Text inside active tab |
-| `LvimUiTabTextInactive` | Text inside inactive tab |
-| `LvimUiButtonActive` | Active action button |
-| `LvimUiButtonInactive` | Inactive action button |
-| `LvimUiButtonIconActive` | Icon inside active button |
-| `LvimUiButtonIconInactive` | Icon inside inactive button |
-| `LvimUiButtonTextActive` | Text inside active button |
-| `LvimUiButtonTextInactive` | Text inside inactive button |
-| `LvimUiRowIconActive` | Icon in active tab row |
-| `LvimUiRowIconInactive` | Icon in inactive tab row |
-| `LvimUiRowTextActive` | Text in active tab row |
-| `LvimUiRowTextInactive` | Text in inactive tab row |
-| `LvimUiItemIconActive` | Icon for selected list item |
-| `LvimUiItemIconInactive` | Icon for unselected list item |
-| `LvimUiItemTextActive` | Text for selected list item |
-| `LvimUiItemTextInactive` | Text for unselected list item |
-| `LvimUiCheckboxSelected` | Checked multiselect checkbox |
-| `LvimUiCheckboxEmpty` | Unchecked multiselect checkbox |
+| Group                        | Used for                                            |
+| ---------------------------- | --------------------------------------------------- |
+| `LvimUiNormal`               | Popup background                                    |
+| `LvimUiBorder`               | Popup border                                        |
+| `LvimUiSeparator`            | Header / footer separator lines                     |
+| `LvimUiTitle`                | Popup title                                         |
+| `LvimUiSubtitle`             | Popup subtitle                                      |
+| `LvimUiInfo`                 | Info line below subtitle                            |
+| `LvimUiCursorLine`           | Selected row background                             |
+| `LvimUiInput`                | Input field row                                     |
+| `LvimUiSpacer`               | Spacer / section label rows                         |
+| `LvimUiFooter`               | Footer key-hints line                               |
+| `LvimUiFooterKey`            | Key indicator in footer                             |
+| `LvimUiFooterLabel`          | Label text in footer                                |
+| `LvimUiTabActive`            | Active tab label background                         |
+| `LvimUiTabInactive`          | Inactive tab label                                  |
+| `LvimUiTabIconActive`        | Icon inside active tab                              |
+| `LvimUiTabIconInactive`      | Icon inside inactive tab                            |
+| `LvimUiTabTextActive`        | Text inside active tab                              |
+| `LvimUiTabTextInactive`      | Text inside inactive tab                            |
+| `LvimUiButtonActive`         | Active action button background                     |
+| `LvimUiButtonInactive`       | Inactive action button background                   |
+| `LvimUiButtonIconActive`     | Icon inside active button                           |
+| `LvimUiButtonIconInactive`   | Icon inside inactive button                         |
+| `LvimUiButtonTextActive`     | Text inside active button                           |
+| `LvimUiButtonTextInactive`   | Text inside inactive button                         |
+| `LvimUiRowIconActive`        | Type icon in active tabs row                        |
+| `LvimUiRowIconInactive`      | Type icon in inactive tabs row                      |
+| `LvimUiRowItemIconActive`    | Secondary `row.icon` in active tabs row             |
+| `LvimUiRowItemIconInactive`  | Secondary `row.icon` in inactive tabs row           |
+| `LvimUiRowTextActive`        | Label text in active tabs row                       |
+| `LvimUiRowTextInactive`      | Label text in inactive tabs row                     |
+| `LvimUiItemIconActive`       | Icon for active select / multiselect item           |
+| `LvimUiItemIconInactive`     | Icon for inactive select / multiselect item         |
+| `LvimUiItemTextActive`       | Text for active select / multiselect item           |
+| `LvimUiItemTextInactive`     | Text for inactive select / multiselect item         |
+| `LvimUiCheckboxSelected`     | Checked multiselect checkbox symbol                 |
+| `LvimUiCheckboxEmpty`        | Unchecked multiselect checkbox symbol               |
 
 ### Notify groups
 
-| Group | Used for |
-|---|---|
-| `LvimNotifyNormal` | Notify panel background |
-| `LvimNotifyTitle` | Notify panel title text |
-| `LvimNotifyInfo` | Info-level content |
-| `LvimNotifyWarn` | Warn-level content |
-| `LvimNotifyError` | Error-level content |
-| `LvimNotifyDebug` | Debug-level content |
-| `LvimNotifyTitleInfo` | Info-level entry title |
-| `LvimNotifyTitleWarn` | Warn-level entry title |
-| `LvimNotifyTitleError` | Error-level entry title |
-| `LvimNotifyTitleDebug` | Debug-level entry title |
-| `LvimNotifyHeaderInfo` | Info-level panel header bar |
-| `LvimNotifyHeaderWarn` | Warn-level panel header bar |
-| `LvimNotifyHeaderError` | Error-level panel header bar |
-| `LvimNotifyHeaderDebug` | Debug-level panel header bar |
-| `LvimNotifySepInfo` | Info-level entry separator line |
-| `LvimNotifySepWarn` | Warn-level entry separator line |
-| `LvimNotifySepError` | Error-level entry separator line |
-| `LvimNotifySepDebug` | Debug-level entry separator line |
+| Group                   | Used for                         |
+| ----------------------- | -------------------------------- |
+| `LvimNotifyNormal`      | Notify panel background          |
+| `LvimNotifyTitle`       | Notify panel title text          |
+| `LvimNotifyInfo`        | Info-level content               |
+| `LvimNotifyWarn`        | Warn-level content               |
+| `LvimNotifyError`       | Error-level content              |
+| `LvimNotifyDebug`       | Debug-level content              |
+| `LvimNotifyTitleInfo`   | Info-level entry title           |
+| `LvimNotifyTitleWarn`   | Warn-level entry title           |
+| `LvimNotifyTitleError`  | Error-level entry title          |
+| `LvimNotifyTitleDebug`  | Debug-level entry title          |
+| `LvimNotifyHeaderInfo`  | Info-level panel header bar      |
+| `LvimNotifyHeaderWarn`  | Warn-level panel header bar      |
+| `LvimNotifyHeaderError` | Error-level panel header bar     |
+| `LvimNotifyHeaderDebug` | Debug-level panel header bar     |
+| `LvimNotifySepInfo`     | Info-level entry separator line  |
+| `LvimNotifySepWarn`     | Warn-level entry separator line  |
+| `LvimNotifySepError`    | Error-level entry separator line |
+| `LvimNotifySepDebug`    | Debug-level entry separator line |
 
 ### Other
 
-| Group | Used for |
-|---|---|
+| Group                   | Used for                           |
+| ----------------------- | ---------------------------------- |
 | `LvimUtilsHiddenCursor` | Transparent cursor (cursor module) |
 
 ---
 
 ## Default Keymaps (UI popups)
 
-| Key | Action |
-|---|---|
-| `j` / `k` | Navigate rows |
-| `<CR>` | Confirm / toggle / execute |
-| `<Esc>` | Cancel / close |
-| `q` | Close (tabs mode) |
-| `l` / `h` | Next / prev tab (or action button) |
+| Key              | Action                                 |
+| ---------------- | -------------------------------------- |
+| `j` / `k`        | Navigate rows / items                  |
+| `<CR>`           | Confirm / toggle / execute             |
+| `<Esc>` / `q`    | Cancel / close                         |
+| `l` / `h`        | Next / prev tab (or action button)     |
 | `<Tab>` / `<BS>` | Cycle select option forward / backward |
-| `<Space>` | Toggle item (multiselect) |
+| `<Space>`        | Toggle item (multiselect)              |
 
 All keys are configurable via `ui.keys` in `setup()`.

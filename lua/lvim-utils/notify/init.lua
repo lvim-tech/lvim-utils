@@ -405,6 +405,7 @@ _rebuild_all = function()
 		_render_prog_channel(id, win_w)
 	end
 	_restack()
+	vim.schedule(function() vim.cmd("redraw!") end)
 end
 
 -- ── toast printer ─────────────────────────────────────────────────────────
@@ -683,32 +684,9 @@ local function _history_build(filter)
 		push_hl("LvimUiTitle", 0, #text)
 	end
 
-	-- progress channels
-	if #_prog_order > 0 then
-		push_header("Progress channels")
-		for _, id in ipairs(_prog_order) do
-			local ch = _prog_channels[id]
-			local icon = ch.icon or (_cfg.icons or {}).progress or "󱦟"
-			local name = ch.name or tostring(id)
-			local active = ch.lines and #ch.lines > 0
-			local badge = active and "  active " or "  idle "
-			table.insert(lines, "   " .. icon .. "  " .. name .. badge)
-			push_hl(ch.header_hl or "LvimNotifyHeaderInfo", 3, 3 + #icon)
-			local badge_s = 3 + #icon + 2 + #name
-			push_hl(active and "LvimNotifyInfo" or "LvimUiInfo", badge_s, badge_s + #badge)
-			if active then
-				for _, l in ipairs(ch.lines) do
-					table.insert(lines, "      " .. l)
-				end
-			end
-		end
-		table.insert(lines, "")
-	end
-
 	-- notifications
 	local label = "Notifications"
 	push_header(label)
-	local shown = 0
 	for i = #_history, 1, -1 do
 		local item = _history[i]
 		if not filter or filter == (LEVEL_KEY[item.level] or "info") then
@@ -725,11 +703,7 @@ local function _history_build(filter)
 			table.insert(lines, "   " .. icon .. "  " .. ts .. "  " .. pre .. msg_flat)
 			push_hl(meta.title_hl or "LvimNotifyInfo", icon_s, icon_e)
 			push_hl("LvimUiFooterLabel", ts_s, ts_s + #ts)
-			shown = shown + 1
 		end
-	end
-	if shown == 0 then
-		table.insert(lines, "    —")
 	end
 
 	return lines, highlights
@@ -790,9 +764,6 @@ function M.history()
 		hide_cursor = false,
 		on_open = function(b, _)
 			buf_ref = b
-			vim.schedule(function()
-				vim.cmd("redraw!")
-			end)
 		end,
 	})
 end

@@ -17,6 +17,7 @@ local M = {}
 ---@field type     RowType
 ---@field name?    string
 ---@field label?   string
+---@field icon?    string
 ---@field value?   any
 ---@field default? any
 ---@field options? string[]
@@ -67,17 +68,18 @@ function M.row_display(row, ico)
 	local label = row.label or row.name or ""
 	local val = tostring(row.value ~= nil and row.value or row.default or "")
 	ico = ico or M.icons()
+	local ri = row.icon and (row.icon .. "  ") or ""
 
 	if t == "bool" or t == "boolean" then
-		return (row.value and ico.bool_on or ico.bool_off) .. "  " .. label
+		return (row.value and ico.bool_on or ico.bool_off) .. "  " .. ri .. label
 	elseif t == "select" then
-		return ico.select .. "  " .. label .. ": " .. val
+		return ico.select .. "  " .. ri .. label .. ": " .. val
 	elseif t == "int" or t == "integer" or t == "float" or t == "number" then
-		return ico.number .. "  " .. label .. ": " .. val
+		return ico.number .. "  " .. ri .. label .. ": " .. val
 	elseif t == "string" or t == "text" then
-		return ico.string .. "  " .. label .. ": " .. val
+		return ico.string .. "  " .. ri .. label .. ": " .. val
 	elseif t == "action" then
-		return ico.action .. "  " .. label
+		return ico.action .. "  " .. ri .. label
 	elseif t == "spacer" then
 		return ico.spacer .. " " .. label
 	elseif t == "spacer_line" then

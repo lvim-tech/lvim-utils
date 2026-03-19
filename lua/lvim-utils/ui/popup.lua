@@ -928,6 +928,7 @@ function M.open(opts, instance_cfg)
 	if on_open then
 		on_open(s.buf, s.win)
 	end
+	vim.cmd("redraw!")
 end
 
 return M
