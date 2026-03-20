@@ -687,8 +687,6 @@ local function _history_build(filter)
 	end
 
 	-- notifications
-	local label = "Notifications"
-	push_header(label)
 	for i = #_history, 1, -1 do
 		local item = _history[i]
 		if not filter or filter == (LEVEL_KEY[item.level] or "info") then
