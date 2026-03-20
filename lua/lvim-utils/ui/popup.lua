@@ -919,11 +919,14 @@ function M.open(opts, instance_cfg)
 		end
 	end
 
-	render()
-
 	-- ── dispatch to mode ──────────────────────────────────────────────────────
+	-- attach() must run before render() so that info mode's make_readonly()
+	-- (which calls nvim_buf_set_lines to clear undo history) does not wipe
+	-- the extmarks that render() applies.
 
 	require("lvim-utils.ui.mode." .. mode).attach(s)
+
+	render()
 
 	if on_open then
 		on_open(s.buf, s.win)

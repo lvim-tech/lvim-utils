@@ -22,7 +22,7 @@ return {
 	-- Character repeated across the panel width as entry separator
 	separator = "─",
 	-- Replace global print() as well
-	override_print = false,
+	override_print = true,
 	-- Intercept all Neovim messages via vim.ui_attach (ext_messages)
 	ext_messages = true,
 	-- Timeout (ms) for echo/info-level ext messages

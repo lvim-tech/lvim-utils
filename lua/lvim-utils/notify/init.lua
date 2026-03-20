@@ -730,6 +730,11 @@ local _lvl_map = { i = "info", w = "warn", e = "error", d = "debug" }
 local _lvl_labels = { i = "Info", w = "Warn", e = "Error", d = "Debug" }
 
 function M.history()
+	if #_history == 0 then
+		M.push(vim.log.levels.INFO, "No notifications")
+		return
+	end
+
 	local ui = require("lvim-utils.ui")
 	local filter = nil
 	local buf_ref ---@type integer
