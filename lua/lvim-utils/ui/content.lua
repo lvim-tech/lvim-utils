@@ -216,10 +216,14 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 
 	if ctx.mode == "info" then
 		if ctx.info_highlights then
+			local line_cache = {}
 			for _, hl in ipairs(ctx.info_highlights) do
 				local row = ctx.header_height + hl.line - ctx.scroll
 				if row >= ctx.header_height and row < ctx.header_height + ctx.content_height then
-					local line_text = api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+					if not line_cache[row] then
+						line_cache[row] = api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+					end
+					local line_text = line_cache[row]
 					local col_start = math.min(hl.col_start or 0, #line_text)
 					local col_end = (hl.col_end == nil or hl.col_end == -1) and #line_text
 						or math.min(hl.col_end, #line_text)
@@ -255,10 +259,10 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 					hl_line(buf, row_idx, "LvimUiSpacer")
 				end
 				-- icon / text hl for selectable rows
+				local row_content = rows.row_display(row, ico)
 				if rows.is_selectable(row) then
 					local is_active = (row == active_row)
 					local icon_str, sep_bytes = rows.row_icon_info(row, ico)
-					local row_content = rows.row_display(row, ico)
 					local icon_hl = is_active and "LvimUiRowIconActive" or "LvimUiRowIconInactive"
 					local text_hl = is_active and "LvimUiRowTextActive" or "LvimUiRowTextInactive"
 					if #icon_str > 0 then
@@ -291,7 +295,6 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 				if row.hl then
 					local row_hl = (row == active_row) and row.hl.active or row.hl.inactive
 					if row_hl then
-						local row_content = rows.row_display(row, ico)
 						api.nvim_buf_set_extmark(buf, NS, row_idx, 2, {
 							end_col = 2 + #row_content,
 							hl_group = resolve_hl(row_hl),

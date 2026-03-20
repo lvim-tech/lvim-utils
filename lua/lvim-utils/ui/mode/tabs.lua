@@ -114,11 +114,15 @@ function M.attach(s)
 		end
 		local ar = s.cur_action_rows()
 		local cur_ai = 1
+		local found = false
 		for i, r in ipairs(ar) do
-			for ri, rr in ipairs(rrows) do
-				if rr == r and ri == s.row_cursor then
-					cur_ai = i
-					break
+			if not found then
+				for ri, rr in ipairs(rrows) do
+					if rr == r and ri == s.row_cursor then
+						cur_ai = i
+						found = true
+						break
+					end
 				end
 			end
 		end

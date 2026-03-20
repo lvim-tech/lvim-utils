@@ -405,7 +405,9 @@ _rebuild_all = function()
 		_render_prog_channel(id, win_w)
 	end
 	_restack()
-	vim.schedule(function() vim.cmd("redraw!") end)
+	vim.schedule(function()
+		vim.cmd("redraw!")
+	end)
 end
 
 -- ── toast printer ─────────────────────────────────────────────────────────
