@@ -22,7 +22,7 @@ return {
 		number = "󰎠",
 		string = "󰬴",
 		action = "",
-		spacer = "   ──────",
+		spacer = "    ──────",
 		multi_selected = "󰄬",
 		multi_empty = "󰍴",
 		current = "➤",
