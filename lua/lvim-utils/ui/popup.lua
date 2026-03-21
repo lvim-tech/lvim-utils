@@ -504,6 +504,18 @@ function M.open(opts, instance_cfg)
 		pcall(require("lvim-utils.cursor").mark_input_buffer, s.buf, true)
 	end
 
+	local _saved_complete = nil
+	if mode == "input" and s_cfg.disable_completion then
+		_saved_complete = vim.bo[s.buf].complete
+		vim.bo[s.buf].complete = ""
+		pcall(function()
+			require("cmp").setup.buffer({ enabled = false })
+		end)
+		pcall(function()
+			vim.b[s.buf].completion = false
+		end)
+	end
+
 	-- ── partial border tables ─────────────────────────────────────────────
 	-- Each window gets only the sides it "owns" so the three windows
 	-- together look like one seamless bordered box:
@@ -799,6 +811,11 @@ function M.open(opts, instance_cfg)
 			return
 		end
 		closed = true
+		if _saved_complete ~= nil then
+			pcall(function() vim.bo[s.buf].complete = _saved_complete end)
+			pcall(function() require("cmp").setup.buffer({}) end)
+			pcall(function() vim.b[s.buf].completion = nil end)
+		end
 		pcall(api.nvim_win_close, s.win, true)
 		if s.win_header then
 			pcall(api.nvim_win_close, s.win_header, true)

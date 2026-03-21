@@ -1,5 +1,7 @@
 return {
 	border = { "", "", "", " ", " ", " ", " ", " " },
+	-- Disable all completion sources (native, nvim-cmp, blink.cmp) for input popups
+	disable_completion = true,
 	position = "editor",
 	width = 0.8,
 	max_width = 0.8,
