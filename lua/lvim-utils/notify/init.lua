@@ -213,7 +213,7 @@ local function _rebuild_panel(level, win_w)
 	local sep_rows = {}
 
 	for i, entry in ipairs(p.entries) do
-		if i > 1 then
+		if i > 1 and _cfg.show_separator ~= false then
 			table.insert(all_lines, sep)
 			table.insert(sep_rows, row_offset)
 			row_offset = row_offset + 1

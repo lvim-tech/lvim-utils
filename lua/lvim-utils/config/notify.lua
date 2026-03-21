@@ -21,6 +21,8 @@ return {
 	zindex = 1000,
 	-- Character repeated across the panel width as entry separator
 	separator = "─",
+	-- Show separator line between individual messages in the same panel
+	show_separator = false,
 	-- Replace global print() as well
 	override_print = true,
 	-- Intercept all Neovim messages via vim.ui_attach (ext_messages)
