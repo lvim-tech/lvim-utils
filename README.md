@@ -6,28 +6,37 @@ A collection of independent Neovim utility modules — floating UI components, c
 
 ## Installation
 
+### lazy.nvim
+
 ```lua
--- lazy.nvim
 {
   "lvim-tech/lvim-utils",
   config = function()
-    require("lvim-utils").setup({
-      colors = {
-        blue = "#569cd6",
-      },
-      highlights = {
-        LvimUiTitle = { fg = "#cba6f7", bold = true },
-      },
-      ui = {
-        border = "rounded",
-        position = "editor",
-      },
-      notify = {
-        timeout = 4000,
-      },
-    })
+    require("lvim-utils").setup({ ... })
   end,
 }
+```
+
+### Native (vim.pack / packadd)
+
+```lua
+-- In your init.lua, after the plugin is on the runtimepath:
+vim.pack.add({
+	{ src = "https://github.com/lvim-tech/lvim-utils" },
+})
+
+require("lvim-utils").setup({ ... })
+```
+
+### packer.nvim
+
+```lua
+use({
+	"lvim-tech/lvim-utils",
+	config = function()
+		require("lvim-utils").setup({ ... })
+	end,
+})
 ```
 
 Each module is independently usable — `setup()` is optional.
@@ -128,19 +137,19 @@ hl.setup()
 
 ```lua
 hl.blend("#cba6f7", "#1e1e2e", 0.3) -- blend two hex colors (alpha 0–1)
-hl.lighten("#cba6f7", 0.2)           -- blend toward white
-hl.darken("#cba6f7", 0.2)            -- blend toward black
+hl.lighten("#cba6f7", 0.2) -- blend toward white
+hl.darken("#cba6f7", 0.2) -- blend toward black
 ```
 
 **Group utilities**
 
 ```lua
 hl.define("MyGroup", { fg = "#ff0000", bold = true }) -- set (always)
-hl.define_if_missing("MyGroup", { fg = "#ff0000" })   -- set only if not defined
-hl.clear("MyGroup")                                   -- reset to empty
-hl.get("MyGroup")                                     -- → attribute table or nil
-hl.link("MyGroup", "Normal")                          -- link to another group
-hl.group_exists("MyGroup")                            -- → boolean
+hl.define_if_missing("MyGroup", { fg = "#ff0000" }) -- set only if not defined
+hl.clear("MyGroup") -- reset to empty
+hl.get("MyGroup") -- → attribute table or nil
+hl.link("MyGroup", "Normal") -- link to another group
+hl.group_exists("MyGroup") -- → boolean
 ```
 
 **API**
@@ -191,10 +200,14 @@ Items can be plain strings or `SelectItem` tables:
 ```lua
 items = {
 	{ label = "catppuccin", icon = "󰄛" },
-	{ label = "tokyonight", icon = "󰖔", hl = {
-		active   = { fg = "#7aa2f7", bold = true },
-		inactive = { fg = "#565f89" },
-	}},
+	{
+		label = "tokyonight",
+		icon = "󰖔",
+		hl = {
+			active = { fg = "#7aa2f7", bold = true },
+			inactive = { fg = "#565f89" },
+		},
+	},
 }
 ```
 
@@ -243,7 +256,7 @@ require("lvim-utils.ui").tabs({
 	title = "Package manager",
 	tabs = {
 		{ label = "Installed", items = { "lazy.nvim", "mason.nvim" } },
-		{ label = "Updates",   items = { "blink.cmp" } },
+		{ label = "Updates", items = { "blink.cmp" } },
 	},
 	callback = function(ok, res)
 		-- res = { tab, index, item }
@@ -260,9 +273,9 @@ require("lvim-utils.ui").tabs({
 		{
 			label = "Editor",
 			rows = {
-				{ type = "spacer",     label = "Appearance" },
-				{ type = "bool",       name = "cursorline",  label = "Cursor line",   value = true },
-				{ type = "bool",       name = "cursorline",  label = "With icon",     value = true, icon = "󰇷" },
+				{ type = "spacer", label = "Appearance" },
+				{ type = "bool", name = "cursorline", label = "Cursor line", value = true },
+				{ type = "bool", name = "cursorline", label = "With icon", value = true, icon = "󰇷" },
 				{
 					type = "select",
 					name = "colorscheme",
@@ -270,11 +283,11 @@ require("lvim-utils.ui").tabs({
 					value = "catppuccin",
 					options = { "catppuccin", "tokyonight", "gruvbox" },
 				},
-				{ type = "int",        name = "scrolloff",   label = "Scroll offset", value = 8 },
-				{ type = "float",      name = "timeout",     label = "Timeout (s)",   value = 2.0 },
-				{ type = "string",     name = "exclude_ft",  label = "Exclude ft",    value = "markdown" },
+				{ type = "int", name = "scrolloff", label = "Scroll offset", value = 8 },
+				{ type = "float", name = "timeout", label = "Timeout (s)", value = 2.0 },
+				{ type = "string", name = "exclude_ft", label = "Exclude ft", value = "markdown" },
 				{ type = "spacer_line" },
-				{ type = "action",     label = "Reset to defaults", run = function() end },
+				{ type = "action", label = "Reset to defaults", run = function() end },
 			},
 		},
 	},
@@ -365,12 +378,12 @@ Useful when multiple plugins share lvim-utils but need different colors, icons, 
 ```lua
 local my_ui = require("lvim-utils.ui").new({
 	highlights = {
-		LvimUiNormal  = { bg = "#1a1a2e", fg = "#eee" },
-		LvimUiTitle   = { fg = "#e94560", bold = true },
-		LvimUiBorder  = { fg = "#e94560" },
+		LvimUiNormal = { bg = "#1a1a2e", fg = "#eee" },
+		LvimUiTitle = { fg = "#e94560", bold = true },
+		LvimUiBorder = { fg = "#e94560" },
 	},
 	icons = {
-		bool_on  = "✓",
+		bool_on = "✓",
 		bool_off = "✗",
 	},
 })
@@ -402,18 +415,18 @@ Instance `highlights` override the global `LvimUi*` groups **only for popups ope
 
 **Default icons**
 
-| Key              | Default | Used for                        |
-| ---------------- | ------- | ------------------------------- |
-| `bool_on`        | `󰄬`     | Bool row — true                 |
-| `bool_off`       | `󰍴`     | Bool row — false                |
-| `select`         | `󰘮`     | Select row                      |
-| `number`         | `󰎠`     | Int / float row                 |
-| `string`         | `󰬴`     | String row                      |
-| `action`         | ``     | Action row                      |
+| Key              | Default  | Used for                        |
+| ---------------- | -------- | ------------------------------- |
+| `bool_on`        | `󰄬`      | Bool row — true                 |
+| `bool_off`       | `󰍴`      | Bool row — false                |
+| `select`         | `󰘮`      | Select row                      |
+| `number`         | `󰎠`      | Int / float row                 |
+| `string`         | `󰬴`      | String row                      |
+| `action`         | ``       | Action row                      |
 | `spacer`         | `──────` | Spacer row prefix               |
-| `multi_selected` | `󰄬`     | Checked multiselect item        |
-| `multi_empty`    | `󰍴`     | Unchecked multiselect item      |
-| `current`        | `➤`     | Current item indicator (select) |
+| `multi_selected` | `󰄬`      | Checked multiselect item        |
+| `multi_empty`    | `󰍴`      | Unchecked multiselect item      |
+| `current`        | `➤`      | Current item indicator (select) |
 
 **Callback signatures**
 
@@ -495,7 +508,7 @@ notify.register_panel("build", {
 })
 
 notify.push("build", "Compiling…", { timeout = 0 })
-notify.push("build", "Done.",      { timeout = 3000 })
+notify.push("build", "Done.", { timeout = 3000 })
 ```
 
 #### Custom printers
@@ -660,44 +673,44 @@ All groups are defined with the active palette colors and reapplied on every col
 
 ### UI popup groups
 
-| Group                        | Used for                                            |
-| ---------------------------- | --------------------------------------------------- |
-| `LvimUiNormal`               | Popup background                                    |
-| `LvimUiBorder`               | Popup border                                        |
-| `LvimUiSeparator`            | Header / footer separator lines                     |
-| `LvimUiTitle`                | Popup title                                         |
-| `LvimUiSubtitle`             | Popup subtitle                                      |
-| `LvimUiInfo`                 | Info line below subtitle                            |
-| `LvimUiCursorLine`           | Selected row background                             |
-| `LvimUiInput`                | Input field row                                     |
-| `LvimUiSpacer`               | Spacer / section label rows                         |
-| `LvimUiFooter`               | Footer key-hints line                               |
-| `LvimUiFooterKey`            | Key indicator in footer                             |
-| `LvimUiFooterLabel`          | Label text in footer                                |
-| `LvimUiTabActive`            | Active tab label background                         |
-| `LvimUiTabInactive`          | Inactive tab label                                  |
-| `LvimUiTabIconActive`        | Icon inside active tab                              |
-| `LvimUiTabIconInactive`      | Icon inside inactive tab                            |
-| `LvimUiTabTextActive`        | Text inside active tab                              |
-| `LvimUiTabTextInactive`      | Text inside inactive tab                            |
-| `LvimUiButtonActive`         | Active action button background                     |
-| `LvimUiButtonInactive`       | Inactive action button background                   |
-| `LvimUiButtonIconActive`     | Icon inside active button                           |
-| `LvimUiButtonIconInactive`   | Icon inside inactive button                         |
-| `LvimUiButtonTextActive`     | Text inside active button                           |
-| `LvimUiButtonTextInactive`   | Text inside inactive button                         |
-| `LvimUiRowIconActive`        | Type icon in active tabs row                        |
-| `LvimUiRowIconInactive`      | Type icon in inactive tabs row                      |
-| `LvimUiRowItemIconActive`    | Secondary `row.icon` in active tabs row             |
-| `LvimUiRowItemIconInactive`  | Secondary `row.icon` in inactive tabs row           |
-| `LvimUiRowTextActive`        | Label text in active tabs row                       |
-| `LvimUiRowTextInactive`      | Label text in inactive tabs row                     |
-| `LvimUiItemIconActive`       | Icon for active select / multiselect item           |
-| `LvimUiItemIconInactive`     | Icon for inactive select / multiselect item         |
-| `LvimUiItemTextActive`       | Text for active select / multiselect item           |
-| `LvimUiItemTextInactive`     | Text for inactive select / multiselect item         |
-| `LvimUiCheckboxSelected`     | Checked multiselect checkbox symbol                 |
-| `LvimUiCheckboxEmpty`        | Unchecked multiselect checkbox symbol               |
+| Group                       | Used for                                    |
+| --------------------------- | ------------------------------------------- |
+| `LvimUiNormal`              | Popup background                            |
+| `LvimUiBorder`              | Popup border                                |
+| `LvimUiSeparator`           | Header / footer separator lines             |
+| `LvimUiTitle`               | Popup title                                 |
+| `LvimUiSubtitle`            | Popup subtitle                              |
+| `LvimUiInfo`                | Info line below subtitle                    |
+| `LvimUiCursorLine`          | Selected row background                     |
+| `LvimUiInput`               | Input field row                             |
+| `LvimUiSpacer`              | Spacer / section label rows                 |
+| `LvimUiFooter`              | Footer key-hints line                       |
+| `LvimUiFooterKey`           | Key indicator in footer                     |
+| `LvimUiFooterLabel`         | Label text in footer                        |
+| `LvimUiTabActive`           | Active tab label background                 |
+| `LvimUiTabInactive`         | Inactive tab label                          |
+| `LvimUiTabIconActive`       | Icon inside active tab                      |
+| `LvimUiTabIconInactive`     | Icon inside inactive tab                    |
+| `LvimUiTabTextActive`       | Text inside active tab                      |
+| `LvimUiTabTextInactive`     | Text inside inactive tab                    |
+| `LvimUiButtonActive`        | Active action button background             |
+| `LvimUiButtonInactive`      | Inactive action button background           |
+| `LvimUiButtonIconActive`    | Icon inside active button                   |
+| `LvimUiButtonIconInactive`  | Icon inside inactive button                 |
+| `LvimUiButtonTextActive`    | Text inside active button                   |
+| `LvimUiButtonTextInactive`  | Text inside inactive button                 |
+| `LvimUiRowIconActive`       | Type icon in active tabs row                |
+| `LvimUiRowIconInactive`     | Type icon in inactive tabs row              |
+| `LvimUiRowItemIconActive`   | Secondary `row.icon` in active tabs row     |
+| `LvimUiRowItemIconInactive` | Secondary `row.icon` in inactive tabs row   |
+| `LvimUiRowTextActive`       | Label text in active tabs row               |
+| `LvimUiRowTextInactive`     | Label text in inactive tabs row             |
+| `LvimUiItemIconActive`      | Icon for active select / multiselect item   |
+| `LvimUiItemIconInactive`    | Icon for inactive select / multiselect item |
+| `LvimUiItemTextActive`      | Text for active select / multiselect item   |
+| `LvimUiItemTextInactive`    | Text for inactive select / multiselect item |
+| `LvimUiCheckboxSelected`    | Checked multiselect checkbox symbol         |
+| `LvimUiCheckboxEmpty`       | Unchecked multiselect checkbox symbol       |
 
 ### Notify groups
 
