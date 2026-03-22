@@ -337,8 +337,9 @@ local function _render_prog_channel(id, win_w)
 	local row_offset = 1
 
 	for _, l in ipairs(ch.lines) do
-		local lw = dw(l)
-		table.insert(all_lines, lw < win_w and (l .. string.rep(" ", win_w - lw)) or l)
+		local safe = l:gsub("\n", " ")
+		local lw = dw(safe)
+		table.insert(all_lines, lw < win_w and (safe .. string.rep(" ", win_w - lw)) or safe)
 	end
 	for _, m in ipairs(ch.marks or {}) do
 		table.insert(col_marks, { row_offset + m[1], m[2], m[3], m[4] })
