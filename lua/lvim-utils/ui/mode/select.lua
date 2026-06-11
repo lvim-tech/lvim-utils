@@ -37,6 +37,15 @@ function M.attach(s)
 	map(k.close, function()
 		s.close(false, nil)
 	end)
+
+	-- Optional back navigation (footer hint via s.back_key, action via s.on_back).
+	if s.back_key and s.on_back then
+		map(s.back_key, function()
+			local cb = s.on_back
+			s.close(false, nil)
+			cb()
+		end)
+	end
 end
 
 return M

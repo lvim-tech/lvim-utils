@@ -51,7 +51,7 @@ end
 ---@param opts UiOpts
 function M.tabs(opts)
 	opts.mode = "tabs"
-	popup.open(opts)
+	return popup.open(opts)
 end
 
 --- Opens an info window through popup.open() with mode="info".
@@ -94,7 +94,8 @@ end
 ---   keys       = { ... }                                  -- per-instance keymaps
 ---   labels     = { ... }                                  -- per-instance labels
 ---@return { select: fun(opts: table), multiselect: fun(opts: table),
----          input: fun(opts: table), tabs: fun(opts: table) }
+---          input: fun(opts: table), tabs: fun(opts: table),
+---          info: fun(content: any, opts: table): integer, integer }
 function M.new(instance_cfg)
 	local inst = {}
 
@@ -115,7 +116,7 @@ function M.new(instance_cfg)
 
 	function inst.tabs(opts)
 		opts.mode = "tabs"
-		popup.open(opts, instance_cfg)
+		return popup.open(opts, instance_cfg)
 	end
 
 	function inst.info(content, opts)

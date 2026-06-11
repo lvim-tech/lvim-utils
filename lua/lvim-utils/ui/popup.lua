@@ -123,6 +123,8 @@ end
 ---@field footer_hints?     {key:string, label:string}[]       Override footer hint list
 ---@field show_footer?      boolean                            false = no footer (default true)
 ---@field back_key?         string                             Key to trigger back navigation
+---@field on_back?          fun()                              Called when the back key is pressed
+---@field lock_tabs?        boolean                            Disable tab management from the content (tab bar still works)
 ---@field content?          string[]                           Info mode: raw content lines
 ---@field readonly?         boolean                            Info mode: read-only (default true)
 ---@field wrap?             boolean                            Info mode: enable line wrap
@@ -130,7 +132,7 @@ end
 ---@field folds?            {start_line:integer, end_line:integer}[]
 ---@field fold_icon?        string                             Icon for collapsed fold indicator
 ---@field markview?         boolean
----@field keymaps?          table<string, fun()|{fn:fun(), label:string}> Custom keymaps (info mode)
+---@field keymaps?          table<string, fun()|{fn:fun(), label:string}> Custom keymaps with optional footer labels (info / tabs mode)
 ---@field zindex?           integer
 ---@field on_open?          fun(buf: integer, win: integer)
 ---@field hide_cursor?      boolean                            false = keep cursor visible (default: true for most modes)
@@ -191,6 +193,7 @@ function M.open(opts, instance_cfg)
 		cfg = s_cfg,
 		mode = mode,
 		horizontal_actions = horizontal_actions,
+		lock_tabs = opts.lock_tabs == true,
 		position = position,
 		placeholder = placeholder,
 		on_change = on_change,
@@ -228,6 +231,7 @@ function M.open(opts, instance_cfg)
 		close_keys = close_keys,
 		show_footer = opts.show_footer ~= false,
 		back_key = opts.back_key,
+		on_back = opts.on_back,
 
 		-- info mode
 		info_readonly = opts.readonly ~= false,
@@ -259,8 +263,10 @@ function M.open(opts, instance_cfg)
 	end
 
 	local function cur_rows()
+		-- Flatten the row tree to the visible list (parent + expanded children),
+		-- so render / navigation / heights transparently follow the accordion.
 		local t = s.tabs[s.active_tab]
-		return (t and t.rows) or {}
+		return rows.flatten((t and t.rows) or {})
 	end
 
 	local function tab_has_rows()
@@ -368,10 +374,14 @@ function M.open(opts, instance_cfg)
 	local function recalc_heights()
 		s.action_bar_ht = (s.horizontal_actions and tab_has_rows() and #cur_action_rows() > 0) and 1 or 0
 		s.footer_height = s.show_footer and (3 + s.action_bar_ht) or 0
-		local max_total = type(s_cfg.height) == "number" and resolve_height(s_cfg.height)
-			or math.floor(vim.o.lines * s_cfg.max_height)
-		if type(s_cfg.height) == "number" then
-			-- explicit height drives content — max_items controls only virtual scroll buffer
+		-- A fixed height (per-call opts.height or config height) drives the content
+		-- size from the screen, so toggles/refreshes match the initial open. Without
+		-- it the content was capped at max_items, leaving the window too short.
+		local fixed = (type(opts.height) == "number" and opts.height)
+			or (type(s_cfg.height) == "number" and s_cfg.height)
+			or nil
+		local max_total = fixed and resolve_height(fixed) or math.floor(vim.o.lines * s_cfg.max_height)
+		if fixed then
 			local avail = math.max(1, max_total - s.header_height - s.footer_height)
 			s.content_height = math.min(get_content_count(), avail)
 		else
@@ -403,7 +413,7 @@ function M.open(opts, instance_cfg)
 			end
 			w = math.max(w, dw(tl) + 2)
 			for _, t in ipairs(s.tabs) do
-				for _, r in ipairs(t.rows or {}) do
+				for _, r in ipairs(rows.flatten(t.rows or {}, true)) do
 					if not (s.horizontal_actions and r.type == "action") then
 						w = math.max(w, dw(row_display(r, s_cfg.icons)) + 6)
 					end
@@ -690,10 +700,11 @@ function M.open(opts, instance_cfg)
 			info_highlights = s.info_highlights,
 			info_readonly = s.info_readonly,
 			back_key = s.back_key,
+			tab_focus = s.tab_focus,
 		}
 
 		ctx.hints = opts.footer_hints
-		if s.mode == "info" and s.info_keymaps then
+		if (s.mode == "info" or s.mode == "tabs") and s.info_keymaps then
 			local extra = {}
 			for lhs, v in pairs(s.info_keymaps) do
 				if type(v) == "table" and type(v.label) == "string" then
@@ -793,6 +804,16 @@ function M.open(opts, instance_cfg)
 					api.nvim_win_set_cursor(s.win, { 1, 0 })
 				end
 			end
+			-- The tabs buffer holds exactly the visible slice, so the window must show
+			-- it from the very top. Force topline = 1 so a shrunk buffer (after a
+			-- collapse) never stays scrolled and hides the first rows.
+			pcall(api.nvim_win_call, s.win, function()
+				if vim.fn.line("w0") ~= 1 then
+					local v = vim.fn.winsaveview()
+					v.topline = 1
+					vim.fn.winrestview(v)
+				end
+			end)
 		else
 			local ci = cur_items()
 			if #ci > 0 and s.current_idx >= s.scroll and s.current_idx < s.scroll + s.content_height then
@@ -812,9 +833,15 @@ function M.open(opts, instance_cfg)
 		end
 		closed = true
 		if _saved_complete ~= nil then
-			pcall(function() vim.bo[s.buf].complete = _saved_complete end)
-			pcall(function() require("cmp").setup.buffer({}) end)
-			pcall(function() vim.b[s.buf].completion = nil end)
+			pcall(function()
+				vim.bo[s.buf].complete = _saved_complete
+			end)
+			pcall(function()
+				require("cmp").setup.buffer({})
+			end)
+			pcall(function()
+				vim.b[s.buf].completion = nil
+			end)
 		end
 		pcall(api.nvim_win_close, s.win, true)
 		if s.win_header then
@@ -918,6 +945,39 @@ function M.open(opts, instance_cfg)
 		end
 	end
 
+	-- Recompute heights, resize/reposition the windows, then clamp content_height,
+	-- cursor and scroll to the current row count. This guarantees the window never
+	-- renders more rows than exist (no blank lines below) and that collapsing scrolls
+	-- back up so the first row is not left hidden. Used after any row-count change.
+	s.fit_view = function()
+		recalc_heights()
+		if s.position ~= "cursor" then
+			s._row, s._col = calc_pos(s.total_height + (s._bh or 0), s.width + (s._bw or 0), s.position)
+		end
+		s.sync_layout()
+		local nrows = #cur_rows()
+		if s.content_height > nrows then
+			s.content_height = math.max(1, nrows)
+			if s.position ~= "cursor" then
+				s.total_height = (s._real_hdr or s.header_height) + s.content_height + s.footer_height
+				s._row, s._col = calc_pos(s.total_height + (s._bh or 0), s.width + (s._bw or 0), s.position)
+			end
+			s.sync_layout()
+		end
+		if s.row_cursor > nrows then
+			s.row_cursor = math.max(1, nrows)
+		end
+		local max_scroll = math.max(0, nrows - s.content_height)
+		if s.scroll > max_scroll then
+			s.scroll = max_scroll
+		end
+		if s.row_cursor < s.scroll + 1 then
+			s.scroll = math.max(0, s.row_cursor - 1)
+		elseif s.row_cursor > s.scroll + s.content_height then
+			s.scroll = s.row_cursor - s.content_height
+		end
+	end
+
 	-- ── initial scroll for tabs ───────────────────────────────────────────────
 
 	if initial_row and mode == "tabs" and tab_has_rows() then
@@ -949,6 +1009,83 @@ function M.open(opts, instance_cfg)
 		on_open(s.buf, s.win)
 	end
 	vim.cmd("redraw!")
+
+	-- Handle for the caller to drive the open popup (e.g. live progress): mutate
+	-- the rows held in `tabs` (same table passed in) then call render() — or recalc()
+	-- when the visible row count changed.
+	return {
+		tabs = s.tabs,
+		valid = function()
+			return s.win ~= nil and api.nvim_win_is_valid(s.win)
+		end,
+		render = function()
+			if s.win and api.nvim_win_is_valid(s.win) then
+				render()
+			end
+		end,
+		recalc = function()
+			if s.win and api.nvim_win_is_valid(s.win) then
+				s.fit_view()
+				render()
+			end
+		end,
+		close = function()
+			s.close(false, nil)
+		end,
+		-- Name of the row under the cursor (for preserving position across rebuilds).
+		cursor_name = function()
+			local r = s.cur_rows()[s.row_cursor]
+			return r and r.name
+		end,
+		-- 1-based index of the row under the cursor (for keeping the screen position,
+		-- not the logical row, across a rebuild — e.g. after an uninstall).
+		cursor_index = function()
+			return s.row_cursor
+		end,
+		-- Move the cursor to the row at `idx` (snapped to the nearest selectable row
+		-- at or after it, kept on screen).
+		focus_index = function(idx)
+			if not idx then
+				return false
+			end
+			local rrows = s.cur_rows()
+			if #rrows == 0 then
+				return false
+			end
+			s.row_cursor = resolve_initial_row(rrows, idx)
+			if s.row_cursor < s.scroll + 1 then
+				s.scroll = math.max(0, s.row_cursor - 1)
+			elseif s.row_cursor > s.scroll + s.content_height then
+				s.scroll = s.row_cursor - s.content_height
+			end
+			if s.win and api.nvim_win_is_valid(s.win) then
+				render()
+			end
+			return true
+		end,
+		-- Move the cursor onto the row with the given name (keeping it on screen).
+		focus = function(name)
+			if not name then
+				return false
+			end
+			local rrows = s.cur_rows()
+			for i, r in ipairs(rrows) do
+				if r.name == name then
+					s.row_cursor = i
+					if s.row_cursor < s.scroll + 1 then
+						s.scroll = math.max(0, s.row_cursor - 1)
+					elseif s.row_cursor > s.scroll + s.content_height then
+						s.scroll = s.row_cursor - s.content_height
+					end
+					if s.win and api.nvim_win_is_valid(s.win) then
+						render()
+					end
+					return true
+				end
+			end
+			return false
+		end,
+	}
 end
 
 return M

@@ -3,6 +3,7 @@
 -- Returns a factory function so callers can re-evaluate with the current palette.
 
 return function()
+	-- Required inside the factory so each rebuild re-reads the live palette/blend helpers.
 	local c = require("lvim-utils.colors")
 	local hl = require("lvim-utils.highlight")
 

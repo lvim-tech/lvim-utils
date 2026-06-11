@@ -10,6 +10,7 @@
 --   M.map_default()         – bind gx → :GxOpen in normal mode
 --   M.open_current()        – programmatically trigger open on current cursor
 
+local config_mod = require("lvim-utils.config")
 local M = {}
 
 local uv = vim.uv or vim.loop
@@ -33,7 +34,7 @@ local _NS = vim.api.nvim_create_namespace("LvimGxTempHL")
 ---@field extra_adapters            table           Additional adapter definitions to register
 
 ---@type GxConfig
-local cfg = require("lvim-utils.config").gx
+local cfg = config_mod.gx
 
 ---@type table  List of registered adapter definitions.
 local adapters = {}
@@ -766,7 +767,7 @@ end
 ---@param opts GxConfig|nil
 function M.setup(opts)
 	if opts then
-		local config = require("lvim-utils.config")
+		local config = config_mod
 		config.gx = vim.tbl_deep_extend("force", config.gx, opts)
 		cfg = config.gx
 	end

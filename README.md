@@ -6,6 +6,19 @@ A collection of independent Neovim utility modules — floating UI components, c
 
 ## Installation
 
+### LVIM IDE
+
+Ships with LVIM IDE (a core dependency). Override its options in your user module
+(`lua/modules/user/init.lua`):
+
+```lua
+modules["lvim-tech/lvim-utils"] = {
+  config = function()
+    require("lvim-utils").setup({ ... })
+  end,
+}
+```
+
 ### lazy.nvim
 
 ```lua
@@ -664,6 +677,20 @@ require("lvim-utils.gx").register_adapter({
 | `search_max_lines`        | `60`           | Max lines to scan in each direction             |
 | `pattern`                 | `[%w%._~/#…]+` | Lua pattern for token extraction                |
 | `adapters`                | all `true`     | Enable/disable built-in adapters by name        |
+
+### `utils`
+
+Shared helpers used across the lvim-tech plugins.
+
+```lua
+-- Deep-merge `opts` into `target` in place: nested maps merge recursively, while
+-- lists and scalars are replaced wholesale (an override list IS the list — not an
+-- index-merge). Returns `target`.
+require("lvim-utils.utils").merge(target, opts)
+```
+
+Each plugin's `setup()` uses it to merge user options into its live config table, so
+every `require("<plugin>.config")` reader sees the effective values.
 
 ---
 

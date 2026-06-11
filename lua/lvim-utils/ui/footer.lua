@@ -16,15 +16,22 @@ function M.hints(ctx)
 	local l = c.labels
 	local mode = ctx.mode
 	local back = ctx.back_key and { key = ctx.back_key, label = "back" } or nil
+	-- In the tabbed view, "t" toggles the tab bar (focus / back to content).
+	local menu = (mode == "tabs" and ctx.has_rows) and { key = "t", label = "menu" } or nil
 	local function with_back(hints)
-		if not back then
+		if not menu and not back then
 			return hints
 		end
 		local out = {}
 		for _, h in ipairs(hints) do
 			table.insert(out, h)
 		end
-		table.insert(out, back)
+		if menu then
+			table.insert(out, menu)
+		end
+		if back then
+			table.insert(out, back)
+		end
 		return out
 	end
 
@@ -40,6 +47,15 @@ function M.hints(ctx)
 			{ key = k.multiselect.cancel, label = l.cancel },
 		}
 	elseif mode == "tabs" then
+		if ctx.tab_focus then
+			-- On the tab bar: only tab navigation — the current row's hints are hidden.
+			return {
+				{ key = k.tabs.prev .. "/" .. k.tabs.next, label = l.tabs },
+				{ key = k.down, label = l.navigate },
+				{ key = "t", label = "menu" },
+				{ key = k.cancel, label = l.close },
+			}
+		end
 		if ctx.has_rows then
 			if ctx.horizontal_actions then
 				local cur = ctx.rows[ctx.row_cursor]
@@ -98,11 +114,11 @@ function M.hints(ctx)
 			{ key = k.cancel, label = l.close },
 		})
 	else -- select
-		return {
+		return with_back({
 			{ key = k.down .. "/" .. k.up, label = l.navigate },
 			{ key = k.select.confirm, label = l.confirm },
 			{ key = k.select.cancel, label = l.cancel },
-		}
+		})
 	end
 end
 
@@ -211,11 +227,17 @@ function M.apply_hl(buf, total_lines, hint_ranges, ctx)
 		local default = r.kind == "key" and (footer_hl.key or "LvimUiFooterKey")
 			or (footer_hl.label or "LvimUiFooterLabel")
 		local group = resolve_hl(r.hl or default)
-		api.nvim_buf_set_extmark(buf, NS, total_lines - 1, r.s, {
-			end_col = r.e,
-			hl_group = group,
-			priority = 300,
-		})
+		-- Clamp to the rendered line: a narrow popup can truncate the hint line so a
+		-- computed range runs past its end (nvim rejects an out-of-range end_col).
+		local s_col = math.min(r.s, #hint_line)
+		local e_col = math.min(r.e, #hint_line)
+		if e_col > s_col then
+			api.nvim_buf_set_extmark(buf, NS, total_lines - 1, s_col, {
+				end_col = e_col,
+				hl_group = group,
+				priority = 300,
+			})
+		end
 	end
 end
 

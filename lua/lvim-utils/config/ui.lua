@@ -18,15 +18,15 @@ return {
 	-- only when you want an inline HlDef instead of a named group.
 
 	icons = {
-		bool_on = "󰄬",
-		bool_off = "󰍴",
-		select = "󰘮",
-		number = "󰎠",
-		string = "󰬴",
+		bool_on = "",
+		bool_off = "",
+		select = "",
+		number = "",
+		string = "",
 		action = "",
 		spacer = "    ──────",
-		multi_selected = "󰄬",
-		multi_empty = "󰍴",
+		multi_selected = "",
+		multi_empty = "",
 		current = "➤",
 	},
 

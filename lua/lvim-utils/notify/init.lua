@@ -10,6 +10,8 @@
 local M = {}
 
 local api = vim.api
+local colors = require("lvim-utils.colors")
+local config = require("lvim-utils.config")
 local hl = require("lvim-utils.highlight")
 local levels = vim.log.levels
 local NS = api.nvim_create_namespace("lvim_utils_notify")
@@ -81,7 +83,7 @@ local PANEL_ORDER = {
 
 -- ── runtime state ─────────────────────────────────────────────────────────
 
-local _cfg = require("lvim-utils.config").notify
+local _cfg = config.notify
 local _history = {}
 local _printers = {}
 
@@ -322,7 +324,7 @@ local function _render_prog_channel(id, win_w)
 	end
 
 	local pad_s = string.rep(" ", _cfg.padding or 1)
-	local hdr_icon = ch.icon or (_cfg.icons or {}).progress or "󰔟"
+	local hdr_icon = ch.icon or (_cfg.icons or {}).progress or ""
 	local hdr_name = ch.name or tostring(id)
 	local hdr_hl = ch.header_hl or "LvimNotifyHeaderInfo"
 	local hdr_text = pad_s .. hdr_icon .. " " .. hdr_name
@@ -522,6 +524,11 @@ end
 
 -- ── dispatch ───────────────────────────────────────────────────────────────
 
+-- Routing sinks for ext_messages behaviours other than toast/history (e.g. "cmdline").
+-- name → fun(text, level, opts). Registered by domain modules; NOT iterated by _dispatch,
+-- so a sink fires only for messages explicitly routed to it via ext_kinds.
+local _sinks = {}
+
 local _in_dispatch = false
 
 local function _dispatch(msg, level, opts)
@@ -558,6 +565,14 @@ function M.has_printer(name)
 		end
 	end
 	return false
+end
+
+--- Register a routing sink for an ext_kinds behaviour (e.g. "cmdline"). Unlike a printer,
+--- it is only called for messages whose kind maps to `name` in ext_kinds.
+---@param name string
+---@param fn fun(text: string, level: integer, opts: table)
+function M.register_sink(name, fn)
+	_sinks[name] = fn
 end
 
 function M.notify(msg, level, opts)
@@ -676,9 +691,16 @@ local _hist_NS = api.nvim_create_namespace("lvim_utils_notify_history")
 local function _history_build(filter)
 	local lines = {}
 	local highlights = {} -- { line, col_start, col_end, group }
+	local levels = {} -- per-line level key ("error"/"warn"/"info"/"debug")
 
 	local function push_hl(group, col_s, col_e)
 		table.insert(highlights, { line = #lines - 1, col_start = col_s, col_end = col_e, group = group })
+	end
+
+	-- Whole-line tint per level (ui.nvim-style coloured rows).
+	local TINT = { error = "LvimUiMsgError", warn = "LvimUiMsgWarn", info = "LvimUiMsgInfo", debug = "LvimUiMsgDebug" }
+	local function push_line_hl(group)
+		table.insert(highlights, { line = #lines - 1, line_hl = group })
 	end
 
 	local function push_header(label)
@@ -692,22 +714,45 @@ local function _history_build(filter)
 		local item = _history[i]
 		if not filter or filter == (LEVEL_KEY[item.level] or "info") then
 			local key = LEVEL_KEY[item.level] or "info"
-			local meta = _panel_meta[item.level] or {}
+			local cap = key:sub(1, 1):upper() .. key:sub(2)
 			local icon = (_cfg.icons or {})[key] or " "
 			local ts = os.date("%H:%M:%S", item.time) --[[@as string]]
 			local title = item.opts and item.opts.title
 			local pre = title and ("[" .. title .. "] ") or ""
-			local icon_s = 3
-			local icon_e = icon_s + #icon
-			local ts_s = icon_e + 2
+			-- Icon badge at column 0 (`  icon  `), aligned directly under the title's icon box
+			-- (2 spaces each side). One plain gap cell, then the timestamp, then the message.
+			local badge = "  " .. icon .. "  "
+			local badge_b = #badge
+			local ts_s = badge_b + 1
 			local msg_flat = item.msg:gsub("\n", " ")
-			table.insert(lines, "   " .. icon .. "  " .. ts .. "  " .. pre .. msg_flat)
-			push_hl(meta.title_hl or "LvimNotifyInfo", icon_s, icon_e)
+			local line = badge .. " " .. ts .. "  " .. pre .. msg_flat
+			local msg_s = ts_s + #ts + 2
+			table.insert(lines, line)
+			levels[#lines] = key
+			push_line_hl(TINT[key] or "LvimUiMsgInfo")
+			push_hl("LvimUiMsg" .. cap .. "Icon", 0, badge_b)
 			push_hl("LvimUiFooterLabel", ts_s, ts_s + #ts)
+			-- Message text in the level colour (same hue as the icon).
+			push_hl("LvimUiMsg" .. cap .. "Text", msg_s, #line)
 		end
 	end
 
-	return lines, highlights
+	-- Filtered to a level that has no records: one placeholder row in that level's style.
+	if #lines == 0 then
+		local key = filter or "info"
+		local cap = key:sub(1, 1):upper() .. key:sub(2)
+		local icon = (_cfg.icons or {})[key] or " "
+		local badge = "  " .. icon .. "  "
+		local badge_b = #badge
+		local line = badge .. " No " .. cap .. " records"
+		table.insert(lines, line)
+		levels[#lines] = key
+		push_line_hl(TINT[key] or "LvimUiMsgInfo")
+		push_hl("LvimUiMsg" .. cap .. "Icon", 0, badge_b)
+		push_hl("LvimUiMsg" .. cap .. "Text", badge_b + 1, #line)
+	end
+
+	return lines, highlights, levels
 end
 
 --- Write pre-built lines + highlights into buf.
@@ -719,11 +764,26 @@ local function _history_write(buf, lines, highlights)
 	vim.bo[buf].readonly = true
 	api.nvim_buf_clear_namespace(buf, _hist_NS, 0, -1)
 	for _, m in ipairs(highlights) do
-		api.nvim_buf_set_extmark(buf, _hist_NS, m.line, m.col_start, {
-			end_col = m.col_end,
-			hl_group = m.group,
-			priority = 100,
-		})
+		if m.line_hl then
+			-- Whole-line tint as a real hl_group range (+hl_eol), NOT line_hl_group: a
+			-- line_hl_group overrides any cell hl_group regardless of priority, which would
+			-- swallow the icon badge. As a plain range it loses to the higher-priority badge.
+			-- Must span to the next line's start (end_row+1) so the range covers the EOL —
+			-- only then does hl_eol fill the rest of the screen line to the window edge.
+			api.nvim_buf_set_extmark(buf, _hist_NS, m.line, 0, {
+				end_row = m.line + 1,
+				end_col = 0,
+				hl_group = m.line_hl,
+				hl_eol = true,
+				priority = 10,
+			})
+		else
+			api.nvim_buf_set_extmark(buf, _hist_NS, m.line, m.col_start, {
+				end_col = m.col_end,
+				hl_group = m.group,
+				priority = 100,
+			})
+		end
 	end
 end
 
@@ -736,40 +796,55 @@ function M.history()
 		return
 	end
 
-	local ui = require("lvim-utils.ui")
 	local filter = nil
 	local buf_ref ---@type integer
 
+	local current_levels = {}
 	local function rerender()
 		if buf_ref and api.nvim_buf_is_valid(buf_ref) then
-			local lines, hls = _history_build(filter)
+			local lines, hls, levels = _history_build(filter)
 			_history_write(buf_ref, lines, hls)
+			current_levels = levels or {}
 		end
 	end
 
-	local lines, hls = _history_build(filter)
-
+	-- Per-level colour groups for the pager buttons (key badge + label), matching the
+	-- toast/history level colours.
+	local _lvl_cap = { info = "Info", warn = "Warn", error = "Error", debug = "Debug" }
 	local keymaps = {
+		a = {
+			fn = function()
+				filter = nil
+				rerender()
+			end,
+			label = "All",
+		},
 		r = { fn = rerender, label = "Refresh" },
 	}
 	for key, lvl in pairs(_lvl_map) do
-		local lbl = _lvl_labels[key]
+		local cap = _lvl_cap[lvl] or "Info"
 		keymaps[key] = {
 			fn = function()
 				filter = filter == lvl and nil or lvl
 				rerender()
 			end,
-			label = lbl,
+			label = _lvl_labels[key],
+			badge = "LvimUiMsg" .. cap .. "Icon",
+			label_hl = "LvimUiMsg" .. cap .. "Text",
 		}
 	end
 
-	ui.info(lines, {
-		title = " Notifications",
-		highlights = hls,
+	local cmd = require("lvim-utils.cmdline")
+	cmd.pager({
+		title = " History ",
 		keymaps = keymaps,
-		hide_cursor = false,
-		on_open = function(b, _)
+		order = { "a", "e", "w", "i", "d", "r" },
+		level_at = function(row)
+			return current_levels[row + 1]
+		end,
+		on_open = function(b)
 			buf_ref = b
+			rerender()
 		end,
 	})
 end
@@ -879,6 +954,8 @@ local function _attach_ui()
 
 					if behaviour == "toast" then
 						_show_toast(text, lvl, { timeout = timeout })
+					elseif _sinks[behaviour] then
+						_sinks[behaviour](text, lvl, { timeout = timeout })
 					end
 				end)
 				_in_ext = false
@@ -892,13 +969,48 @@ end
 
 local _initialized = false
 
+--- Per-level highlight groups for the history pager rows. Single source of truth
+--- (the cmdline module merges these too). Owned here so the history has its colours
+--- even when the cmdline module is disabled.
+---   LvimUiMsg<L>       row background       — light tint (0.1)
+---   LvimUiMsg<L>Text   message label        — level fg on light tint
+---   LvimUiMsg<L>Icon   left icon badge      — level fg on a stronger background tint (0.3)
+---   LvimUiMsg<L>Active focused row          — same 0.3 background, so it merges with the icon
+---@return table<string, table>
+function M.msg_highlights()
+	local c = colors
+	local b, bg = c.blend, c.bg
+	local g = {}
+	local msg = { Error = c.red, Warn = c.orange, Info = c.teal, Debug = c.purple }
+	for name, col in pairs(msg) do
+		g["LvimUiMsg" .. name] = { fg = col, bg = b(col, bg, 0.1) }
+		g["LvimUiMsg" .. name .. "Text"] = { fg = col, bg = b(col, bg, 0.1) }
+		g["LvimUiMsg" .. name .. "Icon"] = { fg = col, bg = b(col, bg, 0.2), bold = true }
+		g["LvimUiMsg" .. name .. "Active"] = { bg = b(col, bg, 0.2) }
+	end
+	return g
+end
+
+-- Register the history-pager groups at module load (not just in setup) so they exist
+-- after a plain require() and survive a reload that skips setup's first-run block. Also
+-- refresh them on colorscheme change.
+pcall(function()
+	hl.register(M.msg_highlights(), false)
+	local colors_mod = colors
+	if colors_mod.on_change then
+		colors_mod.on_change(function()
+			hl.register(M.msg_highlights(), false)
+		end)
+	end
+end)
+
 function M.setup(user_cfg)
 	user_cfg = user_cfg or {}
 	_cfg = vim.tbl_deep_extend("force", _cfg, user_cfg)
 
 	-- Register highlight groups on first setup.
 	if not _initialized then
-		local colors = require("lvim-utils.config").colors
+		local colors = config.colors
 		local nc = {}
 		for name, opts in pairs(colors) do
 			if name:match("^LvimNotify") then

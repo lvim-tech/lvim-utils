@@ -175,6 +175,12 @@ function M.calc_pos(height, width, position)
 		local col = wpos[2] + math.max(0, math.floor((ww - width) / 2))
 		return row, col
 	end
+	if position == "bottom" then
+		-- Anchored just above the cmdline, horizontally centred (≈ full width when wide).
+		local row = math.max(0, vim.o.lines - height - vim.o.cmdheight - 1)
+		local col = math.max(0, math.floor((vim.o.columns - width) / 2))
+		return row, col
+	end
 	-- "editor": full editor area (default)
 	return math.floor((vim.o.lines - height) / 2), math.floor((vim.o.columns - width) / 2)
 end

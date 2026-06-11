@@ -26,7 +26,11 @@ local function item_byte_ranges(item, ctx, ico)
 		checkbox_s = indent
 		checkbox_e = indent + #check
 	elseif ctx.current_item ~= nil and item == ctx.current_item then
-		indent = 0
+		-- The current row renders as `ico.current .. " " .. lbl` with no leading pad.
+		-- Treat the ➤ marker as this row's icon (so it gets the icon highlight) and
+		-- start the text right after it — otherwise the highlights land off-column.
+		local text_s = #(ico.current .. " ")
+		return nil, nil, 0, #ico.current, text_s, text_s + #lbl
 	end
 
 	local prefix = checkbox_e and (checkbox_e + 1) or indent
@@ -127,7 +131,16 @@ function M.build(ctx)
 		local drows = ctx.horizontal_actions and ctx.content_rows or ctx.rows
 		for i = 1, ctx.content_height do
 			local row = drows[ctx.scroll + i]
-			table.insert(lines, row and util.lpad(rows.row_display(row, ico), ctx.width, 2) or "")
+			table.insert(
+				lines,
+				row
+						and (row.center and util.center(rows.row_display(row, ico), ctx.width) or util.lpad(
+							rows.row_display(row, ico),
+							ctx.width,
+							2
+						))
+					or ""
+			)
 		end
 
 		-- horizontal action bar
@@ -241,7 +254,9 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 		hl_line(buf, ctx.header_height, "LvimUiInput")
 	elseif ctx.mode == "tabs" and ctx.has_rows then
 		local drows = ctx.horizontal_actions and ctx.content_rows or ctx.rows
-		local active_row = ctx.rows[ctx.row_cursor]
+		-- On the tab bar (tab_focus), no content row is active — this hides the active
+		-- row's cursor bar and bold while the header is focused.
+		local active_row = (not ctx.tab_focus) and ctx.rows[ctx.row_cursor] or nil
 
 		for i = 1, ctx.content_height do
 			local row = drows[ctx.scroll + i]
@@ -255,16 +270,76 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 						hl_group = "LvimUiCursorLine",
 						priority = 100,
 					})
-				elseif not rows.is_selectable(row) then
+				elseif not rows.is_selectable(row) and not (row.icon_hl or row.text_hl or row.hl) then
 					hl_line(buf, row_idx, "LvimUiSpacer")
 				end
 				-- icon / text hl for selectable rows
 				local row_content = rows.row_display(row, ico)
-				if rows.is_selectable(row) then
+				if row.center and row.type == "segmented" then
+					-- Per-segment colours (row.option_hl) + bold for the active option.
+					-- Compute the centering lead from the centre formula (NOT from leading
+					-- whitespace, which over-counts when the row text starts with a space,
+					-- e.g. when a non-first option is the active/bracketed one).
+					local line = api.nvim_buf_get_lines(buf, row_idx, row_idx + 1, false)[1] or ""
+					local rdw = util.dw(rows.row_display(row, ico))
+					local lead = (rdw < ctx.width) and math.floor((ctx.width - rdw) / 2) or 0
+					local prefix, segs = rows.segmented_segments(row, ico)
+					if row.text_hl then
+						api.nvim_buf_set_extmark(buf, NS, row_idx, 0, {
+							end_col = #line,
+							hl_group = resolve_hl(row.text_hl),
+							priority = 240,
+						})
+					end
+					local col = lead + #prefix
+					for _, sg in ipairs(segs) do
+						local ohl = row.option_hl and row.option_hl[sg.opt]
+						if ohl then
+							api.nvim_buf_set_extmark(buf, NS, row_idx, col, {
+								end_col = col + #sg.text,
+								hl_group = resolve_hl(ohl),
+								priority = 260,
+							})
+						end
+						-- bracket_key bars highlight the active button only while the row is
+						-- focused, so the bold clears when the cursor leaves it.
+						if sg.opt == row.value and row.active_hl and (not row.bracket_key or row == active_row) then
+							api.nvim_buf_set_extmark(buf, NS, row_idx, col, {
+								end_col = col + #sg.text,
+								hl_group = resolve_hl(row.active_hl),
+								priority = 270,
+							})
+						end
+						-- The "[X]" shortcut hint stays bold at all times (every button).
+						if row.bracket_key and row.active_hl then
+							local br = sg.text:find("[", 1, true)
+							if br then
+								api.nvim_buf_set_extmark(buf, NS, row_idx, col + br - 1, {
+									end_col = col + br - 1 + 3,
+									hl_group = resolve_hl(row.active_hl),
+									priority = 280,
+								})
+							end
+						end
+						col = col + #sg.text + 1
+					end
+				elseif row.center then
+					local g = row.text_hl or (row.hl and ((row == active_row) and row.hl.active or row.hl.inactive))
+					if g then
+						local _l = api.nvim_buf_get_lines(buf, row_idx, row_idx + 1, false)[1] or ""
+						api.nvim_buf_set_extmark(
+							buf,
+							NS,
+							row_idx,
+							0,
+							{ end_col = #_l, hl_group = resolve_hl(g), priority = 250 }
+						)
+					end
+				elseif rows.is_selectable(row) or row.icon_hl or row.text_hl then
 					local is_active = (row == active_row)
 					local icon_str, sep_bytes = rows.row_icon_info(row, ico)
 					local icon_hl = is_active and "LvimUiRowIconActive" or "LvimUiRowIconInactive"
-					local text_hl = is_active and "LvimUiRowTextActive" or "LvimUiRowTextInactive"
+					local text_hl = row.text_hl or (is_active and "LvimUiRowTextActive" or "LvimUiRowTextInactive")
 					if #icon_str > 0 then
 						api.nvim_buf_set_extmark(buf, NS, row_idx, 2, {
 							end_col = 2 + #icon_str,
@@ -275,24 +350,35 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 					local after_type = 2 + #icon_str + sep_bytes
 					local text_s = after_type
 					if row.icon then
-						local ri_hl = is_active and "LvimUiRowItemIconActive" or "LvimUiRowItemIconInactive"
+						local ri_hl = row.icon_hl
+							or (is_active and "LvimUiRowItemIconActive" or "LvimUiRowItemIconInactive")
 						api.nvim_buf_set_extmark(buf, NS, row_idx, after_type, {
 							end_col = after_type + #row.icon,
 							hl_group = resolve_hl(ri_hl),
 							priority = 200,
 						})
-						text_s = after_type + #row.icon + 2
+						text_s = after_type + #row.icon + 1
 					end
-					if text_s < 2 + #row_content then
+					local content_end = 2 + #row_content
+					local suffix_s = (row.suffix and #row.suffix > 0) and (content_end - #row.suffix) or nil
+					local text_e = suffix_s and (suffix_s - 1) or content_end
+					if text_s < text_e then
 						api.nvim_buf_set_extmark(buf, NS, row_idx, text_s, {
-							end_col = 2 + #row_content,
+							end_col = text_e,
 							hl_group = resolve_hl(text_hl),
 							priority = 200,
 						})
 					end
+					if suffix_s and row.suffix_hl then
+						api.nvim_buf_set_extmark(buf, NS, row_idx, suffix_s, {
+							end_col = content_end,
+							hl_group = resolve_hl(row.suffix_hl),
+							priority = 210,
+						})
+					end
 				end
 				-- per-row flat hl override (priority 300 overrides icon/text defaults)
-				if row.hl then
+				if row.hl and not row.center then
 					local row_hl = (row == active_row) and row.hl.active or row.hl.inactive
 					if row_hl then
 						api.nvim_buf_set_extmark(buf, NS, row_idx, 2, {

@@ -56,13 +56,13 @@ return {
 	progress_width = nil,
 	-- Level icons
 	icons = {
-		trace = "󰌶",
-		debug = "󰃤",
-		error = "󰅙",
-		warn = "󰀨",
+		trace = "",
+		debug = "",
+		error = "",
+		warn = "",
 		info = "",
 		hint = "",
-		progress = "󱦟",
+		progress = "",
 	},
 	-- Singular/plural level names shown in the header bar
 	level_names = {

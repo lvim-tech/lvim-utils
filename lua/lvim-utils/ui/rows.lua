@@ -25,6 +25,11 @@ local M = {}
 ---@field top?     boolean
 ---@field bottom?  boolean
 ---@field hl?      { active?: HlDef, inactive?: HlDef }
+---@field suffix?       string
+---@field expanded?     boolean
+---@field children?     Row[]
+---@field option_icons? table<string, string>
+---@field bracket_key?  boolean
 
 --- Per-item hl state: either a flat HlDef (whole line) or split parts.
 ---@alias ItemHlState HlDef | { checkbox?: HlDef, icon?: HlDef, text?: HlDef }
@@ -60,6 +65,14 @@ function M.is_selectable(row)
 	return row.type ~= "spacer" and row.type ~= "spacer_line"
 end
 
+--- The expand/collapse caret for a row that owns children.
+---@param row Row
+---@param ico table
+---@return string
+local function caret(row, ico)
+	return row.expanded and (ico.expand_open or "") or (ico.expand_closed or "")
+end
+
 --- Build the display string for a typed row.
 ---@param row Row
 ---@return string
@@ -68,10 +81,22 @@ function M.row_display(row, ico)
 	local label = row.label or row.name or ""
 	local val = tostring(row.value ~= nil and row.value or row.default or "")
 	ico = ico or M.icons()
-	local ri = row.icon and (row.icon .. "  ") or ""
+	local ri = row.icon and (row.icon .. " ") or ""
+
+	-- Expandable rows (accordion) show a caret instead of their type icon.
+	if row.children then
+		return caret(row, ico) .. "  " .. ri .. label
+	end
 
 	if t == "bool" or t == "boolean" then
 		return (row.value and ico.bool_on or ico.bool_off) .. "  " .. ri .. label
+	elseif t == "segmented" then
+		local prefix, segs = M.segmented_segments(row, ico)
+		local texts = {}
+		for _, sg in ipairs(segs) do
+			texts[#texts + 1] = sg.text
+		end
+		return prefix .. table.concat(texts, " ")
 	elseif t == "select" then
 		return ico.select .. "  " .. ri .. label .. ": " .. val
 	elseif t == "int" or t == "integer" or t == "float" or t == "number" then
@@ -79,13 +104,47 @@ function M.row_display(row, ico)
 	elseif t == "string" or t == "text" then
 		return ico.string .. "  " .. ri .. label .. ": " .. val
 	elseif t == "action" then
-		return ico.action .. "  " .. ri .. label
+		return ico.action .. "  " .. ri .. label .. (row.suffix and (" " .. row.suffix) or "")
 	elseif t == "spacer" then
-		return ico.spacer .. " " .. label
+		return ico.spacer .. "  " .. ri .. label .. (row.suffix and (" " .. row.suffix) or "")
 	elseif t == "spacer_line" then
 		return ""
 	end
 	return "   " .. label
+end
+
+--- Build a segmented row's prefix and its segment list (text + option), honouring
+--- per-option icons (row.option_icons). The active option is shown in [brackets].
+--- Shared by the renderer and the per-segment highlighter so offsets always match.
+---@param row Row
+---@param ico table
+---@return string prefix, { text: string, opt: string }[]
+function M.segmented_segments(row, ico)
+	ico = ico or M.icons()
+	local ri = row.icon and (row.icon .. " ") or ""
+	local prefix = ri .. (row.label or "")
+	if prefix ~= "" then
+		prefix = prefix .. "  "
+	end
+	local segs = {}
+	for _, opt in ipairs(row.options or {}) do
+		local oicon = row.option_icons and row.option_icons[opt]
+		-- bracket_key: box the first letter as the shortcut hint ("[R]einstall"); the
+		-- active option is then shown by highlight (bold) rather than wrapping brackets.
+		local label = opt
+		if row.bracket_key and #opt > 0 then
+			label = "[" .. opt:sub(1, 1) .. "]" .. opt:sub(2)
+		end
+		local inner = (oicon and (oicon .. " ") or "") .. label
+		local text
+		if row.bracket_key then
+			text = " " .. inner .. " "
+		else
+			text = (opt == row.value) and ("[" .. inner .. "]") or (" " .. inner .. " ")
+		end
+		segs[#segs + 1] = { text = text, opt = opt }
+	end
+	return prefix, segs
 end
 
 --- Return the icon string and separator length for a row.
@@ -95,9 +154,12 @@ end
 function M.row_icon_info(row, ico)
 	local t = row.type or "string"
 	ico = ico or M.icons()
+	if row.children then
+		return caret(row, ico), 2
+	end
 	if t == "bool" or t == "boolean" then
 		return (row.value and ico.bool_on or ico.bool_off), 2
-	elseif t == "select" then
+	elseif t == "segmented" or t == "select" then
 		return ico.select, 2
 	elseif t == "int" or t == "integer" or t == "float" or t == "number" then
 		return ico.number, 2
@@ -106,7 +168,7 @@ function M.row_icon_info(row, ico)
 	elseif t == "action" then
 		return ico.action, 2
 	elseif t == "spacer" then
-		return ico.spacer, 1
+		return ico.spacer, 2
 	end
 	return "", 0
 end
@@ -148,6 +210,28 @@ end
 ---@return boolean
 function M.item_hl_is_split(state)
 	return type(state) == "table" and (state.checkbox ~= nil or state.icon ~= nil or state.text ~= nil)
+end
+
+-- ─── accordion flattening ─────────────────────────────────────────────────────
+
+--- Flatten a row tree into the visible row list: each row, followed by its
+--- children when it is expanded (or always, when include_collapsed is true —
+--- used for width measurement). Supports arbitrary nesting.
+---@param tree Row[]
+---@param include_collapsed? boolean
+---@return Row[]
+function M.flatten(tree, include_collapsed)
+	local out = {}
+	local function walk(list)
+		for _, r in ipairs(list) do
+			out[#out + 1] = r
+			if r.children and (include_collapsed or r.expanded) then
+				walk(r.children)
+			end
+		end
+	end
+	walk(tree or {})
+	return out
 end
 
 -- ─── row navigation helpers ───────────────────────────────────────────────────

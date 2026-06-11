@@ -12,9 +12,11 @@ M.ui = require("lvim-utils.ui")
 M.quit = require("lvim-utils.quit")
 M.gx = require("lvim-utils.gx")
 M.notify = require("lvim-utils.notify")
+M.cmdline = require("lvim-utils.cmdline")
+M.input = require("lvim-utils.input")
 
 ---Setup lvim-utils.
----@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table }
+---@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table }
 function M.setup(opts)
 	opts = opts or {}
 
@@ -29,6 +31,8 @@ function M.setup(opts)
 		cursor = opts.cursor,
 		gx = opts.gx,
 		notify = opts.notify,
+		cmdline = opts.cmdline,
+		input = opts.input,
 	})
 
 	-- 3. Register UI highlight groups from the fully-configured palette,
@@ -53,6 +57,16 @@ function M.setup(opts)
 	-- notify = false opts out entirely; any other value (including nil) activates with defaults.
 	if opts.notify ~= false then
 		M.notify.setup(opts.notify or {})
+	end
+
+	-- cmdline is opt-in (config default enable=false); setup() no-ops unless enabled.
+	if opts.cmdline ~= false then
+		M.cmdline.setup(M.config.cmdline)
+	end
+
+	-- input dispatcher (vim.ui.input → cmdline/popup); opt-in, no-ops unless enabled.
+	if opts.input ~= false then
+		M.input.setup(M.config.input)
 	end
 end
 
