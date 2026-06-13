@@ -28,14 +28,17 @@ return function(c)
 	local function mtint(color, t)
 		return hl.blend(color, c.bg, t)
 	end
+	-- Panel background: drop it (NONE) when the theme is transparent so the popups follow a
+	-- translucent terminal; the tinted chrome cells keep their accent tints on top.
+	local panel_bg = c.transparent and c.none or bg
 
 	return {
 		-- Window chrome (the panel itself — uniform bg, no tint)
 		-- The whole popup chrome follows the notify look: accent fg over a tint of that same
 		-- accent blended toward c.bg (mtint) — STRONG (0.2) for the prominent/active cell,
 		-- BODY (0.05) for the secondary/inactive one. Each element keeps its own role colour.
-		LvimUiNormal = { bg = bg, fg = c.fg },
-		LvimUiBorder = { bg = bg, fg = c.blue },
+		LvimUiNormal = { bg = panel_bg, fg = c.fg },
+		LvimUiBorder = { bg = panel_bg, fg = c.blue },
 		LvimUiSeparator = { fg = c.cyan },
 		LvimUiCursorLine = { bg = c.bg }, -- active list row (neutral, no tint)
 		LvimUiInput = { bg = c.bg_input, fg = c.fg },
@@ -91,7 +94,7 @@ return function(c)
 		-- Error=red, Warn=orange, Info=teal, Debug=purple; tints blended toward c.bg, with
 		-- the header/title at 0.2 (the Messages "icon" tint) and the body at 0.1 (its "text"
 		-- tint). fg is the level's own accent throughout.
-		LvimNotifyNormal = { bg = bg, fg = c.fg },
+		LvimNotifyNormal = { bg = panel_bg, fg = c.fg },
 		LvimNotifyTitle = { fg = c.blue, bold = true },
 		LvimNotifyInfo = { fg = c.blue },
 		LvimNotifyWarn = { fg = c.orange },

@@ -252,6 +252,9 @@ local function _sync_from_lcs()
 	if lc.git then
 		_p.git = vim.deepcopy(lc.git)
 	end
+	-- Follow lvim-colorscheme's `transparent` so the UI panels can drop their background too.
+	local ok_cfg, lcfg = pcall(require, "lvim-colorscheme.config")
+	_p.transparent = (ok_cfg and lcfg.options and lcfg.options.transparent) or false
 	-- user overrides stay sticky on top of the synced theme
 	_p.fg_dim, _p.fg_muted, _p.bg_input = _overrides.fg_dim, _overrides.fg_muted, _overrides.bg_input
 	for k, v in pairs(_overrides) do
