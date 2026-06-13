@@ -284,15 +284,11 @@ function M.setup(cfg)
 		return
 	end
 
+	-- Self-theme the cmdline groups: bind() applies build() with `default = true` and
+	-- re-applies on palette/ColorScheme change (overwritable, like the rest of the UI).
 	local hl_ok, hl = pcall(require, "lvim-utils.highlight")
 	if hl_ok then
-		hl.register(build(), false)
-		local col_ok, colors = pcall(require, "lvim-utils.colors")
-		if col_ok then
-			colors.on_change(function()
-				hl.register(build(), false)
-			end)
-		end
+		hl.bind(build)
 	end
 
 	-- Cmdline-mode keys that insert a literal newline for multi-line command input.

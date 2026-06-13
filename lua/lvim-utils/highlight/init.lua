@@ -3,7 +3,10 @@
 -- plus color manipulation helpers (blend, lighten, darken) and group utilities.
 --
 -- Public API:
---   M.register(groups, force?)       – register and immediately apply highlight groups
+--   M.bind(fn)                       – self-theme: apply a palette-derived factory with
+--                                      `default = true`, re-applied on palette/ColorScheme
+--                                      change (the canonical self-theming entry point)
+--   M.register(groups, force?)       – register and immediately apply fixed highlight groups
 --   M.setup()                        – install the ColorScheme autocmd (call once)
 --   M.blend(fg, bg, alpha)           – blend two hex colors
 --   M.lighten(color, amount)         – lighten a color toward white
@@ -20,6 +23,11 @@ local M = {}
 --- Internal registry: name → opts table for all registered groups.
 ---@type table<string, table>
 local registry = {}
+
+--- Bound palette-derived factories (see M.bind). Each is re-run on ColorScheme and on
+--- palette change; the groups it returns are applied with `default = true`.
+---@type (fun(): table<string, table>)[]
+local bound = {}
 
 -- ─── color helpers ────────────────────────────────────────────────────────────
 
@@ -131,7 +139,30 @@ end
 
 -- ─── registry / persistence ───────────────────────────────────────────────────
 
---- Re-apply all registered groups. Respects the force flag stored per group.
+--- Apply one bound factory's groups.
+--- `force = false` (the default) applies with `default = true` — the group is only filled
+--- in if nothing else (a colorscheme or the user) already defines it, so it stays
+--- overwritable. `force = true` applies for real (no `default`), which is required when the
+--- palette actually changed (sync / live preview): a plain `default` re-apply would be a
+--- no-op because the group already exists, so the new colors would never show.
+---@param fn     fun(colors?: table): table<string, table>
+---@param force? boolean
+local function apply_bound(fn, force)
+	-- Pass the live palette to the factory for ergonomics; factories that ignore the
+	-- argument and require the palette themselves keep working.
+	local ok_c, colors = pcall(require, "lvim-utils.colors")
+	local ok, groups = pcall(fn, ok_c and colors or nil)
+	if not ok or type(groups) ~= "table" then
+		return
+	end
+	for name, opts in pairs(groups) do
+		opts = vim.deepcopy(opts)
+		opts.default = (not force) or nil
+		vim.api.nvim_set_hl(0, name, opts)
+	end
+end
+
+--- Re-apply all registered groups (force flag honoured) and every bound factory.
 local function apply_all()
 	for name, entry in pairs(registry) do
 		if entry.force then
@@ -139,6 +170,9 @@ local function apply_all()
 		else
 			M.define_if_missing(name, entry.opts)
 		end
+	end
+	for _, fn in ipairs(bound) do
+		apply_bound(fn)
 	end
 end
 
@@ -157,7 +191,44 @@ function M.register(groups, force)
 	end
 end
 
----Install the ColorScheme autocmd so registered groups survive theme changes.
+---Bind a palette-derived highlight factory for self-theming. `fn` returns a map of
+---group → opts computed from the live palette (read it inside `fn`). The groups are
+---applied now with `default = true` (so the active colorscheme or the user can override
+---them) and re-applied automatically whenever the palette syncs from lvim-colorscheme
+---(`colors.on_change`) and on every `ColorScheme` (via |M.setup|'s autocmd). This is the
+---one mechanism every lvim-tech plugin should use to theme its own UI from the shared
+---palette while staying overwritable off-lvim.
+---The factory receives the live palette as its first argument (it may also require it
+---directly). Returns a dispose function that unbinds the factory (stops further re-applies);
+---useful for isolated `ui.new()` instances or plugins that tear down.
+---@param fn fun(colors?: table): table<string, table>
+---@return fun()  dispose
+function M.bind(fn)
+	bound[#bound + 1] = fn
+	-- initial: default (overwritable by a colorscheme/user that already themed the group)
+	apply_bound(fn, false)
+	-- palette sync / live preview: force, so the actually-changed colors take effect
+	local disposed = false
+	local ok, colors = pcall(require, "lvim-utils.colors")
+	if ok and type(colors.on_change) == "function" then
+		colors.on_change(function()
+			if not disposed then
+				apply_bound(fn, true)
+			end
+		end)
+	end
+	return function()
+		disposed = true
+		for i, f in ipairs(bound) do
+			if f == fn then
+				table.remove(bound, i)
+				break
+			end
+		end
+	end
+end
+
+---Install the ColorScheme autocmd so registered + bound groups survive theme changes.
 ---Call once during plugin initialisation.
 function M.setup()
 	local aug = vim.api.nvim_create_augroup("LvimUtilsHighlights", { clear = true })

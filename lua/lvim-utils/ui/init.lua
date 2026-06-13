@@ -13,6 +13,7 @@
 --   M.select(opts)        – pick one item from a list
 --   M.multiselect(opts)   – pick multiple items
 --   M.input(opts)         – free-text input field
+--   M.confirm(opts)       – yes/no dialog → callback(yes: boolean)
 --   M.tabs(opts)          – tabbed view with typed rows or simple item lists
 --   M.info(content, opts) – read-only markdown/text info window
 --   M.close_info(win)     – programmatically close an info window
@@ -42,6 +43,24 @@ end
 function M.input(opts)
 	opts.mode = "input"
 	popup.open(opts)
+end
+
+--- Yes/no confirmation dialog (a two-item select). The default choice is listed first so
+--- it is focused on open; cancelling (<Esc>) resolves to `false`.
+---@param opts { prompt?: string, title?: string, yes?: string, no?: string, default_no?: boolean, callback: fun(yes: boolean) }
+function M.confirm(opts, instance_cfg)
+	opts = opts or {}
+	local yes_label, no_label = opts.yes or "Yes", opts.no or "No"
+	local items = opts.default_no and { no_label, yes_label } or { yes_label, no_label }
+	local cb = opts.callback or function() end
+	popup.open({
+		mode = "select",
+		title = opts.title or opts.prompt or " Confirm",
+		items = items,
+		callback = function(confirmed, index)
+			cb(confirmed == true and items[index] == yes_label)
+		end,
+	}, instance_cfg)
 end
 
 --- callback(confirmed, result)
@@ -112,6 +131,10 @@ function M.new(instance_cfg)
 	function inst.input(opts)
 		opts.mode = "input"
 		popup.open(opts, instance_cfg)
+	end
+
+	function inst.confirm(opts)
+		M.confirm(opts, instance_cfg)
 	end
 
 	function inst.tabs(opts)

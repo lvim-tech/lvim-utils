@@ -1,3 +1,6 @@
+-- lua/lvim-utils/config/ui.lua
+-- Default config for the floating UI (popup geometry, icons, keys, tint, labels).
+
 return {
 	border = { "", "", "", " ", " ", " ", " ", " " },
 	-- Disable all completion sources (native, nvim-cmp, blink.cmp) for input popups
@@ -11,6 +14,15 @@ return {
 	filetype = "lvim-utils-ui",
 	close_keys = { "q", "<Esc>" },
 	markview = false,
+
+	-- Background tint strengths (blend factor toward c.bg) for the themed chrome cells,
+	-- matching the notify/Messages look: `strong` paints prominent/active cells (title,
+	-- active tab/button, key badge, active list row), `body` the secondary/inactive ones
+	-- (subtitles, inactive, labels, the rest of the list). See config/highlight.lua.
+	tint = {
+		strong = 0.2,
+		body = 0.05,
+	},
 
 	-- tab_hl, button_hl, footer_hl, item_hl, checkbox_hl have no defaults.
 	-- When absent the rendering code falls back to the named LvimUi* groups.

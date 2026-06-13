@@ -1,0 +1,232 @@
+*lvim-utils.txt*    Shared palette, self-theming highlights and floating UI toolkit
+
+==============================================================================
+CONTENTS                                                        *lvim-utils*
+
+  1. Introduction ........................... |lvim-utils-intro|
+  2. Setup .................................. |lvim-utils-setup|
+  3. Self-theming ........................... |lvim-utils-self-theming|
+  4. colors ................................. |lvim-utils-colors|
+  5. highlight .............................. |lvim-utils-highlight|
+  6. ui ..................................... |lvim-utils-ui|
+  7. notify ................................. |lvim-utils-notify|
+  8. cursor ................................. |lvim-utils-cursor|
+  9. gx ..................................... |lvim-utils-gx|
+ 10. quit ................................... |lvim-utils-quit|
+ 11. cmdline ................................ |lvim-utils-cmdline|
+ 12. input .................................. |lvim-utils-input|
+ 13. utils .................................. |lvim-utils-utils|
+ 14. Highlight groups ....................... |lvim-utils-highlights|
+ 15. Health ................................. |lvim-utils-health|
+
+==============================================================================
+1. INTRODUCTION                                           *lvim-utils-intro*
+
+lvim-utils is the shared foundation for the lvim-tech plugins. It provides:
+
+  - a single color palette (|lvim-utils-colors|) that syncs from lvim-colorscheme,
+  - a self-theming highlight engine (|lvim-utils-highlight|) every plugin uses to
+    color its own UI from that palette while staying overwritable,
+  - a floating popup toolkit (|lvim-utils-ui|): select, multiselect, input, tabs, info,
+  - a notification system (|lvim-utils-notify|), plus cursor, gx, quit, cmdline,
+    input and misc helpers.
+
+It has no hard dependency on lvim-colorscheme: absent it, the bundled muted palette
+is used and every group still renders.
+
+==============================================================================
+2. SETUP                                                  *lvim-utils-setup*
+
+One `setup()` configures every module. All keys are optional.
+>lua
+  require("lvim-utils").setup({
+      colors = { red = "#ff5555" },   -- palette overrides (see |lvim-utils-colors|)
+      highlights = {},                -- explicit highlight overrides (applied hard)
+      ui = {},                        -- popup config (see |lvim-utils-ui|)
+      cursor = { ft = { "neo-tree" } },
+      gx = {},
+      notify = {},                    -- false to disable
+      cmdline = { enable = true },    -- opt-in self-rendered cmdline
+      input = {},                     -- vim.ui.input dispatcher; opt-in
+  })
+<
+Order: palette overrides are applied first, then module configs, then the UI groups are
+bound (|lvim-utils-self-theming|), then palette sync from lvim-colorscheme is activated.
+
+==============================================================================
+3. SELF-THEMING                                    *lvim-utils-self-theming*
+
+Every lvim-tech plugin themes its OWN highlight groups from the shared palette, instead
+of relying on a colorscheme to define them. The rule:
+
+  - groups must EXIST under any colorscheme (derived from |lvim-utils-colors|), and
+  - groups must be OVERWRITABLE — a colorscheme that defines them, or the user, wins.
+
+Use |lvim-utils-highlight| `bind`:
+>lua
+  local hl = require("lvim-utils.highlight")
+  local c = require("lvim-utils.colors")
+  hl.bind(function()
+      return { MyPluginTitle = { fg = c.blue, bold = true } }
+  end)
+<
+`bind` applies the factory's groups with `default = true` (overwritable) and re-applies
+them automatically on palette change and on |ColorScheme|. When the palette actually
+changes (theme switch or live preview) the groups are force-updated so the new colors
+take effect — a plain `default` re-apply would be a no-op once the group exists.
+
+lvim-colorscheme does NOT ship the lvim-tech plugins' groups; each plugin owns its look
+through `bind`. lvim-colorscheme still themes EXTERNAL plugins (telescope, gitsigns, …).
+
+==============================================================================
+4. COLORS                                                *lvim-utils-colors*
+
+The public palette, shared by every module and external plugins.
+>lua
+  local c = require("lvim-utils.colors")
+  c.red        -- "#cb4f4f"
+  c.bg_light   -- "#2c3339"
+  c.git.add    -- "#5f7240"
+  c.blend(c.teal, c.bg, 0.3)
+<
+It auto-syncs from lvim-colorscheme when present (on |User| `LvimColorscheme`), so the
+palette — and every `bind`-ed group — follows the active lvim theme live. Standalone
+(no lvim-colorscheme), a bundled muted DARK and LIGHT palette is used and swapped
+automatically on `&background` change. `setup({ colors = {...} })` overrides are sticky:
+they are re-applied on top of every background flip and theme sync.
+
+                                                  *lvim-utils-colors-api*
+setup({overrides})          Override palette colors (derived ones recomputed).
+sync_from_lcs()             Pull the palette from lvim-colorscheme and fire on_change.
+on_change({fn})             Register a callback fired whenever the palette changes.
+blend({fg}, {bg}, {alpha})  Blend two hex colors (alpha 1.0 = fully fg).
+lighten({color}, {amount})  Blend toward white.
+darken({color}, {amount})   Blend toward black.
+
+==============================================================================
+5. HIGHLIGHT                                           *lvim-utils-highlight*
+
+The self-theming highlight engine and color helpers.
+
+                                                  *lvim-utils-highlight-api*
+bind({fn})                  Self-theme: apply a palette factory with `default = true`,
+                            re-applied on palette / |ColorScheme| change (the canonical
+                            self-theming entry point — see |lvim-utils-self-theming|).
+                            `fn` receives the live palette; returns a dispose function
+                            that unbinds the factory.
+register({groups} [,force]) Register and apply FIXED groups (not palette-derived).
+                            force = true always applies, else only when unset.
+setup()                     Install the |ColorScheme| autocmd (call once).
+blend({fg}, {bg}, {alpha})  Blend two hex colors.
+lighten({color}, {amount})  Blend toward white.
+darken({color}, {amount})   Blend toward black.
+define({name}, {opts})      Set a group (always).
+define_if_missing(...)      Set a group only if unset.
+clear({name})               Reset a group to empty.
+get({name})                 Get group attributes, or nil.
+link({name}, {to})          Link one group to another.
+group_exists({name})        Whether a group is defined (non-empty).
+
+==============================================================================
+6. UI                                                        *lvim-utils-ui*
+
+Floating popup components, all sharing one visual style driven by the highlight groups.
+Modes: `select`, `multiselect`, `input`, `confirm`, `tabs`, `info`.
+>lua
+  local ui = require("lvim-utils.ui")
+  ui.select({ items = { "One", "Two" }, callback = function(ok, res) end })
+  ui.confirm({ prompt = " Delete?", callback = function(yes) end })
+  ui.tabs({ tabs = { { label = "A", items = {...} } }, callback = function(...) end })
+<
+`ui.confirm{ prompt, yes?, no?, default_no?, callback = fun(yes) }` is a yes/no dialog;
+cancelling resolves to `false`.
+The tabs header bar and the footer hint bar scroll / wrap to fit a narrow popup: the tab
+bar windows around the active tab (with `  ` chevrons for hidden tabs) and the footer
+hints wrap into an aligned column grid. See the README for the full per-mode option
+reference, `ui.new()` isolated instances, and popup positioning.
+
+  Default popup keys ~
+  j / k          Move          h / l          Switch tab (tabs mode)
+  <CR>           Confirm        <Esc> / q      Close
+
+==============================================================================
+7. NOTIFY                                                *lvim-utils-notify*
+
+Notification system with toast panels, a history pager, progress channels and pluggable
+printers.
+>lua
+  local n = require("lvim-utils.notify")
+  n.notify("Saved", vim.log.levels.INFO)
+  n.notify("Failed", vim.log.levels.ERROR)
+<
+Identical consecutive toasts are collapsed into one with a `×N` badge (config
+`notify.dedup = true`, on by default), and the auto-dismiss timeout slides so a repeating
+toast persists while it keeps firing. See the README for progress channels, custom
+panels/printers and config.
+
+==============================================================================
+8. CURSOR                                                *lvim-utils-cursor*
+
+Hides the cursor while a buffer with a registered filetype is focused (via the
+`LvimUtilsHiddenCursor` group). Useful for the popup UI buffers.
+>lua
+  require("lvim-utils.cursor").setup({ ft = { "lvim-utils-ui", "neo-tree" } })
+<
+==============================================================================
+9. GX                                                        *lvim-utils-gx*
+
+Open the URL / path / plugin spec under the cursor (a `gx` replacement).
+>lua
+  require("lvim-utils.gx").setup()
+<
+==============================================================================
+10. QUIT                                                    *lvim-utils-quit*
+
+Confirm-to-quit flow used by the IDE layer.
+>lua
+  require("lvim-utils.quit").setup()
+<
+==============================================================================
+11. CMDLINE                                              *lvim-utils-cmdline*
+
+Opt-in self-rendered command line (ext_cmdline) with a floating prompt, themed from the
+palette. Enable via `setup({ cmdline = { enable = true } })`.
+
+==============================================================================
+12. INPUT                                                  *lvim-utils-input*
+
+Routes |vim.ui.input| to the cmdline or a popup. Opt-in via `setup({ input = {...} })`.
+
+==============================================================================
+13. UTILS                                                  *lvim-utils-utils*
+
+Misc helpers (table merge, etc.) shared across plugins:
+>lua
+  require("lvim-utils.utils").merge(a, b)  -- deep merge, arrays replaced
+<
+==============================================================================
+14. HIGHLIGHT GROUPS                                  *lvim-utils-highlights*
+
+All groups are self-themed from the palette via |lvim-utils-highlight| `bind` and applied
+with `default = true` (overwritable). Prefixes:
+
+  LvimUi*        Popup chrome: Normal, Border, Separator, Title, Subtitle, Info,
+                 Tab*, Button*, Row*, Item*, Checkbox*, Input, Footer*, Spacer,
+                 CursorLine, and the cmdline pager groups (LvimUiMsg*).
+  LvimNotify*    Notification panels: Normal, Title, Info/Warn/Error/Debug and their
+                 Title*/Header*/Sep* variants.
+
+Override any group explicitly with `setup({ highlights = { GroupName = {...} } })`.
+
+==============================================================================
+15. HEALTH                                                *lvim-utils-health*
+
+>
+    :checkhealth lvim-utils
+<
+Reports Neovim version, 'termguicolors', whether lvim-colorscheme is driving the palette
+(vs the bundled one), whether the UI groups are themed, and ext_cmdline conflicts when the
+self-rendered cmdline is enabled.
+
+==============================================================================
+vim:tw=78:ts=8:noet:ft=help:norl:

@@ -108,6 +108,7 @@ end
 ---@field placeholder?      string
 ---@field callback?         fun(confirmed: boolean, result: any)
 ---@field on_change?        fun(row: Row)
+---@field on_item_change?   fun(item: SelectItem)             Tabs mode: fires when the item cursor moves (live preview)
 ---@field border?           "rounded"|"single"|"double"|"none"
 ---@field width?            integer                             Fixed width (overrides auto and config)
 ---@field max_width?        integer                             Cap for auto width (overrides config max_width)
@@ -197,6 +198,7 @@ function M.open(opts, instance_cfg)
 		position = position,
 		placeholder = placeholder,
 		on_change = on_change,
+		on_item_change = opts.on_item_change,
 		tabs = tabs_opt,
 		items = items,
 
@@ -371,9 +373,47 @@ function M.open(opts, instance_cfg)
 		return math.floor(v <= 1.0 and vim.o.lines * v or v)
 	end
 
+	-- Footer hints resolved exactly as render does (incl. info_keymaps extras), so the
+	-- footer height reserved below matches the grid the footer will actually render.
+	local function resolved_footer_hints(fctx)
+		local hints = opts.footer_hints
+		local m = fctx.mode
+		if (m == "info" or m == "tabs") and s.info_keymaps then
+			local extra = {}
+			for lhs, v in pairs(s.info_keymaps) do
+				if type(v) == "table" and type(v.label) == "string" then
+					table.insert(extra, { key = lhs, label = v.label })
+				end
+			end
+			if #extra > 0 then
+				local base = hints or footer_mod.hints(fctx)
+				hints = vim.list_extend(vim.list_extend({}, base), extra)
+			end
+		end
+		return hints
+	end
+	-- Number of footer hint rows for the current state (1, or more when the grid wraps).
+	local function footer_hint_rows()
+		if not (s.show_footer and s.width) then
+			return 1
+		end
+		local fctx = {
+			mode = s.mode or mode,
+			width = s.width,
+			cfg = s_cfg,
+			has_rows = tab_has_rows(),
+			rows = cur_rows(),
+			row_cursor = s.row_cursor,
+			horizontal_actions = s.horizontal_actions,
+			back_key = s.back_key,
+			tab_focus = s.tab_focus,
+		}
+		fctx.hints = resolved_footer_hints(fctx)
+		return footer_mod.hint_rows(fctx)
+	end
 	local function recalc_heights()
 		s.action_bar_ht = (s.horizontal_actions and tab_has_rows() and #cur_action_rows() > 0) and 1 or 0
-		s.footer_height = s.show_footer and (3 + s.action_bar_ht) or 0
+		s.footer_height = s.show_footer and (2 + footer_hint_rows() + s.action_bar_ht) or 0
 		-- A fixed height (per-call opts.height or config height) drives the content
 		-- size from the screen, so toggles/refreshes match the initial open. Without
 		-- it the content was capped at max_items, leaving the window too short.
@@ -703,19 +743,7 @@ function M.open(opts, instance_cfg)
 			tab_focus = s.tab_focus,
 		}
 
-		ctx.hints = opts.footer_hints
-		if (s.mode == "info" or s.mode == "tabs") and s.info_keymaps then
-			local extra = {}
-			for lhs, v in pairs(s.info_keymaps) do
-				if type(v) == "table" and type(v.label) == "string" then
-					table.insert(extra, { key = lhs, label = v.label })
-				end
-			end
-			if #extra > 0 then
-				local base = ctx.hints or footer_mod.hints(ctx)
-				ctx.hints = vim.list_extend(vim.list_extend({}, base), extra)
-			end
-		end
+		ctx.hints = resolved_footer_hints(ctx)
 
 		-- ── header window ────────────────────────────────────────────────────
 		if s.win_header and api.nvim_win_is_valid(s.win_header) then

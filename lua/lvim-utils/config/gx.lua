@@ -1,3 +1,6 @@
+-- lua/lvim-utils/config/gx.lua
+-- Default config for the gx module (open-under-cursor: match highlight + handlers).
+
 return {
 	highlight_match = true,
 	highlight_duration_ms = 300,

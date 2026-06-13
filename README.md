@@ -13,20 +13,20 @@ Ships with LVIM IDE (a core dependency). Override its options in your user modul
 
 ```lua
 modules["lvim-tech/lvim-utils"] = {
-  config = function()
-    require("lvim-utils").setup({ ... })
-  end,
+	config = function()
+		require("lvim-utils").setup({ ... })
+	end,
 }
 ```
 
 ### lazy.nvim
 
 ```lua
-{
-  "lvim-tech/lvim-utils",
-  config = function()
-    require("lvim-utils").setup({ ... })
-  end,
+return {
+	"lvim-tech/lvim-utils",
+	config = function()
+		require("lvim-utils").setup({ ... })
+	end,
 }
 ```
 
@@ -71,15 +71,15 @@ Each module is independently usable — `setup()` is optional.
 
 ### `colors`
 
-Public color palette shared by all lvim-utils modules. Automatically syncs from `lvim-colorscheme` when available.
+Public color palette shared by all lvim-utils modules. Automatically syncs from `lvim-colorscheme` when available. Standalone, a bundled muted **dark** and **light** palette is used and swapped automatically on `&background` change; `setup({ colors = {...} })` overrides are sticky across background flips and theme syncs.
 
 ```lua
 local c = require("lvim-utils.colors")
 
-c.red        -- "#cb4f4f"
-c.bg_light   -- "#2c3339"
-c.git.add    -- "#5f7240"
-c.blend(c.teal, c.bg, 0.3)
+local red = c.red -- "#cb4f4f"
+local bg_light = c.bg_light -- "#2c3339"
+local add = c.git.add -- "#5f7240"
+local mixed = c.blend(c.teal, c.bg, 0.3)
 ```
 
 **Override palette via `setup()`:**
@@ -130,9 +130,37 @@ require("lvim-utils.cursor").setup({
 
 Dynamic highlight group registration that survives colorscheme changes, plus color manipulation helpers.
 
+**Self-theming with `bind` (recommended)**
+
+`bind` is the canonical way for a plugin to theme its own UI from the shared
+[`colors`](#colors) palette while staying overwritable. Pass a factory that reads the
+palette and returns its groups; `bind` applies them with `default = true` (so the active
+colorscheme or the user can override them) and re-applies automatically whenever the
+palette syncs from lvim-colorscheme or on any `ColorScheme`. When the palette actually
+changes the groups are force-updated, so live theme previews recolor correctly.
+
+The factory receives the live palette as its argument. `bind` returns a dispose function
+that unbinds the factory (for isolated `ui.new()` instances or plugins that tear down).
+
 ```lua
 local hl = require("lvim-utils.highlight")
 
+local dispose = hl.bind(function(c)
+	return {
+		MyPluginNormal = { bg = c.bg_dark, fg = c.fg },
+		MyPluginTitle = { fg = c.blue, bold = true },
+	}
+end)
+
+-- later, to stop theming these groups:
+-- dispose()
+```
+
+**Fixed groups with `register`**
+
+For groups that are not palette-derived (or to hard-apply user overrides):
+
+```lua
 -- Register defaults (skips groups already set by the colorscheme)
 hl.register({
 	MyGroupNormal = { bg = "#1e1e2e" },
@@ -169,7 +197,8 @@ hl.group_exists("MyGroup") -- → boolean
 
 | Function                        | Description                                     |
 | ------------------------------- | ----------------------------------------------- |
-| `register(groups, force?)`      | Register and immediately apply highlight groups |
+| `bind(fn)`                      | Self-theme: apply a palette factory (`default`), re-applied on palette/`ColorScheme` change |
+| `register(groups, force?)`      | Register and immediately apply fixed highlight groups |
 | `setup()`                       | Install the `ColorScheme` autocmd               |
 | `blend(fg, bg, alpha)`          | Blend two hex colors                            |
 | `lighten(color, amount)`        | Blend toward white                              |
@@ -253,6 +282,24 @@ require("lvim-utils.ui").input({
 	callback = function(ok, value)
 		if ok then
 			print(value)
+		end
+	end,
+})
+```
+
+#### `confirm`
+
+Yes/no dialog (a two-item select). The default choice is focused on open; cancelling (`<Esc>`) resolves to `false`.
+
+```lua
+require("lvim-utils.ui").confirm({
+	prompt = " Delete file?",
+	yes = "Delete", -- optional labels
+	no = "Cancel",
+	default_no = true, -- focus "No" on open
+	callback = function(yes)
+		if yes then
+			-- ...
 		end
 	end,
 })
@@ -561,6 +608,7 @@ notify.has_printer("my_printer") -- → boolean
 | Key                | Default                  | Description                                               |
 | ------------------ | ------------------------ | --------------------------------------------------------- |
 | `timeout`          | `5000`                   | Auto-dismiss delay in ms; `0` = sticky                    |
+| `dedup`            | `true`                   | Collapse identical consecutive toasts into one `×N` badge |
 | `min_width`        | `50`                     | Minimum panel width in columns                            |
 | `max_width`        | `100`                    | Maximum panel width in columns                            |
 | `padding`          | `1`                      | Horizontal padding inside the panel                       |
@@ -696,7 +744,15 @@ every `require("<plugin>.config")` reader sees the effective values.
 
 ## Highlight Groups
 
-All groups are defined with the active palette colors and reapplied on every colorscheme change. Override any group via `setup({ highlights = { ... } })`.
+All groups are self-themed from the [`colors`](#colors) palette via [`highlight.bind`](#highlight)
+and reapplied on every palette / colorscheme change. They are applied with `default = true`,
+so a colorscheme that defines them (or the user) wins — the palette only fills in what is not
+already themed. Override any group explicitly via `setup({ highlights = { ... } })`.
+
+Every coloured chrome cell follows one tint style: `fg = accent` over `bg = blend(accent, bg_dark, t)`
+— a **strong** tint (`0.2`) for prominent cells (title/name boxes, active tabs/buttons, key badges)
+and a **light** tint (`0.1`) for secondary ones (subtitles, inactive, header stripes, labels,
+separators). Adjust both via `setup({ ui = { tint = { strong = 0.2, light = 0.1 } } })`.
 
 ### UI popup groups
 
@@ -782,3 +838,13 @@ All groups are defined with the active palette colors and reapplied on every col
 | `<Space>`        | Toggle item (multiselect)              |
 
 All keys are configurable via `ui.keys` in `setup()`.
+
+---
+
+## Health
+
+```vim
+:checkhealth lvim-utils
+```
+
+Reports Neovim version, `termguicolors`, whether `lvim-colorscheme` is driving the palette (vs the bundled one), whether the UI groups are themed, and ext_cmdline conflicts when the self-rendered cmdline is enabled.

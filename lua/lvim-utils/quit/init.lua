@@ -34,7 +34,7 @@ local function try_write(bufnr, fname)
 		return false
 	end
 	pcall(vim.api.nvim_set_option_value, "modified", false, { buf = bufnr })
-	return vim.loop.fs_stat(fname) ~= nil
+	return (vim.uv or vim.loop).fs_stat(fname) ~= nil
 end
 
 --- Issue :qa or :qa! depending on whether any buffer is still dirty.

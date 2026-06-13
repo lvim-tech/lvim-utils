@@ -248,6 +248,19 @@ local function _rebuild_panel(level, win_w)
 		priority = 200,
 	})
 
+	-- Tint the whole content body (every row below the header bar) one level — the
+	-- separator and title marks layer their fg on top. Only when a matching Body group
+	-- exists (the standard levels; custom panels keep the plain panel bg).
+	local body_hl, n_body = header_hl:gsub("Header", "Body")
+	if n_body > 0 then
+		for r = 1, h - 1 do
+			api.nvim_buf_set_extmark(buf, NS, r, 0, {
+				line_hl_group = body_hl,
+				priority = 100,
+			})
+		end
+	end
+
 	for _, r in ipairs(sep_rows) do
 		api.nvim_buf_set_extmark(buf, NS, r, 0, {
 			end_col = #sep,
@@ -375,6 +388,19 @@ local function _render_prog_channel(id, win_w)
 	api.nvim_set_option_value("modifiable", false, { buf = buf })
 
 	api.nvim_buf_clear_namespace(buf, NS, 0, -1)
+
+	-- Body tint (0.2) over the progress content rows, same as the toast panels; the header
+	-- bar (row 0, hdr_hl at 0.3) and the col marks sit on top.
+	local body_hl, n_body = hdr_hl:gsub("Header", "Body")
+	if n_body > 0 then
+		for r = 1, h - 1 do
+			api.nvim_buf_set_extmark(buf, NS, r, 0, {
+				line_hl_group = body_hl,
+				priority = 100,
+			})
+		end
+	end
+
 	for _, m in ipairs(col_marks) do
 		api.nvim_buf_set_extmark(buf, NS, m[1], m[2], {
 			end_col = m[3],
@@ -427,55 +453,66 @@ local function _show_toast(msg, level, opts)
 	local pad_s = string.rep(" ", pad)
 	local max_w = _cfg.max_width or 60
 	local min_w = _cfg.min_width or 36
-
 	local available = max_w - pad * 2
 	local msg_lines = wrap(msg, available)
+	local timeout = (opts.timeout ~= nil) and opts.timeout or (_cfg.timeout or 4000)
 
-	-- Natural width: widest content line, clamped to [min_w, max_w].
-	local inner_w = 0
-	if title then
-		inner_w = math.max(inner_w, dw(title))
-	end
-	for _, l in ipairs(msg_lines) do
-		inner_w = math.max(inner_w, dw(l))
-	end
-	local natural_w = math.min(max_w, math.max(min_w, inner_w + pad * 2))
-
-	local lines = {}
-	local marks = {}
-	local ri = 0
-
-	local function push(str, ...)
-		table.insert(lines, str)
-		for _, m in ipairs({ ... }) do
-			table.insert(marks, { ri, m[1], m[2], m[3] })
+	-- (Re)render an entry's buffer lines + marks + natural width. A `×N` badge is shown
+	-- when the same toast has been collapsed more than once (see dedup below). Also
+	-- (re)sets the sliding deadline so a repeat refreshes the timeout.
+	local function render(entry)
+		local lines, marks, ri = {}, {}, 0
+		local function push(str, m)
+			table.insert(lines, str)
+			if m then
+				table.insert(marks, { ri, m[1], m[2], m[3] })
+			end
+			ri = ri + 1
 		end
-		ri = ri + 1
+		local badge = (entry.count and entry.count > 1) and ("  ×" .. entry.count) or ""
+		if entry.title then
+			push(pad_s .. entry.title .. badge, { pad, pad + dw(entry.title), title_hl })
+		end
+		for i, mline in ipairs(entry.msg_lines) do
+			push(pad_s .. mline .. ((not entry.title and i == 1) and badge or ""))
+		end
+		local inner_w = 0
+		for _, l in ipairs(lines) do
+			inner_w = math.max(inner_w, dw(l))
+		end
+		entry.lines, entry.marks = lines, marks
+		entry.natural_w = math.min(max_w, math.max(min_w, inner_w + pad * 2))
+		entry.deadline = vim.uv.now() + timeout
 	end
 
-	if title then
-		local s = pad_s .. title
-		push(s, { pad, pad + dw(title), title_hl })
+	-- Dedup: an identical consecutive toast (same level, title, message) bumps a counter
+	-- on the existing entry instead of stacking a duplicate, and refreshes its deadline.
+	local p = _panels[level]
+	if _cfg.dedup ~= false and p and api.nvim_win_is_valid(p.win) then
+		local last = p.entries[#p.entries]
+		if last and last.title == title and last.raw == msg then
+			last.count = (last.count or 1) + 1
+			render(last)
+			_rebuild(level)
+			return
+		end
 	end
 
-	for _, mline in ipairs(msg_lines) do
-		push(pad_s .. mline)
-	end
-
-	local entry = { lines = lines, marks = marks, natural_w = natural_w }
+	local entry = { title = title, msg_lines = msg_lines, raw = msg, count = 1 }
+	render(entry)
 
 	-- Create panel for this level if needed.
 	-- Initial width uses natural_w; _rebuild will widen it when more entries arrive.
 	if not _panels[level] or not api.nvim_win_is_valid(_panels[level].win) then
 		_panels[level] = nil
 		local buf = api.nvim_create_buf(false, true)
-		local win_col = math.max(0, vim.o.columns - natural_w - 1)
+		local win_col = math.max(0, vim.o.columns - entry.natural_w - 1)
 		api.nvim_set_option_value("filetype", "lvim-utils-notify", { buf = buf })
 		local win = api.nvim_open_win(buf, false, {
 			relative = "editor",
 			row = math.max(0, vim.o.lines - (_cfg.bottom_margin or 2) - 2),
 			col = win_col,
-			width = natural_w,
+			width = entry.natural_w,
 			height = 1,
 			border = _cfg.border or "none",
 			style = "minimal",
@@ -483,27 +520,35 @@ local function _show_toast(msg, level, opts)
 			zindex = _cfg.zindex or 200,
 		})
 		api.nvim_set_option_value("winhl", "Normal:LvimNotifyNormal", { win = win })
-		_panels[level] = { win = win, buf = buf, width = natural_w, height = 1, entries = {} }
+		_panels[level] = { win = win, buf = buf, width = entry.natural_w, height = 1, entries = {} }
 	end
 
 	table.insert(_panels[level].entries, entry)
 	_rebuild(level)
 
-	local timeout = (opts.timeout ~= nil) and opts.timeout or (_cfg.timeout or 4000)
 	if timeout > 0 then
-		vim.defer_fn(function()
-			local p = _panels[level]
-			if not p then
-				return
-			end
-			for i, e in ipairs(p.entries) do
-				if e == entry then
-					table.remove(p.entries, i)
-					_rebuild(level)
-					break
+		-- Sliding-deadline removal: a dedup hit pushes `entry.deadline` forward, so the
+		-- toast persists while it keeps repeating and clears `timeout` ms after the last.
+		local function schedule_remove()
+			vim.defer_fn(function()
+				local pp = _panels[level]
+				if not pp then
+					return
 				end
-			end
-		end, timeout)
+				for i, e in ipairs(pp.entries) do
+					if e == entry then
+						if vim.uv.now() < (e.deadline or 0) then
+							schedule_remove()
+						else
+							table.remove(pp.entries, i)
+							_rebuild(level)
+						end
+						break
+					end
+				end
+			end, math.max(50, (entry.deadline or 0) - vim.uv.now()))
+		end
+		schedule_remove()
 	end
 end
 
@@ -981,7 +1026,7 @@ function M.msg_highlights()
 	local c = colors
 	local b, bg = c.blend, c.bg
 	local g = {}
-	local msg = { Error = c.red, Warn = c.orange, Info = c.teal, Debug = c.purple }
+	local msg = { Error = c.red, Warn = c.orange, Info = c.blue, Debug = c.purple }
 	for name, col in pairs(msg) do
 		g["LvimUiMsg" .. name] = { fg = col, bg = b(col, bg, 0.1) }
 		g["LvimUiMsg" .. name .. "Text"] = { fg = col, bg = b(col, bg, 0.1) }
@@ -991,34 +1036,19 @@ function M.msg_highlights()
 	return g
 end
 
--- Register the history-pager groups at module load (not just in setup) so they exist
--- after a plain require() and survive a reload that skips setup's first-run block. Also
--- refresh them on colorscheme change.
+-- Self-theme the history-pager groups at module load (not just in setup) so they exist
+-- after a plain require(); bind() applies them with `default = true` and re-applies on
+-- palette change and on ColorScheme.
 pcall(function()
-	hl.register(M.msg_highlights(), false)
-	local colors_mod = colors
-	if colors_mod.on_change then
-		colors_mod.on_change(function()
-			hl.register(M.msg_highlights(), false)
-		end)
-	end
+	hl.bind(M.msg_highlights)
 end)
 
 function M.setup(user_cfg)
 	user_cfg = user_cfg or {}
 	_cfg = vim.tbl_deep_extend("force", _cfg, user_cfg)
 
-	-- Register highlight groups on first setup.
-	if not _initialized then
-		local colors = config.colors
-		local nc = {}
-		for name, opts in pairs(colors) do
-			if name:match("^LvimNotify") then
-				nc[name] = opts
-			end
-		end
-		hl.register(nc, true)
-	end
+	-- LvimNotify* groups are self-themed centrally via highlight.bind (config factory),
+	-- so notify no longer re-registers them here.
 
 	-- Build printer list: explicit printers list replaces defaults;
 	-- otherwise ensure toast + history are present on first call.

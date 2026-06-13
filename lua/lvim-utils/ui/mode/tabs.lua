@@ -367,6 +367,12 @@ function M.attach(s)
 		s.sync_layout()
 		pcall(api.nvim_win_set_cursor, s.win, { 1, 0 })
 		s.render()
+		if s.on_item_change then
+			local ci = s.cur_items()
+			if ci and ci[s.current_idx + 1] then
+				s.on_item_change(ci[s.current_idx + 1])
+			end
+		end
 	end
 
 	-- Tab-bar focus: when true, h/l switch between the tabs (Plugins / Treesitter /…)
@@ -563,6 +569,9 @@ function M.attach(s)
 				s.scroll = s.current_idx - s.content_height + 1
 			end
 			s.render()
+			if s.on_item_change then
+				s.on_item_change(ci[s.current_idx + 1])
+			end
 		end
 		map(k.down, function()
 			move_item(1)

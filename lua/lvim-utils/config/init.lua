@@ -4,8 +4,6 @@
 -- them as live tables that modules read at call time.
 -- setup() deep-merges user overrides into the live tables.
 
-local colors = require("lvim-utils.colors")
-local highlight = require("lvim-utils.highlight")
 local M = {}
 
 -- Load defaults as independent deep copies so modules can mutate them freely.
@@ -42,11 +40,14 @@ function M.setup(opts)
 	end
 end
 
--- Re-compute and re-register all highlight groups when lvim-colorscheme changes.
-colors.on_change(function()
-	local new_colors = _hl_factory()
-	M.colors = new_colors
-	highlight.register(new_colors, true)
-end)
+--- Rebuild the UI/notify highlight group map from the live palette and publish it as
+--- `M.colors` for readers. Bound via `highlight.bind` in setup() so the groups self-theme:
+--- applied with `default = true` and re-applied automatically on palette change.
+---@param colors? table  the live palette (passed by highlight.bind)
+---@return table<string, table>
+function M.rebuild_highlights(colors)
+	M.colors = _hl_factory(colors)
+	return M.colors
+end
 
 return M

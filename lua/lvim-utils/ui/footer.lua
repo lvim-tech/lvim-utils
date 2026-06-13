@@ -180,59 +180,155 @@ function M.max_width(mode, has_rows, cfg_override)
 	return max_w
 end
 
--- ─── build / hl ───────────────────────────────────────────────────────────────
+-- ─── compose (single line / column grid) ─────────────────────────
 
---- Build the 3 footer lines and return byte ranges for key/label highlights.
+--- Lay the hints out into footer line(s). When they fit on one line it stays a single
+--- centred row (classic behaviour, unchanged). When they overflow the popup width they
+--- wrap into an aligned column grid: every cell is padded to the widest "key label" so
+--- the columns line up across rows. Returns the hint line strings (not the empty /
+--- separator rows) and ranges tagged with their 1-based row.
+---@param ctx table
+---@return string[] lines
+---@return table[]  ranges  {row, s, e, kind, hl}
+local function compose(ctx)
+	local hints = ctx.hints or M.hints(ctx)
+	local width = ctx.width
+
+	-- classic single centred line when everything fits (or only one hint)
+	local text, ranges = assemble(hints)
+	if #hints <= 1 or util.dw(text) <= width then
+		local offset = math.max(0, math.floor((width - util.dw(text)) / 2))
+		local out = {}
+		for _, r in ipairs(ranges) do
+			out[#out + 1] = { row = 1, s = offset + r.s, e = offset + r.e, kind = r.kind, hl = r.hl }
+		end
+		return { util.center(text, width) }, out
+	end
+
+	-- overflow -> aligned column grid (row-major fill, PER-COLUMN widths so the grid packs
+	-- tighter than a uniform cell width while columns still line up across rows).
+	local GUT = 3 -- gap between columns
+	local n = #hints
+	local cellw = {} -- display width of each "key label" cell
+	for i, h in ipairs(hints) do
+		cellw[i] = util.dw(h.key) + 1 + util.dw(h.label)
+	end
+
+	-- For a given column count, each column's width is the max cell among the hints that
+	-- land in it (row-major: hint i → column (i-1) % ncols). Use the most columns whose
+	-- summed widths (+ gutters) still fit the popup.
+	local function layout(ncols)
+		local colw = {}
+		for i = 1, n do
+			local col = (i - 1) % ncols
+			colw[col] = math.max(colw[col] or 0, cellw[i])
+		end
+		local total = GUT * (ncols - 1)
+		for c = 0, ncols - 1 do
+			total = total + (colw[c] or 0)
+		end
+		return colw, total
+	end
+
+	local ncols = n
+	local colw, total = layout(ncols)
+	while ncols > 1 and total > width do
+		ncols = ncols - 1
+		colw, total = layout(ncols)
+	end
+	local nrows = math.ceil(n / ncols)
+	local lead = math.max(0, math.floor((width - total) / 2))
+
+	local line_text = {}
+	for i = 1, nrows do
+		line_text[i] = string.rep(" ", lead)
+	end
+	local out = {}
+	for i, h in ipairs(hints) do
+		local row = math.floor((i - 1) / ncols) + 1
+		local col = (i - 1) % ncols
+		local cur = line_text[row]
+		local key_s = #cur
+		cur = cur .. h.key
+		out[#out + 1] = { row = row, s = key_s, e = #cur, kind = "key", hl = h.key_hl }
+		cur = cur .. " "
+		local lbl_s = #cur
+		cur = cur .. h.label
+		out[#out + 1] = { row = row, s = lbl_s, e = #cur, kind = "label", hl = h.label_hl }
+		if col < ncols - 1 then
+			cur = cur .. string.rep(" ", (colw[col] or 0) - cellw[i] + GUT)
+		end
+		line_text[row] = cur
+	end
+	return line_text, out
+end
+
+-- ─── build / hl ─────────────────────────────────────────────────────────────
+
+--- Build the footer lines (empty + separator + 1..n hint rows) and per-row ranges.
 ---@param ctx table  Pass ctx.hints directly to skip mode-based hint resolution.
 ---@return string[] lines
----@return table[]  hint_ranges  {s, e, kind}
+---@return table[]  hint_ranges  {row, s, e, kind, hl}
 function M.build(ctx)
-	local hints = ctx.hints or M.hints(ctx)
-	local text, ranges = assemble(hints)
-	local offset = math.floor((ctx.width - util.dw(text)) / 2)
-	local final_ranges = {}
-	for _, r in ipairs(ranges) do
-		table.insert(final_ranges, { s = offset + r.s, e = offset + r.e, kind = r.kind })
+	local grid, ranges = compose(ctx)
+	local lines = { "", string.rep("─", ctx.width) }
+	for _, l in ipairs(grid) do
+		lines[#lines + 1] = l
 	end
-	return {
-		"",
-		string.rep("─", ctx.width),
-		util.center(text, ctx.width),
-	}, final_ranges
+	return lines, ranges
+end
+
+--- Number of hint rows the footer will render (1 normally, more when wrapped). The popup
+--- uses this to reserve the footer window height before render.
+---@param ctx table
+---@return integer
+function M.hint_rows(ctx)
+	local grid = compose(ctx)
+	return #grid
 end
 
 --- Apply footer highlights: separator line, base footer hl, key/label extmarks.
 ---@param buf         integer
 ---@param total_lines integer
 ---@param hint_ranges table[]
+---@param ctx         table
 function M.apply_hl(buf, total_lines, hint_ranges, ctx)
 	local NS = util.NS
 	local resolve_hl = ctx.resolve_hl
 	local cfg = ctx.cfg
 	local footer_hl = cfg.footer_hl or {}
 
-	util.hl_line(buf, total_lines - 2, "LvimUiSeparator")
+	-- the hint grid occupies the last `nrows` lines; the separator sits just above it
+	local nrows = 1
+	for _, r in ipairs(hint_ranges or {}) do
+		nrows = math.max(nrows, r.row or 1)
+	end
+	local first = total_lines - nrows -- 0-based line of grid row 1
+	util.hl_line(buf, first - 1, "LvimUiSeparator")
 
-	-- Base footer hl as a col extmark (not line_hl_group) so key/label extmarks
-	-- can override fg with higher priority.
-	local hint_line = api.nvim_buf_get_lines(buf, total_lines - 1, total_lines, false)[1] or ""
-	api.nvim_buf_set_extmark(buf, NS, total_lines - 1, 0, {
-		end_col = #hint_line,
-		hl_eol = true,
-		hl_group = resolve_hl("LvimUiFooter"),
-		priority = 100,
-	})
+	-- base footer hl per grid line (col extmark so key/label can override fg)
+	for ri = 1, nrows do
+		local lnum = first + ri - 1
+		local line = api.nvim_buf_get_lines(buf, lnum, lnum + 1, false)[1] or ""
+		api.nvim_buf_set_extmark(buf, NS, lnum, 0, {
+			end_col = #line,
+			hl_eol = true,
+			hl_group = resolve_hl("LvimUiFooter"),
+			priority = 100,
+		})
+	end
 
 	for _, r in ipairs(hint_ranges or {}) do
+		local lnum = first + (r.row or 1) - 1
+		local line = api.nvim_buf_get_lines(buf, lnum, lnum + 1, false)[1] or ""
 		local default = r.kind == "key" and (footer_hl.key or "LvimUiFooterKey")
 			or (footer_hl.label or "LvimUiFooterLabel")
 		local group = resolve_hl(r.hl or default)
-		-- Clamp to the rendered line: a narrow popup can truncate the hint line so a
-		-- computed range runs past its end (nvim rejects an out-of-range end_col).
-		local s_col = math.min(r.s, #hint_line)
-		local e_col = math.min(r.e, #hint_line)
+		-- clamp to the rendered line so a narrow popup can never produce an out-of-range col
+		local s_col = math.max(0, math.min(r.s, #line))
+		local e_col = math.max(0, math.min(r.e, #line))
 		if e_col > s_col then
-			api.nvim_buf_set_extmark(buf, NS, total_lines - 1, s_col, {
+			api.nvim_buf_set_extmark(buf, NS, lnum, s_col, {
 				end_col = e_col,
 				hl_group = group,
 				priority = 300,

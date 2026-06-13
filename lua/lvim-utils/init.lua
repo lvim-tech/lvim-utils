@@ -35,9 +35,11 @@ function M.setup(opts)
 		input = opts.input,
 	})
 
-	-- 3. Register UI highlight groups from the fully-configured palette,
-	--    then install the ColorScheme autocmd that re-applies them.
-	M.highlight.register(M.config.colors, true)
+	-- 3. Self-theme the UI/notify groups from the fully-configured palette via bind():
+	--    applied with `default = true` so a non-lvim colorscheme (or the user) can override
+	--    them, and re-applied automatically on palette/ColorScheme change. An explicit user
+	--    `highlights` override applies hard (force). Then install the ColorScheme autocmd.
+	M.highlight.bind(M.config.rebuild_highlights)
 	if opts.highlights then
 		M.highlight.register(opts.highlights, true)
 	end

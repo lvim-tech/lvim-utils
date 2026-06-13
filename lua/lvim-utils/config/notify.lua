@@ -6,6 +6,8 @@ return {
 	max_history = 100,
 	-- Auto-dismiss delay in ms; 0 = sticky
 	timeout = 5000,
+	-- Collapse identical consecutive toasts into one with a ×N badge (refreshes timeout)
+	dedup = true,
 	-- Panel width bounds
 	min_width = 50,
 	max_width = 100,
@@ -62,7 +64,7 @@ return {
 		warn = "",
 		info = "",
 		hint = "",
-		progress = "",
+		progress = "",
 	},
 	-- Singular/plural level names shown in the header bar
 	level_names = {

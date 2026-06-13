@@ -26,11 +26,18 @@ local function item_byte_ranges(item, ctx, ico)
 		checkbox_s = indent
 		checkbox_e = indent + #check
 	elseif ctx.current_item ~= nil and item == ctx.current_item then
-		-- The current row renders as `ico.current .. " " .. lbl` with no leading pad.
-		-- Treat the ➤ marker as this row's icon (so it gets the icon highlight) and
-		-- start the text right after it — otherwise the highlights land off-column.
-		local text_s = #(ico.current .. " ")
-		return nil, nil, 0, #ico.current, text_s, text_s + #lbl
+		-- The current row renders as `ico.current .. " " .. icon_part .. lbl` with no
+		-- leading pad, where icon_part is `icon .. " "` (or "" when the item has no icon).
+		-- The ➤ marker AND the item icon share the icon highlight span, and the text
+		-- starts right after — otherwise the highlights land off-column (the item icon was
+		-- previously left uncoloured and the text shifted left by the icon's width).
+		local after_marker = #ico.current + 1 -- past "➤ "
+		if icon then
+			local icon_e = after_marker + #icon -- ➤ … ◑
+			local text_s = icon_e + 1 -- past the space after the item icon
+			return nil, nil, 0, icon_e, text_s, text_s + #lbl
+		end
+		return nil, nil, 0, #ico.current, after_marker, after_marker + #lbl
 	end
 
 	local prefix = checkbox_e and (checkbox_e + 1) or indent
@@ -425,7 +432,7 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 				local is_active = (global == ctx.current_idx)
 				local _line = api.nvim_buf_get_lines(buf, row_idx, row_idx + 1, false)[1] or ""
 
-				-- cursor line
+				-- cursor line (active row only — the list body stays clean, no tint)
 				if is_active then
 					api.nvim_buf_set_extmark(buf, NS, row_idx, 0, {
 						end_col = #_line,
