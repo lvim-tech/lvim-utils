@@ -109,6 +109,7 @@ end
 ---@field callback?         fun(confirmed: boolean, result: any)
 ---@field on_change?        fun(row: Row)
 ---@field on_item_change?   fun(item: SelectItem)             Tabs mode: fires when the item cursor moves (live preview)
+---@field on_row_change?    fun(row: Row): string?            Tabs typed-rows: called each render with the focused row; return a string to use as a live subtitle (e.g. per-row help). Requires an initial `subtitle` so the slot is reserved.
 ---@field border?           "rounded"|"single"|"double"|"none"
 ---@field width?            integer                             Fixed width (overrides auto and config)
 ---@field max_width?        integer                             Cap for auto width (overrides config max_width)
@@ -199,6 +200,7 @@ function M.open(opts, instance_cfg)
 		placeholder = placeholder,
 		on_change = on_change,
 		on_item_change = opts.on_item_change,
+		on_row_change = opts.on_row_change,
 		tabs = tabs_opt,
 		items = items,
 
@@ -702,6 +704,28 @@ function M.open(opts, instance_cfg)
 	end
 
 	local function render()
+		-- Live subtitle (opt-in via on_row_change): ask the caller for a subtitle string
+		-- based on the focused row, then rebuild meta_lines so it shows. The line COUNT is
+		-- kept stable (title + "" + subtitle [+ "" + info]) so header height never shifts —
+		-- the caller must pass an initial `subtitle` so the slot was reserved at layout.
+		if s.on_row_change and s.mode == "tabs" then
+			local r = cur_rows()[s.row_cursor]
+			local sub = r and s.on_row_change(r)
+			if type(sub) == "string" then
+				s.subtitle = sub
+				s.meta_lines = {}
+				if s.title then
+					table.insert(s.meta_lines, s.title)
+					table.insert(s.meta_lines, "")
+				end
+				table.insert(s.meta_lines, s.subtitle)
+				if s.info then
+					table.insert(s.meta_lines, "")
+					table.insert(s.meta_lines, s.info)
+				end
+			end
+		end
+
 		-- ── build shared context ─────────────────────────────────────────────
 		-- header_height = 0 so content.apply_hl uses 0-based row indices
 		-- (matching the content buffer which starts at line 0).
