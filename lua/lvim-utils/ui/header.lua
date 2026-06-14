@@ -51,7 +51,7 @@ function M.build(ctx)
 		-- visible window [lo, hi] (the whole bar when it already fits)
 		local lo, hi = 1, n
 		if total > ctx.width and n > 0 then
-			local budget = ctx.width - 4 -- room for the two flanking chevrons + spaces
+			local budget = ctx.width - 6 -- room for the two flanking " <chevron> " boxes
 			local active = math.max(1, math.min(ctx.active_tab, n))
 			lo, hi = active, active
 			local used = dws[active]
@@ -77,10 +77,11 @@ function M.build(ctx)
 		local right_more = hi < n
 
 		-- assemble the windowed bar, recording byte ranges on the rendered string
-		local prefix = left_more and (CHEVRON_L .. " ") or ""
-		local tab_bar = prefix
+		-- Chevron boxes get 1 space front and back inside their span (like the tab icons).
+		local left_box = left_more and (" " .. CHEVRON_L .. " ") or ""
+		local tab_bar = left_box
 		if left_more then
-			table.insert(tab_ranges, { chevron = true, s = 0, e = #CHEVRON_L })
+			table.insert(tab_ranges, { chevron = true, s = 0, e = #left_box })
 		end
 		for i = lo, hi do
 			local t = ctx.tabs[i]
@@ -112,9 +113,9 @@ function M.build(ctx)
 			tab_bar = tab_bar .. lbl
 		end
 		if right_more then
-			local cs = #tab_bar + 1 -- chevron starts after the joining space
-			tab_bar = tab_bar .. " " .. CHEVRON_R
-			table.insert(tab_ranges, { chevron = true, s = cs, e = cs + #CHEVRON_R })
+			local cs = #tab_bar -- box starts at the leading space
+			tab_bar = tab_bar .. " " .. CHEVRON_R .. " "
+			table.insert(tab_ranges, { chevron = true, s = cs, e = #tab_bar })
 		end
 		centered_offset = math.max(0, math.floor((ctx.width - util.dw(tab_bar)) / 2))
 		table.insert(lines, util.center(tab_bar, ctx.width))
@@ -220,7 +221,7 @@ function M.apply_hl(buf, ctx, tab_ranges, centered_offset)
 		end
 		for _, r in ipairs(tab_ranges) do
 			if r.chevron then
-				set_span(r.s, r.e, resolve_hl("LvimUiTabInactive"), 200)
+				set_span(r.s, r.e, resolve_hl("LvimUiTabChevron"), 200)
 			else
 				local gtab = cfg.tab_hl
 				local global_hl = gtab and (r.active and gtab.active or gtab.inactive)

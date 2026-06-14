@@ -56,6 +56,8 @@ return function(c)
 		-- text 0.4 (a solid yellow block). Inactive: lighter (icon 0.3, text 0.2).
 		LvimUiTabActive = { fg = c.red, bg = mtint(c.red, STRONG), bold = true },
 		LvimUiTabInactive = { fg = c.red, bg = mtint(c.red, BODY) },
+		-- Overflow chevrons (hidden tabs) — red with a 0.3 tint, padded 1 space front/back.
+		LvimUiTabChevron = { fg = c.red, bg = mtint(c.red, 0.3), bold = true },
 		LvimUiTabIconActive = { fg = c.yellow, bg = mtint(c.yellow, 0.5) },
 		LvimUiTabIconInactive = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
 		LvimUiTabTextActive = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
@@ -87,17 +89,21 @@ return function(c)
 		LvimUiCheckboxSelected = { fg = c.yellow },
 		LvimUiCheckboxEmpty = { fg = c.yellow },
 
-		-- Footer hint bar (key badge = STRONG, base + label = BODY)
-		LvimUiFooter = { fg = c.blue, bg = mtint(c.blue, BODY), bold = true },
-		LvimUiFooterKey = { fg = c.blue, bg = mtint(c.blue, STRONG), bold = true },
-		LvimUiFooterLabel = { fg = c.yellow, bg = mtint(c.yellow, BODY) },
+		-- Footer hints. No full-width footer bar (the base has no bg); each badge is its own box:
+		-- the key a blue 0.3 tint, the label a yellow 0.2 tint, on the plain panel background.
+		LvimUiFooter = { fg = c.blue, bold = true },
+		LvimUiFooterKey = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true },
+		LvimUiFooterLabel = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
 
 		-- Spacer / divider rows
 		LvimUiSpacer = { fg = c.magenta },
 
-		-- Disabled row: a value that exists but can't apply in the current context — dimmed
-		-- (comment colour) + struck through, so it stays visible but reads as inert.
-		LvimUiDisabled = { fg = c.comment, strikethrough = true },
+		-- Disabled row: a value that exists but can't apply in the current context — dimmed +
+		-- struck through, so it stays visible but reads as inert. The fg is the comment colour
+		-- blended further toward the background: plain `c.comment` is nearly identical to the
+		-- INACTIVE row text, so on a non-focused row the dim was invisible — this keeps it
+		-- clearly greyer than any normal row, focused or not.
+		LvimUiDisabled = { fg = mtint(c.comment, 0.45), strikethrough = true },
 
 		-- Notify panel — matches the Messages groups (LvimUiMsg*) exactly: colours
 		-- Error=red, Warn=orange, Info=teal, Debug=purple; tints blended toward c.bg, with

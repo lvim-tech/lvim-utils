@@ -461,9 +461,16 @@ function M.open(opts, instance_cfg)
 			w = math.max(w, dw(info) + 4)
 		end
 		if mode == "tabs" then
+			-- Must mirror header.lua's per-tab layout exactly: each tab is a padded icon box
+			-- ("  <icon>  ", only when it has an icon) followed by a padded text box
+			-- ("  <label>  "). Counting only the label box (the old behaviour) under-measured
+			-- every tab by its icon block, so ctx.width came out narrower than the rendered tab
+			-- bar — the header separator stopped short of the panel edge and the bar falsely
+			-- "overflowed", sprouting chevrons even with plenty of room.
 			local tl = ""
 			for _, t in ipairs(s.tabs) do
-				tl = tl .. "  " .. (t.label or "") .. "  "
+				local icon_part = (t.icon and t.icon ~= "") and ("  " .. t.icon .. "  ") or ""
+				tl = tl .. icon_part .. "  " .. (t.label or "") .. "  "
 			end
 			w = math.max(w, dw(tl) + 2)
 			for _, t in ipairs(s.tabs) do

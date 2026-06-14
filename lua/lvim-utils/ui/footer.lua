@@ -129,17 +129,19 @@ end
 ---@return string  text
 ---@return table[] ranges  {s, e, kind="key"|"label"}
 local function assemble(hints)
-	local text = "  "
+	local text = ""
 	local ranges = {}
 	for i, h in ipairs(hints) do
+		-- Key and label are each their own padded box: 1 space front and back inside the span.
 		local key_s = #text
-		text = text .. h.key
+		text = text .. " " .. h.key .. " "
 		table.insert(ranges, { s = key_s, e = #text, kind = "key", hl = h.key_hl })
-		text = text .. " "
 		local lbl_s = #text
-		text = text .. h.label
+		text = text .. " " .. h.label .. " "
 		table.insert(ranges, { s = lbl_s, e = #text, kind = "label", hl = h.label_hl })
-		text = text .. (i < #hints and "   " or "  ")
+		if i < #hints then
+			text = text .. " " -- gap between hints (plus each badge's own padding)
+		end
 	end
 	return text, ranges
 end
@@ -211,7 +213,8 @@ local function compose(ctx)
 	local n = #hints
 	local cellw = {} -- display width of each "key label" cell
 	for i, h in ipairs(hints) do
-		cellw[i] = util.dw(h.key) + 1 + util.dw(h.label)
+		-- " <key> " + " <label> " (each padded 1 space front + back)
+		cellw[i] = util.dw(h.key) + util.dw(h.label) + 4
 	end
 
 	-- For a given column count, each column's width is the max cell among the hints that
@@ -249,11 +252,10 @@ local function compose(ctx)
 		local col = (i - 1) % ncols
 		local cur = line_text[row]
 		local key_s = #cur
-		cur = cur .. h.key
+		cur = cur .. " " .. h.key .. " " -- key badge: 1 space front + back
 		out[#out + 1] = { row = row, s = key_s, e = #cur, kind = "key", hl = h.key_hl }
-		cur = cur .. " "
 		local lbl_s = #cur
-		cur = cur .. h.label
+		cur = cur .. " " .. h.label .. " " -- label badge: 1 space front + back
 		out[#out + 1] = { row = row, s = lbl_s, e = #cur, kind = "label", hl = h.label_hl }
 		if col < ncols - 1 then
 			cur = cur .. string.rep(" ", (colw[col] or 0) - cellw[i] + GUT)
@@ -306,17 +308,8 @@ function M.apply_hl(buf, total_lines, hint_ranges, ctx)
 	local first = total_lines - nrows -- 0-based line of grid row 1
 	util.hl_line(buf, first - 1, "LvimUiSeparator")
 
-	-- base footer hl per grid line (col extmark so key/label can override fg)
-	for ri = 1, nrows do
-		local lnum = first + ri - 1
-		local line = api.nvim_buf_get_lines(buf, lnum, lnum + 1, false)[1] or ""
-		api.nvim_buf_set_extmark(buf, NS, lnum, 0, {
-			end_col = #line,
-			hl_eol = true,
-			hl_group = resolve_hl("LvimUiFooter"),
-			priority = 100,
-		})
-	end
+	-- No full-width footer background: it drew a lighter bar from edge to edge. The footer line
+	-- keeps the panel background; only the key/label hint spans below carry a tint.
 
 	for _, r in ipairs(hint_ranges or {}) do
 		local lnum = first + (r.row or 1) - 1
