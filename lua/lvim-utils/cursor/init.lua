@@ -182,14 +182,21 @@ local function refresh_autocmds()
 		end,
 	})
 
-	-- ColorScheme resets all HL groups; re-apply the hidden cursor group if needed.
-	api.nvim_create_autocmd("ColorScheme", {
+	-- A theme change wipes all highlight groups (`hi clear`), including the invisible-cursor
+	-- group, so re-apply it while the cursor is meant to be hidden. Listen to BOTH events:
+	-- `:colorscheme` fires `ColorScheme`, but a programmatic reload (lvim-colorscheme
+	-- `set()`/`load()`, e.g. toggling a control-center setting) fires only the
+	-- `User LvimColorscheme` event — without this the cursor reappears as a `ver1` bar.
+	local function reapply_hidden_cursor()
+		if state.hidden then
+			api.nvim_set_hl(0, "LvimUtilsHiddenCursor", { blend = 100, nocombine = true })
+		end
+	end
+	api.nvim_create_autocmd("ColorScheme", { group = state.augroup, callback = reapply_hidden_cursor })
+	api.nvim_create_autocmd("User", {
 		group = state.augroup,
-		callback = function()
-			if state.hidden then
-				api.nvim_set_hl(0, "LvimUtilsHiddenCursor", { blend = 100, nocombine = true })
-			end
-		end,
+		pattern = "LvimColorscheme",
+		callback = reapply_hidden_cursor,
 	})
 
 	-- Always show the cursor while the command-line is active.
