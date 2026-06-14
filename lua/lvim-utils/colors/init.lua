@@ -134,6 +134,9 @@ local function _compute()
 	_p.fg_dim = _p.fg_dim or _p.fg_dark
 	_p.fg_muted = _p.fg_muted or _p.comment
 	_p.bg_input = _p.bg_input or _p.bg_soft_dark
+	-- Float/panel background: synced from lvim-colorscheme (it follows `styles.floats` + the
+	-- transparent state). Falls back to the panel bg_dark when no theme has driven it.
+	_p.bg_float = _p.bg_float or _p.bg_dark
 end
 
 --- Rebuild `_p` from the base for the current `&background` plus the user overrides.
@@ -203,6 +206,7 @@ local _LCS_FLAT_KEYS = {
 	"bg",
 	"bg_soft_dark",
 	"bg_dark",
+	"bg_float",
 	"bg_highlight",
 	"fg_light",
 	"fg_soft_light",

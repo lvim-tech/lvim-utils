@@ -269,6 +269,23 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
 			local row = drows[ctx.scroll + i]
 			local row_idx = ctx.header_height + i - 1
 			if row then
+				-- Disabled row: its current value can't apply in the current context → shown
+				-- dimmed + struck through (visible, but clearly inert). `row.disabled` is a
+				-- boolean OR a predicate evaluated HERE at render time, so it tracks related
+				-- toggles live (a value that only applies while another option is on).
+				local dis = row.disabled
+				if type(dis) == "function" then
+					local ok_d, dv = pcall(dis, row.value)
+					dis = ok_d and dv
+				end
+				if dis then
+					local _dl = api.nvim_buf_get_lines(buf, row_idx, row_idx + 1, false)[1] or ""
+					api.nvim_buf_set_extmark(buf, NS, row_idx, 0, {
+						end_col = #_dl,
+						hl_group = "LvimUiDisabled",
+						priority = 300,
+					})
+				end
 				if row == active_row then
 					local _line = api.nvim_buf_get_lines(buf, row_idx, row_idx + 1, false)[1] or ""
 					api.nvim_buf_set_extmark(buf, NS, row_idx, 0, {

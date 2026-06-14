@@ -28,9 +28,11 @@ return function(c)
 	local function mtint(color, t)
 		return hl.blend(color, c.bg, t)
 	end
-	-- Panel background: drop it (NONE) when the theme is transparent so the popups follow a
-	-- translucent terminal; the tinted chrome cells keep their accent tints on top.
-	local panel_bg = c.transparent and c.none or bg
+	-- Panel background follows the theme's `styles.floats` via the synced `bg_float` (which is
+	-- already NONE when transparent, the float "dark" shade, or the editor bg for "normal").
+	-- Defaults to bg_dark when unset, so the panel look is unchanged out of the box. Falls back
+	-- to the transparent-or-bg_dark rule if no theme has driven bg_float yet.
+	local panel_bg = c.bg_float or (c.transparent and c.none or bg)
 
 	return {
 		-- Window chrome (the panel itself — uniform bg, no tint)
@@ -89,6 +91,10 @@ return function(c)
 
 		-- Spacer / divider rows
 		LvimUiSpacer = { fg = c.magenta },
+
+		-- Disabled row: a value that exists but can't apply in the current context — dimmed
+		-- (comment colour) + struck through, so it stays visible but reads as inert.
+		LvimUiDisabled = { fg = c.comment, strikethrough = true },
 
 		-- Notify panel — matches the Messages groups (LvimUiMsg*) exactly: colours
 		-- Error=red, Warn=orange, Info=teal, Debug=purple; tints blended toward c.bg, with
