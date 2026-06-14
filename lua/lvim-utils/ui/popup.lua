@@ -101,6 +101,7 @@ end
 ---@class UiOpts
 ---@field mode?             UiMode
 ---@field title?            HeaderField
+---@field title_icon?       string                              Optional icon shown as a padded box before the title
 ---@field subtitle?         HeaderField
 ---@field info?             HeaderField
 ---@field items?            (string|SelectItem)[]
@@ -150,6 +151,13 @@ function M.open(opts, instance_cfg)
 
 	local mode = opts.mode or "select"
 	local title, title_hl = parse_hf(opts.title)
+	-- Optional title icon, rendered (like the tab icons) as a padded "  <icon>  " box; the
+	-- title text then sits in its own padded "  <title>  " box. Header splits the spans.
+	local title_icon = opts.title_icon
+	if title and title ~= "" then
+		local icon_part = (title_icon and title_icon ~= "") and ("  " .. title_icon .. "  ") or ""
+		title = icon_part .. "  " .. title .. "  "
+	end
 	local subtitle, subtitle_hl = parse_hf(opts.subtitle)
 	local info, info_hl = parse_hf(opts.info)
 	local items = (mode == "info" and opts.content) or opts.items or {}
@@ -175,11 +183,14 @@ function M.open(opts, instance_cfg)
 
 	local initial_active_tab = 1
 	if tab_selector then
-		if type(tab_selector) == "number" then
-			initial_active_tab = math.max(1, math.min(math.floor(tab_selector), #tabs_opt))
+		-- Accept a 1-based index (number OR numeric string like "2"), or a tab identifier
+		-- matched against its `name` first, then its `label`.
+		local idx = tonumber(tab_selector)
+		if idx then
+			initial_active_tab = math.max(1, math.min(math.floor(idx), #tabs_opt))
 		else
 			for i, t in ipairs(tabs_opt) do
-				if t.label == tab_selector then
+				if t.name == tab_selector or t.label == tab_selector then
 					initial_active_tab = i
 					break
 				end
@@ -206,6 +217,7 @@ function M.open(opts, instance_cfg)
 
 		-- header (set during layout)
 		title = title,
+		title_icon = title_icon,
 		subtitle = subtitle,
 		info = info,
 		title_hl = title_hl,
@@ -742,6 +754,7 @@ function M.open(opts, instance_cfg)
 			meta_offset = s.meta_offset,
 			header_height = 0,
 			title = s.title,
+			title_icon = s.title_icon,
 			subtitle = s.subtitle,
 			info = s.info,
 			title_hl = s.title_hl,

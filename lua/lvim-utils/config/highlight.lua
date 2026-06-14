@@ -45,18 +45,21 @@ return function(c)
 		LvimUiCursorLine = { bg = c.bg }, -- active list row (neutral, no tint)
 		LvimUiInput = { bg = c.bg_input, fg = c.fg },
 
-		-- Title block (title = STRONG; subtitle / info = BODY)
+		-- Title block (title = STRONG; subtitle / info = BODY). The optional title icon is its
+		-- own box: same blue as the title text, with a 0.5 tint (matching the active tab icon).
 		LvimUiTitle = { fg = c.blue, bg = mtint(c.blue, STRONG), bold = true },
+		LvimUiTitleIcon = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
 		LvimUiSubtitle = { fg = c.orange, bg = mtint(c.orange, BODY) },
 		LvimUiInfo = { fg = c.yellow, bg = mtint(c.yellow, BODY) },
 
-		-- Tab bar (active = STRONG, inactive = BODY; icon/text are fg-only layers on top)
+		-- Tab bar. Icon + text each render as their own YELLOW-tinted box. Active: icon 0.5,
+		-- text 0.4 (a solid yellow block). Inactive: lighter (icon 0.3, text 0.2).
 		LvimUiTabActive = { fg = c.red, bg = mtint(c.red, STRONG), bold = true },
 		LvimUiTabInactive = { fg = c.red, bg = mtint(c.red, BODY) },
-		LvimUiTabIconActive = { fg = c.yellow },
-		LvimUiTabIconInactive = { fg = c.yellow },
-		LvimUiTabTextActive = { fg = c.red, bold = true },
-		LvimUiTabTextInactive = { fg = c.red },
+		LvimUiTabIconActive = { fg = c.yellow, bg = mtint(c.yellow, 0.5) },
+		LvimUiTabIconInactive = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
+		LvimUiTabTextActive = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
+		LvimUiTabTextInactive = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
 
 		-- Action bar buttons (active = STRONG, inactive = BODY)
 		LvimUiButtonActive = { fg = c.orange, bg = mtint(c.orange, STRONG), bold = true },

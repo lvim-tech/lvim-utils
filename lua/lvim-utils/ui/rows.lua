@@ -43,6 +43,7 @@ local M = {}
 
 ---@class Tab
 ---@field label   string
+---@field name?   string   identifier matched by `tab_selector` (before label)
 ---@field icon?   string
 ---@field tab_hl? { active?: HlDef, inactive?: HlDef }  -- per-tab: only bg field is merged
 ---@field rows?   Row[]

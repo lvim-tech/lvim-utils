@@ -35,8 +35,11 @@ function M.build(ctx)
 		local lbls, dws = {}, {}
 		for i, t in ipairs(ctx.tabs) do
 			local icon_str = t.icon or ""
-			local icon_part = icon_str ~= "" and (icon_str .. " ") or ""
-			lbls[i] = " " .. icon_part .. (t.label or ("Tab " .. i)) .. " "
+			-- Icon and text are each their own padded block ("  <x>  ", 2 spaces front and back) —
+			-- Nerd glyphs read wider than one cell, so the coloured boxes need the breathing room.
+			local icon_part = icon_str ~= "" and ("  " .. icon_str .. "  ") or ""
+			local text_part = "  " .. (t.label or ("Tab " .. i)) .. "  "
+			lbls[i] = icon_part .. text_part
 			dws[i] = util.dw(lbls[i])
 		end
 		local n = #ctx.tabs
@@ -83,16 +86,19 @@ function M.build(ctx)
 			local t = ctx.tabs[i]
 			local icon_str = t.icon or ""
 			local lbl_str = t.label or ("Tab " .. i)
-			local icon_part = icon_str ~= "" and (icon_str .. " ") or ""
+			-- Must match the lbls[] construction above (padded "  <x>  " blocks).
+			local icon_part = icon_str ~= "" and ("  " .. icon_str .. "  ") or ""
 			local lbl = lbls[i]
 			local start = #tab_bar
 			local icon_s, icon_e
 			if icon_str ~= "" then
-				icon_s = start + 1
-				icon_e = start + 1 + #icon_str
+				-- Icon block = the whole padded icon_part (2 spaces + icon + 2 spaces).
+				icon_s = start
+				icon_e = start + #icon_part
 			end
-			local text_s = start + 1 + #icon_part
-			local text_e = text_s + #lbl_str
+			-- Text block = its whole padded "  <label>  " box, so its tint covers the spaces too.
+			local text_s = start + #icon_part
+			local text_e = text_s + 2 + #lbl_str + 2
 			table.insert(tab_ranges, {
 				active = (i == ctx.active_tab),
 				s = start,
@@ -159,11 +165,38 @@ function M.apply_hl(buf, ctx, tab_ranges, centered_offset)
 		})
 	end
 
+	-- Title line: when it carries an icon (popup built it as "  <icon>  " .. "  <title>  "),
+	-- split the centred line into an icon box (LvimUiTitleIcon) and a text box (LvimUiTitle);
+	-- otherwise colour the whole padded title with LvimUiTitle.
+	local function hl_title(row, line)
+		if not line or line == "" then
+			return
+		end
+		if ctx.title_icon and ctx.title_icon ~= "" then
+			-- No centre bleed here (unlike hl_centered): the icon/text blocks already carry their
+			-- own 2-space padding, so a left bleed would make the icon's leading look bigger.
+			local ts = math.floor((ctx.width - util.dw(line)) / 2)
+			local split = ts + #("  " .. ctx.title_icon .. "  ")
+			api.nvim_buf_set_extmark(buf, NS, row, math.max(0, ts), {
+				end_col = math.min(ctx.width, split),
+				hl_group = resolve_hl("LvimUiTitleIcon"),
+				priority = 200,
+			})
+			api.nvim_buf_set_extmark(buf, NS, row, math.min(ctx.width, split), {
+				end_col = math.min(ctx.width, ts + #line),
+				hl_group = resolve_hl(ctx.title_hl or "LvimUiTitle"),
+				priority = 200,
+			})
+		else
+			hl_centered(row, line, resolve_hl(ctx.title_hl or "LvimUiTitle"))
+		end
+	end
+
 	if ctx.mode == "tabs" then
 		-- meta block highlights
 		for i, l in ipairs(ctx.meta_lines) do
 			if l == ctx.title then
-				hl_centered(i - 1, l, resolve_hl(ctx.title_hl or "LvimUiTitle"))
+				hl_title(i - 1, l)
 			elseif l == ctx.subtitle then
 				hl_centered(i - 1, l, resolve_hl(ctx.subtitle_hl or "LvimUiSubtitle"))
 			elseif l == ctx.info then
@@ -215,7 +248,7 @@ function M.apply_hl(buf, ctx, tab_ranges, centered_offset)
 		-- non-tabs header highlights
 		for i, l in ipairs(ctx.header_lines) do
 			if l == ctx.title then
-				hl_centered(i - 1, l, resolve_hl(ctx.title_hl or "LvimUiTitle"))
+				hl_title(i - 1, l)
 			elseif l == ctx.subtitle then
 				hl_centered(i - 1, l, resolve_hl(ctx.subtitle_hl or "LvimUiSubtitle"))
 			elseif l == ctx.info then
