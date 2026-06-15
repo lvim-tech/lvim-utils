@@ -536,18 +536,22 @@ groups, `<CR>` open a location (or fold a header in manual mode), `s`/`v`/`t` op
 split/vsplit/tab, `<C-l>`/`<C-h>` move focus between the panes, `f` cycle the filter bar's primary
 group, `q` close. The focused pane's keys are also advertised on the container's bottom-border
 footer. The mouse works too: single-click selects (or folds a header, or toggles a filter button),
-double-click opens. The panel is an outer container (8-element `border`, centred `title`) holding
-the two bordered inner panes. Appearance is configured under `ui.peek` (`mode`, `expand`,
-`list_position`, `list_width`, `preview_height`, `preview_number`, `float`, `border`,
-`list_border`, `preview_border`, `title`, `footer`, `group_icon_open`, `group_icon_closed`,
-`guide_icon`).
+double-click opens, and **dragging horizontally resizes the split** (the boundary follows the
+pointer). The left/right ratio is set by `list_width` (a fraction of the region — `0.4` = 40% list
+/ 60% preview — or an absolute column count when `> 1`); `list_position` chooses which side the
+list sits on. The panel is an outer container (8-element `border`, centred `title`) holding the two
+bordered inner panes. Appearance is configured under `ui.peek` (`mode`, `expand`, `list_position`,
+`list_width`, `preview_height`, `preview_number`, `float`, `border`, `list_border`,
+`preview_border`, `title`, `footer`, `group_icon_open`, `group_icon_closed`, `guide_icon`).
 
-**Filter bar (`opts.bar`)** — an optional subtitle row of toggle buttons pinned above the list.
-Each *group* of buttons tracks one active button; the effective filter is the AND of every
-group's active-button `predicate(item)`. Clicking a button (or `f` on the `primary` group)
-re-filters the list **live** without reopening, and each button shows its live count. This is
-what the lvim-lsp diagnostics navigator uses for its scope (Workspace/Buffer) + severity
-(All/Error/Warn/…) filters.
+**Filter bar (`opts.bar`)** — an optional row of toggle buttons centred on the whole panel under
+the title, rendered installer-style with a bracketed hotkey letter per button
+(`[A]ll 5  [E]rror 2  [W]arn 1 …`). Each *group* of buttons tracks one active button; the effective
+filter is the AND of every group's active-button `predicate(item)`. A button's bracketed letter (its
+`key`, else the label's first letter) jumps straight to it; clicking it, or `f` to cycle the
+`primary` group, also works — all re-filter the list **live** without reopening, and each button
+shows its live count. This is what the lvim-lsp diagnostics navigator uses for its scope
+(Workspace/Buffer) + severity (All/Error/Warn/…) filters.
 
 ```lua
 require("lvim-utils.ui").peek({

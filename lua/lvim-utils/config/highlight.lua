@@ -169,10 +169,12 @@ return function(c)
         -- its label a yellow 0.2-tint box — matching the LvimUiFooter* convention.
         LvimUiPeekFooterKey = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true },
         LvimUiPeekFooterLabel = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
-        -- Filter bar (subtitle row of toggle buttons): the active button is a STRONG blue-tint
-        -- badge (count included), the inactive ones a light body tint. A button may override these
-        -- with its own accent (e.g. diagnostics paints Error/Warn/… in their severity colours).
-        LvimUiPeekFilterActive = { fg = c.blue, bg = mtint(c.blue, STRONG), bold = true },
-        LvimUiPeekFilterInactive = { fg = c.fg, bg = mtint(c.fg, BODY) },
+        -- Filter bar (centred bracket-key buttons): fg-only, no background. Active = the full accent
+        -- (bold), inactive = the same accent kept mostly intact (0.6 = 60% accent toward bg) so it
+        -- stays clearly readable — the old 0.45 was too washed out. Scope buttons use this blue;
+        -- diagnostics override per severity. (mtint(c, t): t=1 is the full colour, t=0 is the bg.)
+        LvimUiPeekFilterActive = { fg = c.blue, bold = true },
+        LvimUiPeekFilterInactive = { fg = mtint(c.blue, 0.6) },
+        LvimUiPeekFilterSep = { fg = c.green }, -- the ● separator between filter groups
     }
 end

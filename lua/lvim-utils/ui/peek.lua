@@ -38,6 +38,16 @@ local set_footer
 ---@type fun(state: table)
 local relayout
 
+-- Forward declaration: drag the list|preview divider with the mouse (defined before set_keys but
+-- referenced by update_preview's preview keymaps, which are defined earlier).
+---@type fun(state: table)
+local drag_divider
+
+-- Forward declaration: redraw the container chrome (centred filter bar + divider) from stored dims;
+-- defined below but referenced by set_filter (filter changes re-render the bar), defined earlier.
+---@type fun(state: table, W?: integer, H?: integer, sep_col?: integer, sep_char?: string)
+local render_chrome
+
 -- ─── list-pane cursor hiding ──────────────────────────────────────────────────
 -- In the list the focused row is shown by the cursorline, so the hardware cursor only adds
 -- noise — hide it while the list pane is focused and restore it on the way out (to the preview
@@ -83,7 +93,8 @@ end
 
 ---@class LvimUiPeekBarButton
 ---@field id        string                         unique within its group; `active` points at one
----@field label     string                         button caption
+---@field label     string                         button caption (its first letter is bracketed)
+---@field key?      string                         hotkey (default: the label's first letter, lowercased)
 ---@field predicate? fun(item: LvimUiPeekItem): boolean  keep an item when true (nil = keep all)
 ---@field hl?        string                         inactive-state highlight override
 ---@field hl_active? string                         active-state highlight override
@@ -196,9 +207,9 @@ local function apply_filter(state)
     state.item_group = model.item_group
     state.cur = 1
     state.expanded = { [1] = true }
-    state.bar_rows = state.bar and 1 or 0
+    state.bar_rows = 0 -- the bar is in the container now, so the list has no leading bar row
     if state.mode == "manual" then
-        state.sel = state.bar_rows + ((#state.groups > 0 and #state.groups[1].items > 0) and 2 or 1)
+        state.sel = (#state.groups > 0 and #state.groups[1].items > 0) and 2 or 1
     end
 end
 
@@ -318,6 +329,11 @@ local function update_preview(state)
         pmap(p.keys.close, function()
             close_all(state)
         end)
+        -- Drag the divider from the preview side too (the preview is non-focusable, but a drag that
+        -- started in the list keeps firing its map; this covers a drag that begins over the preview).
+        pmap("<LeftDrag>", function()
+            drag_divider(state)
+        end)
         state.preview_mapped, state.preview_keys = pbuf, keys
     end
     local lnum = math.min(it.lnum, math.max(1, api.nvim_buf_line_count(pbuf)))
@@ -347,9 +363,18 @@ local function expanded_set(state)
     return { [state.item_group[state.cur] or 1] = true }
 end
 
---- Build the filter-bar subtitle row: one badge per button (`label count`), STRONG tint when
---- active, light otherwise (or the button's own `hl`/`hl_active`). Returns the line text, its
---- highlight spans, and the clickable button regions (byte ranges) for mouse hit-testing.
+--- The hotkey letter for a bar button: its explicit `key`, else its label's first letter lowercased.
+---@param b LvimUiPeekBarButton
+---@return string
+local function button_key(b)
+    return b.key or (b.label:sub(1, 1):lower())
+end
+
+--- Build the filter bar as an installer-style row of bracket-key buttons (`[A]ll 5  [E]rror 2 …`),
+--- centred on the WHOLE panel under the title. The bracketed first letter is the button's hotkey;
+--- the active button is shown by its accent (bold), inactive ones dimmed; the live count follows the
+--- label. Returns the (uncentred) line text, its highlight spans, and the clickable button byte
+--- ranges; render_chrome centres it and offsets the ranges.
 ---@param state table
 ---@return string text, table spans, table buttons  buttons = { {c0, c1, group_idx, button_id} }
 local function build_bar_row(state)
@@ -363,11 +388,13 @@ local function build_bar_row(state)
     end
     for gi, g in ipairs(bar.groups) do
         if gi > 1 then
-            put("  ", nil) -- gap between groups
+            put("   ", nil) -- separate the groups (scope ● severity) with a thick dot
+            put("●", "LvimUiPeekFilterSep")
+            put("   ", nil)
         end
         for bi, b in ipairs(g.buttons) do
             if bi > 1 then
-                put(" ", nil) -- gap between buttons of one group
+                put("  ", nil) -- gap between buttons of one group
             end
             local count = 0
             for _, it in ipairs(state.all_items) do
@@ -376,10 +403,11 @@ local function build_bar_row(state)
                 end
             end
             local on = b.id == g.active
-            local hl = on and (b.hl_active or "LvimUiPeekFilterActive") or (b.hl or "LvimUiPeekFilterInactive")
-            local badge = " " .. b.label .. " " .. count .. " "
+            local key_hl = b.hl_active or "LvimUiPeekFilterActive" -- the [X] hint always in the accent
+            local rest_hl = on and (b.hl_active or "LvimUiPeekFilterActive") or (b.hl or "LvimUiPeekFilterInactive")
             local c0 = #text
-            put(badge, hl)
+            put("[" .. b.label:sub(1, 1) .. "]", key_hl)
+            put(b.label:sub(2) .. " " .. count, rest_hl)
             buttons[#buttons + 1] = { c0, #text, gi, b.id }
         end
     end
@@ -399,15 +427,8 @@ local function refresh(state)
         rows[#texts] = descriptor
         return #texts
     end
-    -- Filter bar (subtitle) pinned as row 1 when present; record its clickable button regions.
-    state.bar_buttons = {}
-    if state.bar then
-        local btext, bspans, bbtns = build_bar_row(state)
-        texts[1], spans[1], rows[1] = btext, bspans, { kind = "filter" }
-        for _, bb in ipairs(bbtns) do
-            state.bar_buttons[#state.bar_buttons + 1] = { row = 1, c0 = bb[1], c1 = bb[2], gi = bb[3], id = bb[4] }
-        end
-    end
+    -- The filter bar lives in the container (centred under the title), not in the list — see
+    -- render_chrome / build_bar_row. The list starts straight at the first file group.
     for gi, g in ipairs(state.groups) do
         local icon = exp[gi] and (p.group_icon_open or "") or (p.group_icon_closed or "")
         emit({ kind = "header", gi = gi }, {
@@ -439,24 +460,28 @@ local function refresh(state)
                 })
                 -- Highlight the reference (match span) inside the row text — the SAME range the
                 -- preview marks, so every location kind (references / definition / implementation /
-                -- … ) shows its match in both panes. Cols are 1-based on the ORIGINAL line, so
-                -- subtract the stripped indent and add the row prefix. A same-line `end_col` gives an
-                -- exact range; a multi-line match runs to the end of the shown text; a bare position
-                -- (no `end_col`, as some definitions return) falls back to a single cell.
-                local c0 = math.max(0, (it.col or 1) - 1 - lead)
-                local same = not it.end_lnum or it.end_lnum == it.lnum
-                local c1
-                if it.end_col and same then
-                    c1 = it.end_col - 1 - lead
-                elseif it.end_lnum and not same then
-                    c1 = #shown
-                else
-                    c1 = c0 + 1
-                end
-                c1 = math.max(c0 + 1, math.min(c1, #shown))
-                if c0 < #shown then
-                    local sp = spans[ln]
-                    sp[#sp + 1] = { prefix + c0, prefix + c1, "LvimUiPeekMatch" }
+                -- … ) shows its match in both panes. Only valid when the row text IS the source line
+                -- (so col/end_col index into it): callers whose rows are a MESSAGE, not the source
+                -- line — e.g. diagnostics — pass `list_match = false` to suppress it. Cols are 1-based
+                -- on the ORIGINAL line, so subtract the stripped indent and add the row prefix. A
+                -- same-line `end_col` gives an exact range; a multi-line match runs to the end of the
+                -- shown text; a bare position (no `end_col`) falls back to a single cell.
+                if state.list_match ~= false then
+                    local c0 = math.max(0, (it.col or 1) - 1 - lead)
+                    local same = not it.end_lnum or it.end_lnum == it.lnum
+                    local c1
+                    if it.end_col and same then
+                        c1 = it.end_col - 1 - lead
+                    elseif it.end_lnum and not same then
+                        c1 = #shown
+                    else
+                        c1 = c0 + 1
+                    end
+                    c1 = math.max(c0 + 1, math.min(c1, #shown))
+                    if c0 < #shown then
+                        local sp = spans[ln]
+                        sp[#sp + 1] = { prefix + c0, prefix + c1, "LvimUiPeekMatch" }
+                    end
                 end
                 item_line[entry.idx] = ln
             end
@@ -632,6 +657,7 @@ local function set_filter(state, gi, button_id)
     end
     g.active = button_id
     apply_filter(state)
+    render_chrome(state) -- redraw the container bar (counts + active state) from stored dims
     refresh(state)
 end
 
@@ -653,6 +679,40 @@ local function cycle_primary(state)
             set_filter(state, gi, g.buttons[(idx % #g.buttons) + 1].id)
             return
         end
+    end
+end
+
+--- Drag the divider between the panes with the mouse: set the list pane to an ABSOLUTE width from
+--- the pointer position and re-lay-out live. Works whether the pointer is over the list or the
+--- (non-focusable) preview — getmousepos() reports the window under it and the in-window column, and
+--- the list keeps focus through the drag so its `<LeftDrag>` map keeps firing.
+---@param state table
+drag_divider = function(state)
+    if not (state.list_win and api.nvim_win_is_valid(state.list_win)) then
+        return
+    end
+    if not (state.preview_win and api.nvim_win_is_valid(state.preview_win)) then
+        return
+    end
+    local p = state.cfg
+    local m = vim.fn.getmousepos()
+    local list_w = api.nvim_win_get_width(state.list_win)
+    local prev_w = api.nvim_win_get_width(state.preview_win)
+    local sep_w = (p.separator and p.separator ~= "") and 1 or 0
+    local avail = list_w + prev_w + sep_w
+    local list_left = p.list_position ~= "right"
+    local new_cw
+    if m.winid == state.list_win then
+        new_cw = list_left and m.wincol or (list_w - m.wincol + 1)
+    elseif m.winid == state.preview_win then
+        new_cw = list_left and (list_w + sep_w + m.wincol) or (avail - m.wincol)
+    else
+        return -- pointer over the gap / a border — ignore
+    end
+    new_cw = math.max(8, math.min(new_cw, avail - 8))
+    if new_cw ~= list_w then
+        p.list_width = new_cw -- absolute (> 1): compute_layout uses it as a column count
+        relayout(state)
     end
 end
 
@@ -731,11 +791,11 @@ local function set_keys(state)
         close_all(state)
     end)
 
-    -- Mouse: a click on the filter row toggles the button under the pointer; otherwise single click
-    -- selects (or folds a header) and double click opens an item.
+    -- Mouse: a click on the centred filter bar (in the container window, row 1) toggles the button
+    -- under the pointer; otherwise single click selects (or folds a header), double click opens.
     map("<LeftMouse>", function()
         local m = vim.fn.getmousepos()
-        if state.bar and m.winid == state.list_win and m.line == 1 then
+        if state.bar and m.winid == state.container_win and m.line == state.bar_line then
             local col = m.column - 1 -- 0-based byte offset into the bar line
             for _, bb in ipairs(state.bar_buttons or {}) do
                 if col >= bb.c0 and col < bb.c1 then
@@ -747,9 +807,24 @@ local function set_keys(state)
         end
         activate(state, m.line, false)
     end)
+    -- Bracket-key hotkeys: each filter button's letter (its `key`, else its label's first letter)
+    -- jumps straight to it. Mapped on the list buffer only, so the preview keeps its own motions.
+    if state.bar then
+        for gi, g in ipairs(state.bar.groups) do
+            for _, b in ipairs(g.buttons) do
+                map(button_key(b), function()
+                    set_filter(state, gi, b.id)
+                end)
+            end
+        end
+    end
     map("<2-LeftMouse>", function()
         local m = vim.fn.getmousepos()
         activate(state, m.line, true)
+    end)
+    -- Drag the boundary between the panes to resize the split live.
+    map("<LeftDrag>", function()
+        drag_divider(state)
     end)
 
     api.nvim_create_autocmd("WinClosed", {
@@ -809,49 +884,82 @@ toggle_group_to = function(state, gi)
     end
 end
 
---- Render the container chrome buffer: a centred title header row (only when `title` is given —
---- i.e. the container border has no top to carry it) and a full-height divider at `sep_col` (the
---- inner panes leave exactly that column visible). The rest is just the panel background.
+--- Render the container chrome buffer: the centred filter bar on content row 0 (when `state.bar`,
+--- spanning the full width under the title) and a divider at `sep_col` on the remaining rows (the
+--- inner panes leave exactly that column visible). Dimensions are remembered on `state._chrome` so a
+--- filter change can redraw the bar without recomputing the layout. The rest is the panel background.
 ---@param state table
----@param W integer
----@param H integer
----@param title string|nil
----@param sep_col integer|nil  0-based divider column
----@param sep_char string|nil
-local function render_chrome(state, W, H, title, sep_col, sep_char)
+---@param W? integer       defaults to the stored value (filter-change redraws pass nothing)
+---@param H? integer
+---@param sep_col? integer 0-based divider column
+---@param sep_char? string
+render_chrome = function(state, W, H, sep_col, sep_char)
+    local c = state._chrome or {}
+    W, H = W or c.W, H or c.H
+    if sep_col == nil then
+        sep_col = c.sep_col
+    end
+    sep_char = sep_char or c.sep_char
+    state._chrome = { W = W, H = H, sep_col = sep_col, sep_char = sep_char }
     sep_char = (sep_col and sep_char and sep_char ~= "") and sep_char or nil
-    local base
-    if sep_col and sep_char then
-        local cells = {}
-        for c = 0, W - 1 do
-            cells[c + 1] = (c == sep_col) and sep_char or " "
+
+    local has_bar = state.bar ~= nil
+    local function base_line(with_sep)
+        if with_sep and sep_char then
+            local cells = {}
+            for col = 0, W - 1 do
+                cells[col + 1] = (col == sep_col) and sep_char or " "
+            end
+            return table.concat(cells)
         end
-        base = table.concat(cells)
-    else
-        base = string.rep(" ", W)
+        return string.rep(" ", W)
     end
+    -- With a bar: content row 1 is a blank spacer under the title and row 2 is the bar (both span
+    -- the full width, so neither carries the divider). `bar_ln` is the bar's 1-based buffer line.
+    local bar_ln = 2
     local lines = {}
-    for _ = 1, H do
-        lines[#lines + 1] = base
+    for i = 1, H do
+        lines[i] = base_line(not (has_bar and i <= bar_ln))
     end
-    local t, pad
-    if title then
-        t = " " .. title .. " "
-        pad = math.max(0, math.floor((W - vim.fn.strdisplaywidth(t)) / 2))
-        lines[1] = (string.rep(" ", pad) .. t .. string.rep(" ", W)):sub(1, W + #t)
+
+    -- Compose + centre the filter bar. Centre by DISPLAY width (the ● separator is multibyte); the
+    -- left pad is spaces, so its byte count == its column count, which keeps the recorded button BYTE
+    -- ranges aligned with getmousepos().column (also byte-based).
+    local bar_spans, bar_btns, bar_pad
+    if has_bar then
+        local t, sp, btns = build_bar_row(state)
+        local tw = vim.fn.strdisplaywidth(t)
+        bar_pad = math.max(0, math.floor((W - tw) / 2))
+        local s = string.rep(" ", bar_pad) .. t
+        local sw = bar_pad + tw
+        if sw < W then
+            s = s .. string.rep(" ", W - sw)
+        end
+        lines[bar_ln] = s
+        bar_spans, bar_btns = sp, btns
     end
+
     vim.bo[state.container_buf].modifiable = true
     api.nvim_buf_set_lines(state.container_buf, 0, -1, false, lines)
     vim.bo[state.container_buf].modifiable = false
     api.nvim_buf_clear_namespace(state.container_buf, NS_CHROME, 0, -1)
-    if title then
-        pcall(api.nvim_buf_set_extmark, state.container_buf, NS_CHROME, 0, pad, {
-            end_col = pad + #t,
-            hl_group = "LvimUiPeekTitle",
-        })
+
+    state.bar_buttons = {}
+    state.bar_line = has_bar and bar_ln or nil
+    if has_bar then
+        for _, s in ipairs(bar_spans) do
+            pcall(api.nvim_buf_set_extmark, state.container_buf, NS_CHROME, bar_ln - 1, bar_pad + s[1], {
+                end_col = bar_pad + s[2],
+                hl_group = s[3],
+            })
+        end
+        for _, b in ipairs(bar_btns) do
+            state.bar_buttons[#state.bar_buttons + 1] =
+                { row = bar_ln, c0 = bar_pad + b[1], c1 = bar_pad + b[2], gi = b[3], id = b[4] }
+        end
     end
-    if sep_col and sep_char then
-        local from = title and 1 or 0
+    if sep_char then
+        local from = has_bar and bar_ln or 0
         for ln = from, H - 1 do
             pcall(api.nvim_buf_set_extmark, state.container_buf, NS_CHROME, ln, sep_col, {
                 end_col = sep_col + #sep_char,
@@ -959,8 +1067,12 @@ local function compute_layout(state)
     list_cw = math.max(8, math.min(list_cw, avail - 8))
     local prev_cw = avail - list_cw
 
-    local list_h = math.max(1, H - lt - lbm)
-    local prev_h = math.max(1, H - pt - pbm)
+    -- When a filter bar is present it takes two content rows — a blank spacer row under the title,
+    -- then the centred subtitle bar — so the panes start two rows lower and lose two rows of height.
+    local bar_h = state.bar and 2 or 0
+    local inner_top = cc_row + bar_h
+    local list_h = math.max(1, H - bar_h - lt - lbm)
+    local prev_h = math.max(1, H - bar_h - pt - pbm)
     local list_left = p.list_position ~= "right"
     -- Footprints lay out left→right: [first pane][divider][second pane]. Each pane's nvim col is
     -- its LEFT-BORDER position; the divider sits in the gap (a column the panes don't cover).
@@ -978,8 +1090,8 @@ local function compute_layout(state)
         ct = ct,
         cb = cb,
         sep_col = sep_w > 0 and left_w or nil, -- buffer-relative divider column
-        list = { width = list_cw, height = list_h, row = cc_row, col = list_x, border = lb },
-        preview = { width = prev_cw, height = prev_h, row = cc_row, col = prev_x, border = pb },
+        list = { width = list_cw, height = list_h, row = inner_top, col = list_x, border = lb },
+        preview = { width = prev_cw, height = prev_h, row = inner_top, col = prev_x, border = pb },
     }
 end
 
@@ -1048,7 +1160,7 @@ local function open_panel(state)
     vim.wo[state.container_win].winhighlight = "Normal:LvimUiPeekNormal,FloatBorder:LvimUiPeekBorder"
     vim.wo[state.container_win].winbar = ""
 
-    render_chrome(state, L.W, L.H, nil, L.sep_col, p.separator)
+    render_chrome(state, L.W, L.H, L.sep_col, p.separator)
 
     state.list_win = api.nvim_open_win(state.list_buf, true, {
         relative = "editor",
@@ -1114,7 +1226,7 @@ relayout = function(state)
             border = L.preview.border,
         })
     end
-    render_chrome(state, L.W, L.H, nil, L.sep_col, p.separator)
+    render_chrome(state, L.W, L.H, L.sep_col, p.separator)
     if state.footer_ok then
         set_footer(state, api.nvim_get_current_win() == state.preview_win and "preview" or "list")
     end
@@ -1122,7 +1234,7 @@ relayout = function(state)
 end
 
 --- Open a peek window over `opts.items`.
----@param opts { title?: string, items: LvimUiPeekItem[], mode?: string, bar?: LvimUiPeekBar, on_jump?: fun(item: LvimUiPeekItem, cmd: string) }
+---@param opts { title?: string, items: LvimUiPeekItem[], mode?: string, bar?: LvimUiPeekBar, list_match?: boolean, on_jump?: fun(item: LvimUiPeekItem, cmd: string) }
 ---@param instance_cfg? table
 ---@return boolean opened  false when there were no items
 function M.open(opts, instance_cfg)
@@ -1138,6 +1250,9 @@ function M.open(opts, instance_cfg)
         mode = p.expand == "manual" and "manual" or "auto",
         all_items = opts.items, -- the full, unfiltered set; the bar filters this into the model
         bar = opts.bar, -- optional filter/subtitle bar (nil = a plain locations peek)
+        -- Highlight the match range inside each list row. True when rows are SOURCE LINES (locations);
+        -- diagnostics pass false because their rows are messages, where col/end_col are meaningless.
+        list_match = opts.list_match ~= false,
         origin = api.nvim_get_current_win(),
         list_buf = api.nvim_create_buf(false, true),
     }

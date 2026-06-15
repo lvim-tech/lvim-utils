@@ -175,23 +175,28 @@ Keys: j/k move, <Tab>/<S-Tab> file groups, <CR> open (or fold a header in
 manual), s/v/t split/vsplit/tab, <C-l>/<C-h> switch pane, f cycle the filter
 bar's primary group, q close; the focused pane's keys also ride the container's
 bottom-border footer. The mouse works too (single-click select / fold / toggle
-a filter button, double-click open). Configured under `ui.peek` (mode, expand,
-list_position, list_width, preview_height, preview_number, float, border,
-  list_border, preview_border, title, footer, group_icon_open,
-  group_icon_closed, guide_icon, keys).
+a filter button, double-click open, drag horizontally to resize the split). The
+left/right ratio is `list_width` (a fraction of the region — 0.4 = 40% list /
+60% preview — or absolute cols when > 1); `list_position` picks the side.
+Configured under `ui.peek` (mode, expand, list_position, list_width,
+preview_height, preview_number, float, border, list_border, preview_border,
+  title, footer, group_icon_open, group_icon_closed, guide_icon, keys).
 
 An item may also carry `icon` + `icon_hl` (a glyph before the row text, e.g. a
 severity sign) and a free `severity` tag for filter predicates.
 
 FILTER BAR ~
 
-`opts.bar` adds a pinned subtitle row of toggle buttons above the list. Each
-button GROUP tracks one active button; the effective filter is the AND of every
-group's active-button `predicate(item)`. Clicking a button (or `f` on the group
-marked `primary`) re-filters the list LIVE without reopening, and each button
-shows its live count. Buttons may set `hl` / `hl_active` to paint themselves in
-their own accent. The lvim-lsp diagnostics navigator uses this for its
-Workspace/Buffer scope + All/Error/Warn/… severity filters. >lua
+`opts.bar` adds a row of toggle buttons centred on the whole panel under the
+title, installer-style with a bracketed hotkey letter per button
+([A]ll 5 [E]rror 2 [W]arn 1 …). Each button GROUP tracks one active button; the
+effective filter is the AND of every group's active-button `predicate(item)`. A
+button's bracketed letter (its `key`, else the label's first letter) jumps to it;
+clicking it, or `f` to cycle the `primary` group, also works — all re-filter the
+list LIVE without reopening, each button showing its live count. Buttons may set
+`hl` / `hl_active` to paint themselves in their own accent. The lvim-lsp
+diagnostics navigator uses this for its Workspace/Buffer scope + All/Error/Warn/…
+severity filters. >lua
   bar = {
       groups = {
           {

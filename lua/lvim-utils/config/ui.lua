@@ -93,7 +93,7 @@ return {
         --   "manual" — groups are toggled open/closed by click or <CR>/<Tab> on their header
         expand = "manual",
         list_position = "left", -- "left" | "right" (which side the list pane sits on)
-        list_width = 0.3, -- fraction of the region width (or absolute cols if > 1)
+        list_width = 0.4, -- left/right split: list pane share of the region (0.4 = 40% list / 60% preview); absolute cols if > 1. Drag the divider to adjust live.
         preview_height = 16, -- split mode: total region height (lines)
         preview_number = "normal", -- preview line numbers: "none" | "normal" | "relative"
         float = {
