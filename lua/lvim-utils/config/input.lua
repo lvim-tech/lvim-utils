@@ -4,7 +4,7 @@
 -- `ui` field on the opts, a one-shot route_next(), or this default. Opt-in.
 
 return {
-	enable = false,
-	-- Default target when neither opts.ui nor route_next() is set: "cmdline" | "popup".
-	default = "popup",
+    enable = false,
+    -- Default target when neither opts.ui nor route_next() is set: "cmdline" | "popup".
+    default = "popup",
 }

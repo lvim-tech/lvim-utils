@@ -16,20 +16,20 @@ local _hl_cache = {}
 local _hl_count = 0
 local _hl_registry = require("lvim-utils.highlight")
 function M.resolve_hl(val)
-	if type(val) == "string" then
-		return val
-	end
-	if type(val) ~= "table" then
-		return nil
-	end
-	local key = vim.inspect(val)
-	if not _hl_cache[key] then
-		_hl_count = _hl_count + 1
-		local name = "LvimUiInline_" .. _hl_count
-		_hl_registry.register({ [name] = val }, true)
-		_hl_cache[key] = name
-	end
-	return _hl_cache[key]
+    if type(val) == "string" then
+        return val
+    end
+    if type(val) ~= "table" then
+        return nil
+    end
+    local key = vim.inspect(val)
+    if not _hl_cache[key] then
+        _hl_count = _hl_count + 1
+        local name = "LvimUiInline_" .. _hl_count
+        _hl_registry.register({ [name] = val }, true)
+        _hl_cache[key] = name
+    end
+    return _hl_cache[key]
 end
 
 -- ─── config accessor ──────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ end
 --- Convenience accessor for the live UI config table.
 ---@return table
 function M.cfg()
-	return config.ui
+    return config.ui
 end
 
 -- ─── string / display helpers ─────────────────────────────────────────────────
@@ -46,7 +46,7 @@ end
 ---@param s any
 ---@return integer
 function M.dw(s)
-	return vim.fn.strdisplaywidth(tostring(s or ""))
+    return vim.fn.strdisplaywidth(tostring(s or ""))
 end
 
 --- Return s centered within width columns, padded with spaces on both sides.
@@ -54,13 +54,13 @@ end
 ---@param width integer
 ---@return string
 function M.center(s, width)
-	s = tostring(s or "")
-	local len = M.dw(s)
-	if len >= width then
-		return s
-	end
-	local l = math.floor((width - len) / 2)
-	return string.rep(" ", l) .. s .. string.rep(" ", width - len - l)
+    s = tostring(s or "")
+    local len = M.dw(s)
+    if len >= width then
+        return s
+    end
+    local l = math.floor((width - len) / 2)
+    return string.rep(" ", l) .. s .. string.rep(" ", width - len - l)
 end
 
 --- Return s left-padded with indent spaces and right-padded to fill width.
@@ -69,9 +69,9 @@ end
 ---@param indent integer  Number of leading spaces (default 2)
 ---@return string
 function M.lpad(s, width, indent)
-	s = string.rep(" ", indent or 2) .. tostring(s or "")
-	local len = M.dw(s)
-	return len >= width and s or (s .. string.rep(" ", width - len))
+    s = string.rep(" ", indent or 2) .. tostring(s or "")
+    local len = M.dw(s)
+    return len >= width and s or (s .. string.rep(" ", width - len))
 end
 
 -- ─── highlight helpers ────────────────────────────────────────────────────────
@@ -81,10 +81,10 @@ end
 ---@param row   integer  0-based line number
 ---@param group string|nil  Highlight group name; no-op when nil
 function M.hl_line(buf, row, group)
-	if not group then
-		return
-	end
-	api.nvim_buf_set_extmark(buf, M.NS, row, 0, { line_hl_group = group, priority = 200 })
+    if not group then
+        return
+    end
+    api.nvim_buf_set_extmark(buf, M.NS, row, 0, { line_hl_group = group, priority = 200 })
 end
 
 -- ─── hl merge helper ──────────────────────────────────────────────────────────
@@ -96,30 +96,30 @@ end
 ---@param overlay string|table|nil
 ---@return string|table|nil
 function M.merge_bg(base, overlay)
-	if not overlay then
-		return base
-	end
-	local new_bg = type(overlay) == "table" and overlay.bg or nil
-	if not new_bg then
-		return base
-	end
-	if type(base) == "string" then
-		local attrs = api.nvim_get_hl(0, { name = base, link = false })
-		attrs.bg = new_bg
-		return attrs
-	elseif type(base) == "table" then
-		return vim.tbl_extend("force", base, { bg = new_bg })
-	end
-	return { bg = new_bg }
+    if not overlay then
+        return base
+    end
+    local new_bg = type(overlay) == "table" and overlay.bg or nil
+    if not new_bg then
+        return base
+    end
+    if type(base) == "string" then
+        local attrs = api.nvim_get_hl(0, { name = base, link = false })
+        attrs.bg = new_bg
+        return attrs
+    elseif type(base) == "table" then
+        return vim.tbl_extend("force", base, { bg = new_bg })
+    end
+    return { bg = new_bg }
 end
 
 -- ─── border helpers ───────────────────────────────────────────────────────────
 
 M.BORDERS = {
-	rounded = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" },
-	single = { "┌", "─", "┐", "│", "┘", "─", "└", "│" },
-	double = { "╔", "═", "╗", "║", "╝", "═", "╚", "║" },
-	none = { "", "", "", "", "", "", "", "" },
+    rounded = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" },
+    single = { "┌", "─", "┐", "│", "┘", "─", "└", "│" },
+    double = { "╔", "═", "╗", "║", "╝", "═", "╚", "║" },
+    none = { "", "", "", "", "", "", "", "" },
 }
 
 --- Resolve a border spec to a concrete 8-element table.
@@ -127,18 +127,18 @@ M.BORDERS = {
 ---@param b string|table
 ---@return table
 function M.resolve_border(b)
-	if type(b) ~= "table" then
-		return M.BORDERS[b] or M.BORDERS.rounded
-	end
-	local t = vim.list_extend({}, b)
-	-- corners: {1=TL,3=TR,5=BR,7=BL}, adjacent edges: TL={8,2}, TR={2,4}, BR={4,6}, BL={6,8}
-	local adj = { { 8, 2 }, { 2, 4 }, { 4, 6 }, { 6, 8 } }
-	for i, edges in ipairs(adj) do
-		if t[i * 2 - 1] == "" and (t[edges[1]] ~= "" and t[edges[2]] ~= "") then
-			t[i * 2 - 1] = " "
-		end
-	end
-	return t
+    if type(b) ~= "table" then
+        return M.BORDERS[b] or M.BORDERS.rounded
+    end
+    local t = vim.list_extend({}, b)
+    -- corners: {1=TL,3=TR,5=BR,7=BL}, adjacent edges: TL={8,2}, TR={2,4}, BR={4,6}, BL={6,8}
+    local adj = { { 8, 2 }, { 2, 4 }, { 4, 6 }, { 6, 8 } }
+    for i, edges in ipairs(adj) do
+        if t[i * 2 - 1] == "" and (t[edges[1]] ~= "" and t[edges[2]] ~= "") then
+            t[i * 2 - 1] = " "
+        end
+    end
+    return t
 end
 
 -- ─── position helper ──────────────────────────────────────────────────────────
@@ -152,37 +152,37 @@ end
 ---@param position "editor"|"win"|"cursor"|nil
 ---@return integer row, integer col
 function M.calc_pos(height, width, position)
-	if position == "cursor" then
-		local sr = vim.fn.screenrow() - 1
-		local sc = vim.fn.screencol() - 1
-		local lines = vim.o.lines
-		local cols = vim.o.columns
-		local row
-		if sr + 2 + height <= lines then
-			row = sr + 1
-		else
-			row = math.max(0, sr - height - 1)
-		end
-		local col = math.min(sc, math.max(0, cols - width - 2))
-		return row, col
-	end
-	if position == "win" then
-		local src_win = vim.api.nvim_get_current_win()
-		local wpos = vim.api.nvim_win_get_position(src_win)
-		local wh = vim.api.nvim_win_get_height(src_win)
-		local ww = vim.api.nvim_win_get_width(src_win)
-		local row = wpos[1] + math.max(0, math.floor((wh - height) / 2))
-		local col = wpos[2] + math.max(0, math.floor((ww - width) / 2))
-		return row, col
-	end
-	if position == "bottom" then
-		-- Anchored just above the cmdline, horizontally centred (≈ full width when wide).
-		local row = math.max(0, vim.o.lines - height - vim.o.cmdheight - 1)
-		local col = math.max(0, math.floor((vim.o.columns - width) / 2))
-		return row, col
-	end
-	-- "editor": full editor area (default)
-	return math.floor((vim.o.lines - height) / 2), math.floor((vim.o.columns - width) / 2)
+    if position == "cursor" then
+        local sr = vim.fn.screenrow() - 1
+        local sc = vim.fn.screencol() - 1
+        local lines = vim.o.lines
+        local cols = vim.o.columns
+        local row
+        if sr + 2 + height <= lines then
+            row = sr + 1
+        else
+            row = math.max(0, sr - height - 1)
+        end
+        local col = math.min(sc, math.max(0, cols - width - 2))
+        return row, col
+    end
+    if position == "win" then
+        local src_win = vim.api.nvim_get_current_win()
+        local wpos = vim.api.nvim_win_get_position(src_win)
+        local wh = vim.api.nvim_win_get_height(src_win)
+        local ww = vim.api.nvim_win_get_width(src_win)
+        local row = wpos[1] + math.max(0, math.floor((wh - height) / 2))
+        local col = wpos[2] + math.max(0, math.floor((ww - width) / 2))
+        return row, col
+    end
+    if position == "bottom" then
+        -- Anchored just above the cmdline, horizontally centred (≈ full width when wide).
+        local row = math.max(0, vim.o.lines - height - vim.o.cmdheight - 1)
+        local col = math.max(0, math.floor((vim.o.columns - width) / 2))
+        return row, col
+    end
+    -- "editor": full editor area (default)
+    return math.floor((vim.o.lines - height) / 2), math.floor((vim.o.columns - width) / 2)
 end
 
 return M

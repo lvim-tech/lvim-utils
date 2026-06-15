@@ -23,11 +23,11 @@ local api = vim.api
 
 ---@type CursorState
 local state = {
-	fts = {},
-	input_buffers = {},
-	augroup = nil,
-	saved_guicursor = nil,
-	hidden = false,
+    fts = {},
+    input_buffers = {},
+    augroup = nil,
+    saved_guicursor = nil,
+    hidden = false,
 }
 
 -- ─── highlight control ────────────────────────────────────────────────────────
@@ -36,26 +36,26 @@ local state = {
 --- Sets guicursor to "a:ver1-LvimUtilsHiddenCursor" and applies blend=100
 --- on the dedicated HL group. No-op when already hidden.
 local function hide_cursor()
-	if state.hidden then
-		return
-	end
-	state.saved_guicursor = vim.o.guicursor
-	api.nvim_set_hl(0, "LvimUtilsHiddenCursor", { blend = 100, nocombine = true })
-	vim.o.guicursor = "a:ver1-LvimUtilsHiddenCursor"
-	state.hidden = true
+    if state.hidden then
+        return
+    end
+    state.saved_guicursor = vim.o.guicursor
+    api.nvim_set_hl(0, "LvimUtilsHiddenCursor", { blend = 100, nocombine = true })
+    vim.o.guicursor = "a:ver1-LvimUtilsHiddenCursor"
+    state.hidden = true
 end
 
 --- Restore the cursor to the shape that was active before hide_cursor().
 --- No-op when the cursor is already visible.
 local function show_cursor()
-	if not state.hidden then
-		return
-	end
-	if state.saved_guicursor then
-		vim.o.guicursor = state.saved_guicursor
-		state.saved_guicursor = nil
-	end
-	state.hidden = false
+    if not state.hidden then
+        return
+    end
+    if state.saved_guicursor then
+        vim.o.guicursor = state.saved_guicursor
+        state.saved_guicursor = nil
+    end
+    state.hidden = false
 end
 
 -- ─── helpers ──────────────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ end
 ---@param buf integer
 ---@return boolean
 local function is_input(buf)
-	return state.input_buffers[buf] == true
+    return state.input_buffers[buf] == true
 end
 
 ---Return true when buf has a filetype registered for cursor hiding.
@@ -72,14 +72,14 @@ end
 ---@param buf integer
 ---@return boolean
 local function is_hidden_buffer(buf)
-	if is_input(buf) then
-		return false
-	end
-	if not api.nvim_buf_is_valid(buf) then
-		return false
-	end
-	local ft = vim.bo[buf].filetype
-	return ft ~= nil and state.fts[ft] == true
+    if is_input(buf) then
+        return false
+    end
+    if not api.nvim_buf_is_valid(buf) then
+        return false
+    end
+    local ft = vim.bo[buf].filetype
+    return ft ~= nil and state.fts[ft] == true
 end
 
 ---Return true when at least one visible window contains a hidden-filetype buffer.
@@ -87,15 +87,15 @@ end
 ---while a popup is still open.
 ---@return boolean
 local function any_hidden_win_open()
-	for _, win in ipairs(api.nvim_list_wins()) do
-		if api.nvim_win_is_valid(win) then
-			local ok, buf = pcall(api.nvim_win_get_buf, win)
-			if ok and buf and is_hidden_buffer(buf) then
-				return true
-			end
-		end
-	end
-	return false
+    for _, win in ipairs(api.nvim_list_wins()) do
+        if api.nvim_win_is_valid(win) then
+            local ok, buf = pcall(api.nvim_win_get_buf, win)
+            if ok and buf and is_hidden_buffer(buf) then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 -- ─── core update ──────────────────────────────────────────────────────────────
@@ -107,28 +107,28 @@ end
 ---   3. Current buf is hidden, OR any hidden window is open → hide
 ---   4. Otherwise               → show
 local function update()
-	local ok, win = pcall(api.nvim_get_current_win)
-	if not ok or not api.nvim_win_is_valid(win) then
-		show_cursor()
-		return
-	end
+    local ok, win = pcall(api.nvim_get_current_win)
+    if not ok or not api.nvim_win_is_valid(win) then
+        show_cursor()
+        return
+    end
 
-	local ok2, buf = pcall(api.nvim_win_get_buf, win)
-	if not ok2 or not buf then
-		show_cursor()
-		return
-	end
+    local ok2, buf = pcall(api.nvim_win_get_buf, win)
+    if not ok2 or not buf then
+        show_cursor()
+        return
+    end
 
-	if is_input(buf) then
-		show_cursor()
-		return
-	end
+    if is_input(buf) then
+        show_cursor()
+        return
+    end
 
-	if is_hidden_buffer(buf) or any_hidden_win_open() then
-		hide_cursor()
-	else
-		show_cursor()
-	end
+    if is_hidden_buffer(buf) or any_hidden_win_open() then
+        hide_cursor()
+    else
+        show_cursor()
+    end
 end
 
 -- ─── public api ───────────────────────────────────────────────────────────────
@@ -139,8 +139,8 @@ end
 ---@param bufnr integer
 ---@param value  boolean|nil  true to mark as input, nil/false to unmark
 function M.mark_input_buffer(bufnr, value)
-	state.input_buffers[bufnr] = value or nil
-	vim.schedule(update)
+    state.input_buffers[bufnr] = value or nil
+    vim.schedule(update)
 end
 
 --- Force-refresh cursor visibility. Exported so the UI module can call it
@@ -152,66 +152,66 @@ M.update = update
 --- (Re-)create the autocmd group that keeps cursor state in sync.
 --- Tears down any existing group first to allow safe re-setup.
 local function refresh_autocmds()
-	if state.augroup then
-		api.nvim_del_augroup_by_id(state.augroup)
-	end
+    if state.augroup then
+        api.nvim_del_augroup_by_id(state.augroup)
+    end
 
-	state.augroup = api.nvim_create_augroup("LvimUtilsCursor", { clear = true })
+    state.augroup = api.nvim_create_augroup("LvimUtilsCursor", { clear = true })
 
-	-- Window / buffer transitions: schedule to let Neovim settle first.
-	api.nvim_create_autocmd({
-		"WinEnter",
-		"WinLeave",
-		"WinClosed",
-		"BufEnter",
-		"BufWinEnter",
-		"FileType",
-	}, {
-		group = state.augroup,
-		callback = function()
-			vim.schedule(update)
-		end,
-	})
+    -- Window / buffer transitions: schedule to let Neovim settle first.
+    api.nvim_create_autocmd({
+        "WinEnter",
+        "WinLeave",
+        "WinClosed",
+        "BufEnter",
+        "BufWinEnter",
+        "FileType",
+    }, {
+        group = state.augroup,
+        callback = function()
+            vim.schedule(update)
+        end,
+    })
 
-	-- Clean up the input-buffer registry when a buffer is wiped.
-	api.nvim_create_autocmd({ "BufDelete", "BufWipeout", "BufUnload" }, {
-		group = state.augroup,
-		callback = function(ev)
-			state.input_buffers[ev.buf] = nil
-			vim.schedule(update)
-		end,
-	})
+    -- Clean up the input-buffer registry when a buffer is wiped.
+    api.nvim_create_autocmd({ "BufDelete", "BufWipeout", "BufUnload" }, {
+        group = state.augroup,
+        callback = function(ev)
+            state.input_buffers[ev.buf] = nil
+            vim.schedule(update)
+        end,
+    })
 
-	-- A theme change wipes all highlight groups (`hi clear`), including the invisible-cursor
-	-- group, so re-apply it while the cursor is meant to be hidden. Listen to BOTH events:
-	-- `:colorscheme` fires `ColorScheme`, but a programmatic reload (lvim-colorscheme
-	-- `set()`/`load()`, e.g. toggling a control-center setting) fires only the
-	-- `User LvimColorscheme` event — without this the cursor reappears as a `ver1` bar.
-	local function reapply_hidden_cursor()
-		if state.hidden then
-			api.nvim_set_hl(0, "LvimUtilsHiddenCursor", { blend = 100, nocombine = true })
-		end
-	end
-	api.nvim_create_autocmd("ColorScheme", { group = state.augroup, callback = reapply_hidden_cursor })
-	api.nvim_create_autocmd("User", {
-		group = state.augroup,
-		pattern = "LvimColorscheme",
-		callback = reapply_hidden_cursor,
-	})
+    -- A theme change wipes all highlight groups (`hi clear`), including the invisible-cursor
+    -- group, so re-apply it while the cursor is meant to be hidden. Listen to BOTH events:
+    -- `:colorscheme` fires `ColorScheme`, but a programmatic reload (lvim-colorscheme
+    -- `set()`/`load()`, e.g. toggling a control-center setting) fires only the
+    -- `User LvimColorscheme` event — without this the cursor reappears as a `ver1` bar.
+    local function reapply_hidden_cursor()
+        if state.hidden then
+            api.nvim_set_hl(0, "LvimUtilsHiddenCursor", { blend = 100, nocombine = true })
+        end
+    end
+    api.nvim_create_autocmd("ColorScheme", { group = state.augroup, callback = reapply_hidden_cursor })
+    api.nvim_create_autocmd("User", {
+        group = state.augroup,
+        pattern = "LvimColorscheme",
+        callback = reapply_hidden_cursor,
+    })
 
-	-- Always show the cursor while the command-line is active.
-	api.nvim_create_autocmd("CmdlineEnter", {
-		group = state.augroup,
-		callback = show_cursor,
-	})
-	api.nvim_create_autocmd("CmdlineLeave", {
-		group = state.augroup,
-		callback = function()
-			vim.schedule(update)
-		end,
-	})
+    -- Always show the cursor while the command-line is active.
+    api.nvim_create_autocmd("CmdlineEnter", {
+        group = state.augroup,
+        callback = show_cursor,
+    })
+    api.nvim_create_autocmd("CmdlineLeave", {
+        group = state.augroup,
+        callback = function()
+            vim.schedule(update)
+        end,
+    })
 
-	vim.schedule(update)
+    vim.schedule(update)
 end
 
 -- ─── setup ────────────────────────────────────────────────────────────────────
@@ -220,11 +220,11 @@ end
 --- Registers filetypes that should trigger cursor hiding and installs autocmds.
 ---@param opts? { filetypes?: string[], ft?: string[] }
 function M.setup(opts)
-	opts = opts or {}
-	for _, ft in ipairs(opts.filetypes or opts.ft or {}) do
-		state.fts[ft] = true
-	end
-	refresh_autocmds()
+    opts = opts or {}
+    for _, ft in ipairs(opts.filetypes or opts.ft or {}) do
+        state.fts[ft] = true
+    end
+    refresh_autocmds()
 end
 
 return M

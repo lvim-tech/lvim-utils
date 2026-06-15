@@ -13,14 +13,14 @@ local M = {}
 ---@param opts?  table    User overrides
 ---@return table target
 function M.merge(target, opts)
-	for k, v in pairs(opts or {}) do
-		if type(v) == "table" and type(target[k]) == "table" and not vim.islist(v) then
-			M.merge(target[k], v)
-		else
-			target[k] = v
-		end
-	end
-	return target
+    for k, v in pairs(opts or {}) do
+        if type(v) == "table" and type(target[k]) == "table" and not vim.islist(v) then
+            M.merge(target[k], v)
+        else
+            target[k] = v
+        end
+    end
+    return target
 end
 
 return M
