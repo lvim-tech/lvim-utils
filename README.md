@@ -4,6 +4,8 @@ A collection of independent Neovim utility modules — floating UI components, c
 
 ---
 
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](https://github.com/lvim-tech/lvim-utils/blob/main/LICENSE)
+
 ## Installation
 
 ### LVIM IDE
