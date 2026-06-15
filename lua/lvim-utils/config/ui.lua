@@ -82,4 +82,56 @@ return {
             prev_option = "<BS>",
         },
     },
+
+    -- Two-pane location navigator (ui.peek): a grouped list of source locations on one side
+    -- and a live preview of the focused location on the other. `mode` chooses the presentation
+    -- ("split" = embedded splits at the bottom, "float" = a detached floating container).
+    peek = {
+        mode = "split",
+        -- How file groups expand in the list:
+        --   "auto"   — only the group holding the focused location is open; it follows the cursor
+        --   "manual" — groups are toggled open/closed by click or <CR>/<Tab> on their header
+        expand = "manual",
+        list_position = "left", -- "left" | "right" (which side the list pane sits on)
+        list_width = 0.3, -- fraction of the region width (or absolute cols if > 1)
+        preview_height = 16, -- split mode: total region height (lines)
+        preview_number = "normal", -- preview line numbers: "none" | "normal" | "relative"
+        float = {
+            width = 0.85, -- fraction of the editor (or absolute cols if > 1)
+            height = 0.8,
+            zindex = 50,
+            backdrop = true, -- dim the editor behind the floating peek
+            backdrop_blend = 40,
+        },
+        -- Three independent 8-element borders, each { topleft, top, topright, right, botright,
+        -- bot, botleft, left } and each side fully honoured (a "" side draws nothing, a " " side
+        -- adds an invisible 1-cell padding, a glyph draws a line). The layout reads each border's
+        -- insets, so e.g. the preview's LEFT can be "" (flush) while the list's RIGHT is " " (gap).
+        -- Default = invisible padding borders: every side is a " " (a 1-cell border that draws no
+        -- glyph), highlighted with LvimUiPeekBorder (bg = the float bg), so each pane and the whole
+        -- panel get clean float-bg padding with no visible lines. Put a glyph on any side to draw it.
+        border = { " ", " ", " ", " ", " ", " ", " ", " " }, -- the whole panel (container)
+        list_border = { " ", " ", " ", " ", " ", " ", " ", " " }, -- the list pane
+        preview_border = { " ", " ", " ", " ", " ", " ", " ", " " }, -- the preview pane
+        title = "LVIM LSP", -- centred; on the container's top border when it has one, else a header row
+        footer = true, -- key-hint line on the container's bottom border (needs one); swaps per focused pane
+        group_icon_open = "", -- file-group header icon when expanded
+        group_icon_closed = "", -- file-group header icon when collapsed
+        guide_icon = "", -- prefix before an expanded group row ("" = plain indent)
+        keys = {
+            down = "j",
+            up = "k",
+            next_group = "<Tab>",
+            prev_group = "<S-Tab>",
+            toggle = "<CR>", -- on a header: expand/collapse (manual mode)
+            jump = "<CR>", -- on a row: open the location
+            split = "s",
+            vsplit = "v",
+            tabedit = "t",
+            focus_preview = "<C-l>", -- from the list: move focus into the preview pane
+            focus_list = "<C-h>", -- from the preview: move focus back to the list
+            filter = "f", -- cycle the active button of the bar's PRIMARY group (when a bar is shown)
+            close = "q",
+        },
+    },
 }

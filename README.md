@@ -15,9 +15,9 @@ Ships with LVIM IDE (a core dependency). Override its options in your user modul
 
 ```lua
 modules["lvim-tech/lvim-utils"] = {
-	config = function()
-		require("lvim-utils").setup({ ... })
-	end,
+    config = function()
+        require("lvim-utils").setup({ ... })
+    end,
 }
 ```
 
@@ -25,10 +25,10 @@ modules["lvim-tech/lvim-utils"] = {
 
 ```lua
 return {
-	"lvim-tech/lvim-utils",
-	config = function()
-		require("lvim-utils").setup({ ... })
-	end,
+    "lvim-tech/lvim-utils",
+    config = function()
+        require("lvim-utils").setup({ ... })
+    end,
 }
 ```
 
@@ -37,7 +37,7 @@ return {
 ```lua
 -- In your init.lua, after the plugin is on the runtimepath:
 vim.pack.add({
-	{ src = "https://github.com/lvim-tech/lvim-utils" },
+    { src = "https://github.com/lvim-tech/lvim-utils" },
 })
 
 require("lvim-utils").setup({ ... })
@@ -47,10 +47,10 @@ require("lvim-utils").setup({ ... })
 
 ```lua
 use({
-	"lvim-tech/lvim-utils",
-	config = function()
-		require("lvim-utils").setup({ ... })
-	end,
+    "lvim-tech/lvim-utils",
+    config = function()
+        require("lvim-utils").setup({ ... })
+    end,
 })
 ```
 
@@ -88,10 +88,10 @@ local mixed = c.blend(c.teal, c.bg, 0.3)
 
 ```lua
 require("lvim-utils").setup({
-	colors = {
-		red = "#ff5555",
-		blue = "#569cd6",
-	},
+    colors = {
+        red = "#ff5555",
+        blue = "#569cd6",
+    },
 })
 ```
 
@@ -114,7 +114,7 @@ Hides the cursor whenever a buffer with a registered filetype is visible in any 
 
 ```lua
 require("lvim-utils.cursor").setup({
-	ft = { "lvim-utils-ui", "neo-tree", "NvimTree" },
+    ft = { "lvim-utils-ui", "neo-tree", "NvimTree" },
 })
 ```
 
@@ -148,10 +148,10 @@ that unbinds the factory (for isolated `ui.new()` instances or plugins that tear
 local hl = require("lvim-utils.highlight")
 
 local dispose = hl.bind(function(c)
-	return {
-		MyPluginNormal = { bg = c.bg_dark, fg = c.fg },
-		MyPluginTitle = { fg = c.blue, bold = true },
-	}
+    return {
+        MyPluginNormal = { bg = c.bg_dark, fg = c.fg },
+        MyPluginTitle = { fg = c.blue, bold = true },
+    }
 end)
 
 -- later, to stop theming these groups:
@@ -165,8 +165,8 @@ For groups that are not palette-derived (or to hard-apply user overrides):
 ```lua
 -- Register defaults (skips groups already set by the colorscheme)
 hl.register({
-	MyGroupNormal = { bg = "#1e1e2e" },
-	MyGroupTitle = { fg = "#cba6f7", bold = true },
+    MyGroupNormal = { bg = "#1e1e2e" },
+    MyGroupTitle = { fg = "#cba6f7", bold = true },
 })
 
 -- Register as overrides (always applied, even over colorscheme)
@@ -226,16 +226,16 @@ Pick one item from a list. Pass `current_item` to mark the currently active valu
 
 ```lua
 require("lvim-utils.ui").select({
-	title = "Choose colorscheme",
-	subtitle = "Active on next restart",
-	info = "Requires a full Neovim restart",
-	items = { "catppuccin", "tokyonight", "gruvbox" },
-	current_item = "tokyonight",
-	callback = function(ok, index)
-		if ok then
-			print("Selected index:", index)
-		end
-	end,
+    title = "Choose colorscheme",
+    subtitle = "Active on next restart",
+    info = "Requires a full Neovim restart",
+    items = { "catppuccin", "tokyonight", "gruvbox" },
+    current_item = "tokyonight",
+    callback = function(ok, index)
+        if ok then
+            print("Selected index:", index)
+        end
+    end,
 })
 ```
 
@@ -243,15 +243,15 @@ Items can be plain strings or `SelectItem` tables:
 
 ```lua
 items = {
-	{ label = "catppuccin", icon = "󰄛" },
-	{
-		label = "tokyonight",
-		icon = "󰖔",
-		hl = {
-			active = { fg = "#7aa2f7", bold = true },
-			inactive = { fg = "#565f89" },
-		},
-	},
+    { label = "catppuccin", icon = "󰄛" },
+    {
+        label = "tokyonight",
+        icon = "󰖔",
+        hl = {
+            active = { fg = "#7aa2f7", bold = true },
+            inactive = { fg = "#565f89" },
+        },
+    },
 }
 ```
 
@@ -261,15 +261,15 @@ Pick multiple items. `<Space>` toggles, `<CR>` confirms.
 
 ```lua
 require("lvim-utils.ui").multiselect({
-	title = "Enable LSP servers",
-	items = { "lua_ls", "tsserver", "pyright" },
-	initial_selected = { lua_ls = true },
-	callback = function(ok, selected)
-		-- selected = table<string, boolean>
-		if ok then
-			vim.print(selected)
-		end
-	end,
+    title = "Enable LSP servers",
+    items = { "lua_ls", "tsserver", "pyright" },
+    initial_selected = { lua_ls = true },
+    callback = function(ok, selected)
+        -- selected = table<string, boolean>
+        if ok then
+            vim.print(selected)
+        end
+    end,
 })
 ```
 
@@ -279,13 +279,13 @@ Free-text input field.
 
 ```lua
 require("lvim-utils.ui").input({
-	title = "Project name",
-	placeholder = "my-project",
-	callback = function(ok, value)
-		if ok then
-			print(value)
-		end
-	end,
+    title = "Project name",
+    placeholder = "my-project",
+    callback = function(ok, value)
+        if ok then
+            print(value)
+        end
+    end,
 })
 ```
 
@@ -295,15 +295,15 @@ Yes/no dialog (a two-item select). The default choice is focused on open; cancel
 
 ```lua
 require("lvim-utils.ui").confirm({
-	prompt = " Delete file?",
-	yes = "Delete", -- optional labels
-	no = "Cancel",
-	default_no = true, -- focus "No" on open
-	callback = function(yes)
-		if yes then
-			-- ...
-		end
-	end,
+    prompt = " Delete file?",
+    yes = "Delete", -- optional labels
+    no = "Cancel",
+    default_no = true, -- focus "No" on open
+    callback = function(yes)
+        if yes then
+            -- ...
+        end
+    end,
 })
 ```
 
@@ -315,14 +315,14 @@ Tabbed view. Supports two content modes:
 
 ```lua
 require("lvim-utils.ui").tabs({
-	title = "Package manager",
-	tabs = {
-		{ label = "Installed", items = { "lazy.nvim", "mason.nvim" } },
-		{ label = "Updates", items = { "blink.cmp" } },
-	},
-	callback = function(ok, res)
-		-- res = { tab, index, item }
-	end,
+    title = "Package manager",
+    tabs = {
+        { label = "Installed", items = { "lazy.nvim", "mason.nvim" } },
+        { label = "Updates", items = { "blink.cmp" } },
+    },
+    callback = function(ok, res)
+        -- res = { tab, index, item }
+    end,
 })
 ```
 
@@ -330,35 +330,35 @@ require("lvim-utils.ui").tabs({
 
 ```lua
 require("lvim-utils.ui").tabs({
-	title = "Settings",
-	tabs = {
-		{
-			label = "Editor",
-			rows = {
-				{ type = "spacer", label = "Appearance" },
-				{ type = "bool", name = "cursorline", label = "Cursor line", value = true },
-				{ type = "bool", name = "cursorline", label = "With icon", value = true, icon = "󰇷" },
-				{
-					type = "select",
-					name = "colorscheme",
-					label = "Colorscheme",
-					value = "catppuccin",
-					options = { "catppuccin", "tokyonight", "gruvbox" },
-				},
-				{ type = "int", name = "scrolloff", label = "Scroll offset", value = 8 },
-				{ type = "float", name = "timeout", label = "Timeout (s)", value = 2.0 },
-				{ type = "string", name = "exclude_ft", label = "Exclude ft", value = "markdown" },
-				{ type = "spacer_line" },
-				{ type = "action", label = "Reset to defaults", run = function() end },
-			},
-		},
-	},
-	on_change = function(row)
-		print(row.name, "=", row.value)
-	end,
-	callback = function(ok, snapshot)
-		-- snapshot = table<name, value> for all named rows
-	end,
+    title = "Settings",
+    tabs = {
+        {
+            label = "Editor",
+            rows = {
+                { type = "spacer", label = "Appearance" },
+                { type = "bool", name = "cursorline", label = "Cursor line", value = true },
+                { type = "bool", name = "cursorline", label = "With icon", value = true, icon = "󰇷" },
+                {
+                    type = "select",
+                    name = "colorscheme",
+                    label = "Colorscheme",
+                    value = "catppuccin",
+                    options = { "catppuccin", "tokyonight", "gruvbox" },
+                },
+                { type = "int", name = "scrolloff", label = "Scroll offset", value = 8 },
+                { type = "float", name = "timeout", label = "Timeout (s)", value = 2.0 },
+                { type = "string", name = "exclude_ft", label = "Exclude ft", value = "markdown" },
+                { type = "spacer_line" },
+                { type = "action", label = "Reset to defaults", run = function() end },
+            },
+        },
+    },
+    on_change = function(row)
+        print(row.name, "=", row.value)
+    end,
+    callback = function(ok, snapshot)
+        -- snapshot = table<name, value> for all named rows
+    end,
 })
 ```
 
@@ -397,8 +397,8 @@ Read-only scrollable info window. Optionally renders content as Markdown via [ma
 
 ```lua
 local buf, win = require("lvim-utils.ui").info(
-	{ "# Title", "", "Some **markdown** content." },
-	{ title = "About", markview = true }
+    { "# Title", "", "Some **markdown** content." },
+    { title = "About", markview = true }
 )
 ```
 
@@ -424,10 +424,10 @@ All popup functions accept a `position` option (overrides the global default):
 
 ```lua
 require("lvim-utils.ui").select({
-	title = "Pick one",
-	items = { "a", "b", "c" },
-	position = "cursor",
-	callback = function(ok, idx) end,
+    title = "Pick one",
+    items = { "a", "b", "c" },
+    position = "cursor",
+    callback = function(ok, idx) end,
 })
 ```
 
@@ -439,15 +439,15 @@ Useful when multiple plugins share lvim-utils but need different colors, icons, 
 
 ```lua
 local my_ui = require("lvim-utils.ui").new({
-	highlights = {
-		LvimUiNormal = { bg = "#1a1a2e", fg = "#eee" },
-		LvimUiTitle = { fg = "#e94560", bold = true },
-		LvimUiBorder = { fg = "#e94560" },
-	},
-	icons = {
-		bool_on = "✓",
-		bool_off = "✗",
-	},
+    highlights = {
+        LvimUiNormal = { bg = "#1a1a2e", fg = "#eee" },
+        LvimUiTitle = { fg = "#e94560", bold = true },
+        LvimUiBorder = { fg = "#e94560" },
+    },
+    icons = {
+        bool_on = "✓",
+        bool_off = "✗",
+    },
 })
 
 my_ui.select({ title = "Pick", items = { "a", "b" }, callback = function(ok, idx) end })
@@ -501,6 +501,89 @@ Instance `highlights` override the global `LvimUi*` groups **only for popups ope
 | `tabs` (rows)  | `result` = `table<name, value>`      |
 | `info`         | returns `buf, win` directly          |
 
+**`M.peek(opts)` — two-pane location navigator**
+
+A collapsible list of source locations grouped by file (header = file icon + name + directory +
+count) on one side and a LIVE preview of the focused location on the other. An expanded group's
+rows are plain source text behind a `▏` guide (no line numbers); the preview shows its real
+buffer WITH line numbers, so syntax/treesitter highlighting comes for free. The look is
+glance-flat — only the centred title is tinted. Two presentations via `opts.mode`: `"split"`
+(embedded splits at the bottom) or `"float"` (detached floating container with an optional
+dimmed backdrop).
+
+Expansion is set by `ui.peek.expand`: `"auto"` keeps only the focused group open and lets it
+follow the cursor; `"manual"` toggles groups open/closed by click or `<CR>` on their header.
+
+```lua
+require("lvim-utils.ui").peek({
+    title = "References",
+    mode = "split", -- or "float"
+    items = {
+        -- 1-based lnum/col; end_lnum/end_col optional (highlight the match range).
+        -- icon/icon_hl (optional) render a glyph before the row text (e.g. a severity sign);
+        -- severity (optional) is a free caller tag usable by filter-bar predicates.
+        { filename = "/abs/path.lua", lnum = 12, col = 7, end_col = 18, text = "local foo = 1" },
+        { filename = "/abs/other.lua", lnum = 3, col = 1, text = "require('x')" },
+    },
+    -- optional; default jumps in the origin window
+    on_jump = function(item, cmd) end, -- cmd = "edit" | "split" | "vsplit" | "tabedit"
+})
+```
+
+Items are grouped by `filename` (first-seen order). Returns `false` when `items` is empty.
+List keys (configurable via `ui.peek.keys`): `j`/`k` move, `<Tab>`/`<S-Tab>` jump between file
+groups, `<CR>` open a location (or fold a header in manual mode), `s`/`v`/`t` open in
+split/vsplit/tab, `<C-l>`/`<C-h>` move focus between the panes, `f` cycle the filter bar's primary
+group, `q` close. The focused pane's keys are also advertised on the container's bottom-border
+footer. The mouse works too: single-click selects (or folds a header, or toggles a filter button),
+double-click opens. The panel is an outer container (8-element `border`, centred `title`) holding
+the two bordered inner panes. Appearance is configured under `ui.peek` (`mode`, `expand`,
+`list_position`, `list_width`, `preview_height`, `preview_number`, `float`, `border`,
+`list_border`, `preview_border`, `title`, `footer`, `group_icon_open`, `group_icon_closed`,
+`guide_icon`).
+
+**Filter bar (`opts.bar`)** — an optional subtitle row of toggle buttons pinned above the list.
+Each *group* of buttons tracks one active button; the effective filter is the AND of every
+group's active-button `predicate(item)`. Clicking a button (or `f` on the `primary` group)
+re-filters the list **live** without reopening, and each button shows its live count. This is
+what the lvim-lsp diagnostics navigator uses for its scope (Workspace/Buffer) + severity
+(All/Error/Warn/…) filters.
+
+```lua
+require("lvim-utils.ui").peek({
+    title = "Diagnostics",
+    mode = "float",
+    items = items, -- each carries icon/icon_hl/severity
+    bar = {
+        groups = {
+            {
+                id = "severity",
+                active = "all",
+                primary = true, -- the `f` key cycles this group
+                buttons = {
+                    {
+                        id = "all",
+                        label = "All",
+                        predicate = function()
+                            return true
+                        end,
+                    },
+                    {
+                        id = "error",
+                        label = "Error",
+                        predicate = function(it)
+                            return it.severity == 1
+                        end,
+                        hl = "MyFilterError",
+                        hl_active = "MyFilterErrorActive",
+                    },
+                },
+            },
+        },
+    },
+})
+```
+
 ---
 
 ### `notify`
@@ -537,15 +620,15 @@ local notify = require("lvim-utils.notify")
 
 -- Register a named channel
 notify.progress_register("lsp", {
-	name = "LSP",
-	icon = "󰄭",
-	header_hl = "LvimNotifyHeaderInfo",
+    name = "LSP",
+    icon = "󰄭",
+    header_hl = "LvimNotifyHeaderInfo",
 })
 
 -- Update content (auto-registers if not yet registered)
 notify.progress_update("lsp", {
-	"  Indexing workspace…",
-	"  42 / 300 files",
+    "  Indexing workspace…",
+    "  42 / 300 files",
 })
 
 -- Clear content and close the panel
@@ -563,10 +646,10 @@ Push messages to a named panel with custom appearance, independent of the standa
 local notify = require("lvim-utils.notify")
 
 notify.register_panel("build", {
-	name = "Build",
-	icon = "󰗼",
-	hl = "LvimNotifyInfo",
-	header_hl = "LvimNotifyHeaderInfo",
+    name = "Build",
+    icon = "󰗼",
+    hl = "LvimNotifyInfo",
+    header_hl = "LvimNotifyHeaderInfo",
 })
 
 notify.push("build", "Compiling…", { timeout = 0 })
@@ -579,7 +662,7 @@ notify.push("build", "Done.", { timeout = 3000 })
 local notify = require("lvim-utils.notify")
 
 notify.add_printer("my_printer", function(msg, level, opts)
-	io.stderr:write("[" .. tostring(level) .. "] " .. msg .. "\n")
+    io.stderr:write("[" .. tostring(level) .. "] " .. msg .. "\n")
 end)
 
 notify.remove_printer("my_printer")
@@ -673,10 +756,10 @@ Or via the main setup:
 
 ```lua
 require("lvim-utils").setup({
-	gx = {
-		force_system_open_local = true,
-		dir_open_strategy = "system",
-	},
+    gx = {
+        force_system_open_local = true,
+        dir_open_strategy = "system",
+    },
 })
 ```
 
@@ -694,13 +777,13 @@ require("lvim-utils").setup({
 
 ```lua
 require("lvim-utils.gx").register_adapter({
-	name = "my_fm",
-	detect = function(ctx)
-		return ctx.filetype == "my-filemanager"
-	end,
-	get = function(ctx)
-		return { path = "/some/resolved/path", type = "file" }
-	end,
+    name = "my_fm",
+    detect = function(ctx)
+        return ctx.filetype == "my-filemanager"
+    end,
+    get = function(ctx)
+        return { path = "/some/resolved/path", type = "file" }
+    end,
 })
 ```
 
@@ -796,6 +879,25 @@ separators). Adjust both via `setup({ ui = { tint = { strong = 0.2, light = 0.1 
 | `LvimUiItemTextInactive`    | Text for inactive select / multiselect item |
 | `LvimUiCheckboxSelected`    | Checked multiselect checkbox symbol         |
 | `LvimUiCheckboxEmpty`       | Unchecked multiselect checkbox symbol       |
+| `LvimUiPeekNormal`          | Peek pane background                        |
+| `LvimUiPeekBorder`          | Peek pane border                            |
+| `LvimUiPeekTitle`           | Brand title on the container border         |
+| `LvimUiPeekKind`            | List winbar kind (e.g. "References")        |
+| `LvimUiPeekKindBar`         | List winbar bar + count                     |
+| `LvimUiPeekFile`            | Preview winbar file name                    |
+| `LvimUiPeekFileBar`         | Preview winbar bar + path                   |
+| `LvimUiPeekGroup`           | Per-file group header                       |
+| `LvimUiPeekGroupIcon`       | Fold chevron in the group header            |
+| `LvimUiPeekDir`             | Directory path in the group header          |
+| `LvimUiPeekCount`           | Count in the group header                   |
+| `LvimUiPeekText`            | Location row text                           |
+| `LvimUiPeekGuide`           | Vertical guide (`▏`) before expanded rows   |
+| `LvimUiPeekCursorLine`      | Focused list row background                 |
+| `LvimUiPeekMatch`           | Matched range (both list and preview)       |
+| `LvimUiPeekFooterKey`       | Key badge on the bottom-border footer       |
+| `LvimUiPeekFooterLabel`     | Label on the bottom-border footer           |
+| `LvimUiPeekFilterActive`    | Active filter-bar button                    |
+| `LvimUiPeekFilterInactive`  | Inactive filter-bar button                  |
 
 ### Notify groups
 

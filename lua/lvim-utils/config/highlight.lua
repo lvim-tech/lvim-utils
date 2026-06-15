@@ -139,5 +139,40 @@ return function(c)
         LvimNotifySepWarn = { bg = mtint(c.orange, 0.05), fg = mtint(c.orange, 0.5) },
         LvimNotifySepError = { bg = mtint(c.red, 0.05), fg = mtint(c.red, 0.5) },
         LvimNotifySepDebug = { bg = mtint(c.purple, 0.05), fg = mtint(c.purple, 0.5) },
+
+        -- Peek (two-pane location navigator) — a FLATTER, glance-like look: the only tinted cell
+        -- is the centred title; the rest of the list is fg-only (filename, directory, count, the
+        -- source rows and the tree guide), selection shown via the cursorline. The match range in
+        -- the PREVIEW keeps a tint so it stays visible over real code.
+        LvimUiPeekNormal = { bg = panel_bg, fg = c.fg },
+        LvimUiPeekBorder = { bg = panel_bg, fg = c.blue },
+        LvimUiPeekTitle = { fg = c.blue, bg = mtint(c.blue, STRONG), bold = true },
+        -- List winbar: a green bar (tint 0.2 across its whole width), with the kind ("References")
+        -- standing out on a stronger green (tint 0.3).
+        LvimUiPeekKindBar = { fg = c.green, bg = mtint(c.green, 0.3) },
+        LvimUiPeekKind = { fg = c.green, bg = mtint(c.green, 0.4), bold = true },
+        -- Preview winbar: a yellow bar (tint 0.2) with the file name on a stronger yellow (0.3);
+        -- the path follows on the bar. Both keep the real yellow fg.
+        LvimUiPeekFileBar = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
+        LvimUiPeekFile = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
+        LvimUiPeekGroup = { fg = c.fg, bold = true },
+        LvimUiPeekGroupIcon = { fg = c.red }, -- the chevron (▸/▾) fold arrows
+        LvimUiPeekDir = { fg = c.comment },
+        LvimUiPeekCount = { fg = c.comment },
+        -- The preview's line numbers are intentionally left to the editor's own LineNr /
+        -- CursorLineNr (see ui/peek.lua dress()), so the preview reads like a normal buffer.
+        LvimUiPeekText = { fg = c.fg },
+        LvimUiPeekGuide = { fg = c.comment },
+        LvimUiPeekCursorLine = { bg = c.bg },
+        LvimUiPeekMatch = { fg = c.blue, bg = mtint(c.blue, 0.25), bold = true },
+        -- Footer key hints on the container's bottom border: each key is a blue 0.3-tint badge,
+        -- its label a yellow 0.2-tint box — matching the LvimUiFooter* convention.
+        LvimUiPeekFooterKey = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true },
+        LvimUiPeekFooterLabel = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
+        -- Filter bar (subtitle row of toggle buttons): the active button is a STRONG blue-tint
+        -- badge (count included), the inactive ones a light body tint. A button may override these
+        -- with its own accent (e.g. diagnostics paints Error/Warn/… in their severity colours).
+        LvimUiPeekFilterActive = { fg = c.blue, bg = mtint(c.blue, STRONG), bold = true },
+        LvimUiPeekFilterInactive = { fg = c.fg, bg = mtint(c.fg, BODY) },
     }
 end

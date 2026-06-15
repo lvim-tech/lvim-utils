@@ -149,6 +149,62 @@ reference, `ui.new()` isolated instances, and popup positioning.
   j / k          Move          h / l          Switch tab (tabs mode)
   <CR>           Confirm        <Esc> / q      Close
 
+                                                          *lvim-utils-ui-peek*
+PEEK ~
+
+`ui.peek(opts)` is a two-pane location navigator: a COLLAPSIBLE list of source locations
+grouped by file on one side, a LIVE preview of the focused location on the other. Only the
+group holding the focus is expanded (rows are plain text, no line numbers); the preview
+shows the real buffer WITH line numbers, so syntax / treesitter highlighting comes for
+free. `opts.mode` chooses the look — `"split"` (embedded splits at the bottom) or `"float"`
+(detached floating container with an optional dimmed backdrop). >lua
+  require("lvim-utils.ui").peek({
+      title = "References",
+      mode = "split",                       -- or "float"
+      items = {                             -- 1-based lnum/col; end_* optional
+          { filename = "/abs/a.lua", lnum = 12, col = 7, end_col = 18, text = "…" },
+          { filename = "/abs/b.lua", lnum = 3,  col = 1, text = "…" },
+      },
+      on_jump = function(item, cmd) end,    -- optional; cmd = edit|split|vsplit|tabedit
+  })
+<
+Items group by `filename` (header = icon + name + directory + count); returns
+false when empty. `ui.peek.expand` is "auto" (only the focused group open,
+follows the cursor) or "manual" (toggle groups by click / <CR> on a header).
+Keys: j/k move, <Tab>/<S-Tab> file groups, <CR> open (or fold a header in
+manual), s/v/t split/vsplit/tab, <C-l>/<C-h> switch pane, f cycle the filter
+bar's primary group, q close; the focused pane's keys also ride the container's
+bottom-border footer. The mouse works too (single-click select / fold / toggle
+a filter button, double-click open). Configured under `ui.peek` (mode, expand,
+list_position, list_width, preview_height, preview_number, float, border,
+  list_border, preview_border, title, footer, group_icon_open,
+  group_icon_closed, guide_icon, keys).
+
+An item may also carry `icon` + `icon_hl` (a glyph before the row text, e.g. a
+severity sign) and a free `severity` tag for filter predicates.
+
+FILTER BAR ~
+
+`opts.bar` adds a pinned subtitle row of toggle buttons above the list. Each
+button GROUP tracks one active button; the effective filter is the AND of every
+group's active-button `predicate(item)`. Clicking a button (or `f` on the group
+marked `primary`) re-filters the list LIVE without reopening, and each button
+shows its live count. Buttons may set `hl` / `hl_active` to paint themselves in
+their own accent. The lvim-lsp diagnostics navigator uses this for its
+Workspace/Buffer scope + All/Error/Warn/… severity filters. >lua
+  bar = {
+      groups = {
+          {
+              id = "severity", active = "all", primary = true,
+              buttons = {
+                  { id = "all",   label = "All",   predicate = function() return true end },
+                  { id = "error", label = "Error", predicate = function(it) return it.severity == 1 end },
+              },
+          },
+      },
+  }
+<
+
 ==============================================================================
 7. NOTIFY                                                *lvim-utils-notify*
 

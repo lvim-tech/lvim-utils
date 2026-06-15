@@ -21,6 +21,7 @@
 local hl = require("lvim-utils.highlight")
 local colors = require("lvim-utils.config").colors
 local popup = require("lvim-utils.ui.popup")
+local peek = require("lvim-utils.ui.peek")
 
 local M = {}
 
@@ -96,6 +97,15 @@ function M.info(content, opts)
     return buf_ref, win_ref
 end
 
+--- Two-pane "peek" navigator over a list of source locations: a grouped list on one side, a
+--- live preview of the focused location on the other. `opts.mode` ("split" | "float") chooses
+--- the presentation; `opts.on_jump(item, cmd)` overrides the default jump.
+---@param opts { title?: string, items: table[], mode?: string, on_jump?: fun(item: table, cmd: string) }
+---@return boolean opened  false when there were no items
+function M.peek(opts)
+    return peek.open(opts)
+end
+
 --- Programmatically close an info window.
 ---@param win integer
 function M.close_info(win)
@@ -140,6 +150,10 @@ function M.new(instance_cfg)
     function inst.tabs(opts)
         opts.mode = "tabs"
         return popup.open(opts, instance_cfg)
+    end
+
+    function inst.peek(opts)
+        return peek.open(opts, instance_cfg)
     end
 
     function inst.info(content, opts)

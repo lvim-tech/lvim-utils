@@ -525,13 +525,19 @@ function M.open(opts, instance_cfg)
         return math.floor(v <= 1.0 and vim.o.columns * v or v)
     end
 
-    if opts.width then
-        s.width = resolve_width(opts.width)
-    elseif type(s_cfg.width) == "number" then
-        s.width = resolve_width(s_cfg.width)
-    else
-        s.width = calc_width()
+    -- Resolve the panel width from opts / config / content. Factored out so the VimResized
+    -- handler can recompute it against the new `vim.o.columns` (the fraction/`calc_width` bounds
+    -- all read it live).
+    local function recalc_width()
+        if opts.width then
+            s.width = resolve_width(opts.width)
+        elseif type(s_cfg.width) == "number" then
+            s.width = resolve_width(s_cfg.width)
+        else
+            s.width = calc_width()
+        end
     end
+    recalc_width()
     recalc_heights()
     if opts.height then
         local max_total = resolve_height(opts.height)
@@ -904,6 +910,10 @@ function M.open(opts, instance_cfg)
             return
         end
         closed = true
+        if s.augroup then
+            pcall(api.nvim_del_augroup_by_id, s.augroup)
+            s.augroup = nil
+        end
         if _saved_complete ~= nil then
             pcall(function()
                 vim.bo[s.buf].complete = _saved_complete
@@ -1081,6 +1091,22 @@ function M.open(opts, instance_cfg)
         on_open(s.buf, s.win)
     end
     vim.cmd("redraw!")
+
+    -- Re-lay-out on terminal/window resize: width, height and centre all derive from
+    -- `vim.o.columns`/`vim.o.lines`, so recompute them and re-render in place. The augroup is
+    -- torn down in close() so it never outlives the panel.
+    s.augroup = api.nvim_create_augroup("LvimUiPopup_" .. s.buf, { clear = true })
+    api.nvim_create_autocmd("VimResized", {
+        group = s.augroup,
+        callback = function()
+            if not (s.win and api.nvim_win_is_valid(s.win)) then
+                return
+            end
+            recalc_width()
+            s.fit_view()
+            render()
+        end,
+    })
 
     -- Handle for the caller to drive the open popup (e.g. live progress): mutate
     -- the rows held in `tabs` (same table passed in) then call render() — or recalc()

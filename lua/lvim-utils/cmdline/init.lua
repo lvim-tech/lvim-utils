@@ -298,14 +298,25 @@ function M.setup(cfg)
 
     -- Authoritative content refresh: cmdline_show does not always carry the result of
     -- `<C-r>` register insertion, so re-read the real command line on every change.
+    local cmdline_group = api.nvim_create_augroup("LvimUiCmdline", { clear = true })
     api.nvim_create_autocmd("CmdlineChanged", {
-        group = api.nvim_create_augroup("LvimUiCmdline", { clear = true }),
+        group = cmdline_group,
         callback = function()
             state.content = { { 0, vim.fn.getcmdline() } }
             state.pos = vim.fn.getcmdpos() - 1
             state.special = nil
             _cursor_on = true
             schedule(render)
+        end,
+    })
+    -- Re-render on resize: the float spans the full width and sits at the bottom (both from
+    -- `vim.o.columns`/`vim.o.lines`), so a resize while the cmdline is open must reflow it.
+    api.nvim_create_autocmd("VimResized", {
+        group = cmdline_group,
+        callback = function()
+            if _win and api.nvim_win_is_valid(_win) then
+                schedule(render)
+            end
         end,
     })
 

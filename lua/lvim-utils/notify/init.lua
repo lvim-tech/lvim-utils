@@ -439,6 +439,18 @@ _rebuild_all = function()
     end)
 end
 
+-- Reflow the notification stack on terminal/window resize: each panel's right-edge column comes
+-- from `vim.o.columns` and the bottom-up stack from `vim.o.lines`, so a rebuild re-anchors them
+-- all. Installed once (the module is a singleton); a no-op when nothing is on screen.
+api.nvim_create_autocmd("VimResized", {
+    group = api.nvim_create_augroup("LvimUtilsNotifyResize", { clear = true }),
+    callback = function()
+        if next(_panels) or next(_prog_channels) then
+            _rebuild_all()
+        end
+    end,
+})
+
 -- ── toast printer ─────────────────────────────────────────────────────────
 
 local function _show_toast(msg, level, opts)
