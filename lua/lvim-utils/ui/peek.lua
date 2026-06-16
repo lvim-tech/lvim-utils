@@ -363,13 +363,6 @@ local function expanded_set(state)
     return { [state.item_group[state.cur] or 1] = true }
 end
 
---- The hotkey letter for a bar button: its explicit `key`, else its label's first letter lowercased.
----@param b LvimUiPeekBarButton
----@return string
-local function button_key(b)
-    return b.key or (b.label:sub(1, 1):lower())
-end
-
 --- Build the filter bar as an installer-style row of bracket-key buttons (`[A]ll 5  [E]rror 2 …`),
 --- centred on the WHOLE panel under the title. The bracketed first letter is the button's hotkey;
 --- the active button is shown by its accent (bold), inactive ones dimmed; the live count follows the
@@ -787,6 +780,18 @@ local function set_keys(state)
             cycle_primary(state)
         end)
     end
+    -- Caller-supplied row actions: each runs on the focused item, receiving a `close` callback so it
+    -- can tear the peek down (e.g. jump elsewhere then act).
+    for _, a in ipairs(state.actions or {}) do
+        map(a.key, function()
+            local it = focused_item(state)
+            if it then
+                a.run(it, function()
+                    close_all(state)
+                end)
+            end
+        end)
+    end
     map(p.keys.close, function()
         close_all(state)
     end)
@@ -807,14 +812,17 @@ local function set_keys(state)
         end
         activate(state, m.line, false)
     end)
-    -- Bracket-key hotkeys: each filter button's letter (its `key`, else its label's first letter)
-    -- jumps straight to it. Mapped on the list buffer only, so the preview keeps its own motions.
+    -- Bracket-key hotkeys: a button with an explicit `key` jumps straight to it (mapped on the list
+    -- buffer only, so the preview keeps its motions). Buttons without a `key` are reachable by click
+    -- or the `f` cycle — used when a group has too many buttons for unique letters (e.g. symbol kinds).
     if state.bar then
         for gi, g in ipairs(state.bar.groups) do
             for _, b in ipairs(g.buttons) do
-                map(button_key(b), function()
-                    set_filter(state, gi, b.id)
-                end)
+                if b.key then
+                    map(b.key, function()
+                        set_filter(state, gi, b.id)
+                    end)
+                end
             end
         end
     end
@@ -1234,7 +1242,7 @@ relayout = function(state)
 end
 
 --- Open a peek window over `opts.items`.
----@param opts { title?: string, items: LvimUiPeekItem[], mode?: string, bar?: LvimUiPeekBar, list_match?: boolean, on_jump?: fun(item: LvimUiPeekItem, cmd: string) }
+---@param opts { title?: string, items: LvimUiPeekItem[], mode?: string, bar?: LvimUiPeekBar, list_match?: boolean, actions?: { key: string, desc?: string, run: fun(item: LvimUiPeekItem, close: fun()) }[], on_jump?: fun(item: LvimUiPeekItem, cmd: string) }
 ---@param instance_cfg? table
 ---@return boolean opened  false when there were no items
 function M.open(opts, instance_cfg)
@@ -1253,6 +1261,7 @@ function M.open(opts, instance_cfg)
         -- Highlight the match range inside each list row. True when rows are SOURCE LINES (locations);
         -- diagnostics pass false because their rows are messages, where col/end_col are meaningless.
         list_match = opts.list_match ~= false,
+        actions = opts.actions, -- optional caller row actions: { { key, desc, run = fun(item, close) } }
         origin = api.nvim_get_current_win(),
         list_buf = api.nvim_create_buf(false, true),
     }
