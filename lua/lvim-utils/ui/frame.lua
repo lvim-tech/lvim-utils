@@ -123,13 +123,16 @@ end
 
 -- ─── geometry ─────────────────────────────────────────────────────────────────
 
---- Pure geometry from the CURRENT screen size: the container frame, the header/footer band rows, and
---- every center-panel rect + the divider columns between them. No window/buffer side effects.
+--- Pure geometry: the container frame, the header/footer band rows, and every center-panel rect + the
+--- divider columns. No window/buffer side effects. `place` overrides position/size for a SPLIT (docked)
+--- frame whose container window already exists: `{ row, col, H }` (screen position + the split height).
 ---@param state table
+---@param place? table
 ---@return table layout
-local function compute_geom(state)
+local function compute_geom(state, place)
     local cfg = state.cfg
-    local cbord = util.resolve_border(cfg.border)
+    -- A docked split container draws no border (its edge is the split divider); a float uses cfg.border.
+    local cbord = place and util.resolve_border("none") or util.resolve_border(cfg.border)
     local ct, _, _, cl = util.insets(cbord)
 
     local panels = state.panels
@@ -165,17 +168,19 @@ local function compute_geom(state)
     end
     local content_w = math.max(bars_w, nat_w_sum + sep_w * (n - 1))
 
-    -- Container CONTENT width/height (W excludes the container's own border columns).
-    local W = util.axis_size(cfg.auto_width, cfg.width, cfg.max_width, content_w, vim.o.columns)
+    -- Container CONTENT width/height (W excludes the container's own border columns). A docked split
+    -- passes its window's ACTUAL width in `place.W` (full width for a below/above dock).
+    local W = place and place.W or util.axis_size(cfg.auto_width, cfg.width, cfg.max_width, content_w, vim.o.columns)
     local header_h = #state.header_bands
     local footer_h = #state.footer_bands
     local content_h = header_h + footer_h + nat_h_max
-    local H = util.axis_size(cfg.auto_height, cfg.height, cfg.max_height, content_h, vim.o.lines)
+    -- A split takes the full height nvim gives it (place.H); a float sizes per auto/explicit height.
+    local H = place and place.H or util.axis_size(cfg.auto_height, cfg.height, cfg.max_height, content_h, vim.o.lines)
     H = math.max(H, header_h + footer_h + 1)
 
-    -- Centre the float on screen (split docking comes later).
-    local row = math.max(1, math.floor((vim.o.lines - H) / 2 - 1))
-    local col = math.max(1, math.floor((vim.o.columns - W) / 2))
+    -- Float: centre on screen. Split: the container window's actual screen position (passed in `place`).
+    local row = place and place.row or math.max(1, math.floor((vim.o.lines - H) / 2 - 1))
+    local col = place and place.col or math.max(1, math.floor((vim.o.columns - W) / 2))
     local cc_row, cc_col = row + ct, col + cl
     local center_top = cc_row + header_h
     local center_h = math.max(1, H - header_h - footer_h)
@@ -560,24 +565,53 @@ end
 --- Build the container + the N panel windows from a computed layout.
 ---@param state table
 local function open_windows(state)
-    local L = compute_geom(state)
-    state._geom = L
     state.zindex = state.cfg.zindex or 50
-
     state.container_buf = api.nvim_create_buf(false, true)
-    state.container_win = api.nvim_open_win(state.container_buf, false, {
-        relative = "editor",
-        width = L.W,
-        height = L.H,
-        row = L.row,
-        col = L.col,
-        border = L.cbord,
-        style = "minimal",
-        focusable = false,
-        zindex = state.zindex,
-        title = L.ct > 0 and { { " " .. (state.cfg.title or "") .. " ", "LvimUiPeekTitle" } } or nil,
-        title_pos = L.ct > 0 and "center" or nil,
-    })
+
+    local L
+    if state.cfg.mode == "split" then
+        -- A docked split: `dock` left/right = a vertical split (fixed width from sizing, full height),
+        -- below/above = a horizontal split (fixed height, full width). The chrome lives in this split's
+        -- buffer; the panels float over its center rows at its ACTUAL screen position / size.
+        local g0 = compute_geom(state)
+        local dock = state.cfg.dock or "right"
+        local horiz = dock == "below" or dock == "above"
+        state.container_win = api.nvim_open_win(state.container_buf, false, {
+            split = dock,
+            win = -1,
+            width = (not horiz) and g0.W or nil,
+            height = horiz and g0.H or nil,
+            style = "minimal",
+        })
+        local pos = api.nvim_win_get_position(state.container_win)
+        L = compute_geom(state, {
+            row = pos[1],
+            col = pos[2],
+            W = api.nvim_win_get_width(state.container_win),
+            H = api.nvim_win_get_height(state.container_win),
+        })
+        if horiz then
+            vim.wo[state.container_win].winfixheight = true
+        else
+            vim.wo[state.container_win].winfixwidth = true
+        end
+    else
+        L = compute_geom(state)
+        state.container_win = api.nvim_open_win(state.container_buf, false, {
+            relative = "editor",
+            width = L.W,
+            height = L.H,
+            row = L.row,
+            col = L.col,
+            border = L.cbord,
+            style = "minimal",
+            focusable = false,
+            zindex = state.zindex,
+            title = L.ct > 0 and { { " " .. (state.cfg.title or "") .. " ", "LvimUiPeekTitle" } } or nil,
+            title_pos = L.ct > 0 and "center" or nil,
+        })
+    end
+    state._geom = L
     vim.wo[state.container_win].winhighlight = "Normal:LvimUiPeekNormal,FloatBorder:LvimUiPeekBorder"
 
     render_chrome(state, L)
