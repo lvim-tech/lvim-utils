@@ -683,6 +683,11 @@ local function open_windows(state)
             style = "minimal",
             focusable = false,
             zindex = state.zindex,
+            -- The brand is the window's TOP-border title (needs a top border, i.e. ct > 0).
+            title = (L.ct > 0 and state.cfg.title and state.cfg.title ~= "") and {
+                { " " .. state.cfg.title .. " ", state.cfg.title_hl or "LvimUiPeekTitle" },
+            } or nil,
+            title_pos = "center",
         })
     end
     state._geom = L
@@ -855,18 +860,11 @@ function M.open(cfg)
     if cfg.close_keys == nil and not cfg.persistent then
         cfg.close_keys = { "q", "<Esc>" }
     end
-    -- A frame-level `title` is the brand row at the very top of the chrome — independent of the header,
-    -- so a frame can have a title with NO header bands. Rendered as a pinned meta row (not a border
-    -- title, so it shows the same in float and split).
-    local hbands = header_bands(cfg.header)
-    if cfg.title and cfg.title ~= "" then
-        table.insert(hbands, 1, { meta = cfg.title, hl = cfg.title_hl or "LvimUiPeekTitle" })
-    end
     local state = {
         cfg = cfg,
         origin = api.nvim_get_current_win(),
         panels = cfg.panels or {},
-        header_bands = hbands,
+        header_bands = header_bands(cfg.header),
         footer_bands = footer_bands(cfg.footer),
     }
     state.close = function()
