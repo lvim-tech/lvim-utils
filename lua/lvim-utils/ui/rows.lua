@@ -2,6 +2,7 @@
 -- Row type system: type annotations, display helpers, item accessors,
 -- and row-navigation utilities used by the popup.
 local util = require("lvim-utils.ui.util")
+local button = require("lvim-utils.ui.button")
 
 local M = {}
 
@@ -30,6 +31,7 @@ local M = {}
 ---@field children?     Row[]
 ---@field option_icons? table<string, string>
 ---@field bracket_key?  boolean
+---@field center?       boolean   center the row text instead of left-padding
 
 --- Per-item hl state: either a flat HlDef (whole line) or split parts.
 ---@alias ItemHlState HlDef | { checkbox?: HlDef, icon?: HlDef, text?: HlDef }
@@ -130,11 +132,12 @@ function M.segmented_segments(row, ico)
     local segs = {}
     for _, opt in ipairs(row.options or {}) do
         local oicon = row.option_icons and row.option_icons[opt]
-        -- bracket_key: box the first letter as the shortcut hint ("[R]einstall"); the
-        -- active option is then shown by highlight (bold) rather than wrapping brackets.
+        -- bracket_key: box the shortcut letter as the hint ("[R]einstall") via the shared ui.button
+        -- bracket convention; the active option is then shown by highlight (bold), not by brackets.
         local label = opt
         if row.bracket_key and #opt > 0 then
-            label = "[" .. opt:sub(1, 1) .. "]" .. opt:sub(2)
+            local pos = button.key_pos(opt, opt:sub(1, 1))
+            label = opt:sub(1, pos - 1) .. "[" .. opt:sub(pos, pos) .. "]" .. opt:sub(pos + 1)
         end
         local inner = (oicon and (oicon .. " ") or "") .. label
         local text

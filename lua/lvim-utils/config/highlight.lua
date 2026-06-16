@@ -94,6 +94,7 @@ return function(c)
         LvimUiFooter = { fg = c.blue, bold = true },
         LvimUiFooterKey = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true },
         LvimUiFooterLabel = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
+        LvimUiFooterChevron = { fg = c.yellow, bold = true }, -- overflow scroll chevrons (‹ ›)
 
         -- Spacer / divider rows
         LvimUiSpacer = { fg = c.magenta },

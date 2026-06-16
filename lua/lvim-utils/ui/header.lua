@@ -1,21 +1,25 @@
 -- lua/lvim-utils/ui/header.lua
 -- Header section: tab bar (tabs mode) or title/subtitle/info block.
+-- The tab bar is composed from ui.button "label" specs and laid out by ui.bar (the same primitives the
+-- peek uses) — a single source of truth for every bar of buttons in the UI.
 local util = require("lvim-utils.ui.util")
+local bar = require("lvim-utils.ui.bar")
 
 local api = vim.api
 local M = {}
 
+-- Tab-bar overflow chevrons (Nerd Font U+F104 / U+F105) marking hidden tabs on each side.
+local CHEVRON_L, CHEVRON_R = vim.fn.nr2char(0xF104), vim.fn.nr2char(0xF105)
+
 -- ─── build ────────────────────────────────────────────────────────────────────
 
 --- Build header lines for the current mode.
---- Returns the lines array, tab_ranges table, and centered_offset integer.
---- tab_ranges entries: { active, s, e, tab_hl }
+--- Returns the lines array and (tabs mode) the ui.bar render result for the tab bar.
 ---@param ctx table
----@return string[], table[], integer
+---@return string[], table|nil
 function M.build(ctx)
     local lines = {}
-    local tab_ranges = {}
-    local centered_offset = 0
+    local tab_render = nil -- the ui.bar render result for the tab bar (tabs mode only)
 
     if ctx.mode == "tabs" then
         -- optional meta block (title / subtitle / info) above the tab bar
@@ -26,99 +30,34 @@ function M.build(ctx)
             table.insert(lines, "")
         end
 
-        -- tab bar — windowed horizontal scroll. When the full bar is wider than the
-        -- popup, only the run of tabs around the active one that fits is rendered, flanked
-        -- by   chevrons marking hidden tabs. The per-tab byte ranges are built from the
-        -- rendered slice (not the full bar), so centered_offset stays >= 0 and end_col can no
-        -- longer run past the line — apply_hl also clamps defensively.
-        local CHEVRON_L, CHEVRON_R = "", ""
-        local lbls, dws = {}, {}
+        -- tab bar — one ui.button "label" per tab (icon + label), laid out by ui.bar: centred when it
+        -- fits, else a scrolled window flanked by the U+F104/U+F105 chevrons keeping the active tab
+        -- visible. The per-tab fill background (cfg.tab_hl + the tab's own tab_hl, merged) is placed in
+        -- apply_hl over each button's returned byte range; the icon/label fg spans ride on top. `off` is
+        -- persisted on popup state (ctx.tab_off) so the scroll position survives redraws.
+        local specs = {}
         for i, t in ipairs(ctx.tabs) do
-            local icon_str = t.icon or ""
-            -- Icon and text are each their own padded block ("  <x>  ", 2 spaces front and back) —
-            -- Nerd glyphs read wider than one cell, so the coloured boxes need the breathing room.
-            local icon_part = icon_str ~= "" and ("  " .. icon_str .. "  ") or ""
-            local text_part = "  " .. (t.label or ("Tab " .. i)) .. "  "
-            lbls[i] = icon_part .. text_part
-            dws[i] = util.dw(lbls[i])
-        end
-        local n = #ctx.tabs
-        local total = 0
-        for i = 1, n do
-            total = total + dws[i]
-        end
-
-        -- visible window [lo, hi] (the whole bar when it already fits)
-        local lo, hi = 1, n
-        if total > ctx.width and n > 0 then
-            local budget = ctx.width - 6 -- room for the two flanking " <chevron> " boxes
-            local active = math.max(1, math.min(ctx.active_tab, n))
-            lo, hi = active, active
-            local used = dws[active]
-            while true do
-                local grew = false
-                if hi < n and used + dws[hi + 1] <= budget then
-                    hi = hi + 1
-                    used = used + dws[hi]
-                    grew = true
-                end
-                if lo > 1 and used + dws[lo - 1] <= budget then
-                    lo = lo - 1
-                    used = used + dws[lo]
-                    grew = true
-                end
-                if not grew then
-                    break
-                end
-            end
-        end
-
-        local left_more = lo > 1
-        local right_more = hi < n
-
-        -- assemble the windowed bar, recording byte ranges on the rendered string
-        -- Chevron boxes get 1 space front and back inside their span (like the tab icons).
-        local left_box = left_more and (" " .. CHEVRON_L .. " ") or ""
-        local tab_bar = left_box
-        if left_more then
-            table.insert(tab_ranges, { chevron = true, s = 0, e = #left_box })
-        end
-        for i = lo, hi do
-            local t = ctx.tabs[i]
-            local icon_str = t.icon or ""
-            local lbl_str = t.label or ("Tab " .. i)
-            -- Must match the lbls[] construction above (padded "  <x>  " blocks).
-            local icon_part = icon_str ~= "" and ("  " .. icon_str .. "  ") or ""
-            local lbl = lbls[i]
-            local start = #tab_bar
-            local icon_s, icon_e
-            if icon_str ~= "" then
-                -- Icon block = the whole padded icon_part (2 spaces + icon + 2 spaces).
-                icon_s = start
-                icon_e = start + #icon_part
-            end
-            -- Text block = its whole padded "  <label>  " box, so its tint covers the spaces too.
-            local text_s = start + #icon_part
-            local text_e = text_s + 2 + #lbl_str + 2
-            table.insert(tab_ranges, {
+            specs[i] = {
+                type = "label",
+                icon = t.icon,
+                label = t.label or ("Tab " .. i),
                 active = (i == ctx.active_tab),
-                s = start,
-                e = start + #lbl,
-                tab_hl = t.tab_hl,
-                icon_s = icon_s,
-                icon_e = icon_e,
-                text_s = text_s,
-                text_e = text_e,
-            })
-            tab_bar = tab_bar .. lbl
+                _tab_hl = t.tab_hl, -- per-tab override, merged against cfg.tab_hl in apply_hl
+                hl = {
+                    normal = { icon = "LvimUiTabIconInactive", label = "LvimUiTabTextInactive" },
+                    active = { icon = "LvimUiTabIconActive", label = "LvimUiTabTextActive" },
+                },
+            }
         end
-        if right_more then
-            local cs = #tab_bar -- box starts at the leading space
-            tab_bar = tab_bar .. " " .. CHEVRON_R .. " "
-            table.insert(tab_ranges, { chevron = true, s = cs, e = #tab_bar })
-        end
-        centered_offset = math.max(0, math.floor((ctx.width - util.dw(tab_bar)) / 2))
-        table.insert(lines, util.center(tab_bar, ctx.width))
+        tab_render = bar.render({
+            buttons = specs,
+            width = ctx.width,
+            align = "center",
+            sel = ctx.active_tab,
+            chevrons = { left = CHEVRON_L, right = CHEVRON_R },
+            off = ctx.tab_off,
+        })
+        table.insert(lines, tab_render.line)
         table.insert(lines, "")
         table.insert(lines, string.rep("─", ctx.width))
         table.insert(lines, "")
@@ -134,17 +73,16 @@ function M.build(ctx)
         end
     end
 
-    return lines, tab_ranges, centered_offset
+    return lines, tab_render
 end
 
 -- ─── apply_hl ─────────────────────────────────────────────────────────────────
 
 --- Apply header highlights.
----@param buf             integer
----@param ctx             table
----@param tab_ranges      table[]
----@param centered_offset integer
-function M.apply_hl(buf, ctx, tab_ranges, centered_offset)
+---@param buf        integer
+---@param ctx        table
+---@param tab_render table|nil  the ui.bar render result returned by M.build (tabs mode)
+function M.apply_hl(buf, ctx, tab_render)
     local NS = util.NS
     local resolve_hl = ctx.resolve_hl
     local merge_bg = util.merge_bg
@@ -204,44 +142,36 @@ function M.apply_hl(buf, ctx, tab_ranges, centered_offset)
                 hl_centered(i - 1, l, resolve_hl(ctx.info_hl or "LvimUiInfo"))
             end
         end
-        -- tab bar: one extmark per button. Spans are clamped to the rendered line so a
-        -- narrow popup (or a windowed bar) can never produce an out-of-range end_col.
-        local bar_line = api.nvim_buf_get_lines(buf, ctx.meta_offset, ctx.meta_offset + 1, false)[1] or ""
-        local max_col = #bar_line
-        local function set_span(cs, ce, group, priority)
-            cs = math.max(0, math.min(centered_offset + cs, max_col))
-            ce = math.max(0, math.min(centered_offset + ce, max_col))
-            if ce > cs then
-                api.nvim_buf_set_extmark(buf, NS, ctx.meta_offset, cs, {
-                    end_col = ce,
-                    hl_group = group,
-                    priority = priority,
-                })
+        -- tab bar — two layers per button: a whole-button fill background (cfg.tab_hl + the tab's own
+        -- tab_hl, merged; falling back to LvimUiTab{Active,Inactive}) under the ui.bar icon/label fg
+        -- spans. Everything is clamped to the rendered line so a narrow / scrolled bar can never
+        -- produce an out-of-range end_col.
+        local lnum = ctx.meta_offset
+        local line = api.nvim_buf_get_lines(buf, lnum, lnum + 1, false)[1] or ""
+        local max_col = #line
+        local function span(cs, ce, group, priority)
+            cs = math.max(0, math.min(cs, max_col))
+            ce = math.max(0, math.min(ce, max_col))
+            if ce > cs and group then
+                api.nvim_buf_set_extmark(buf, NS, lnum, cs, { end_col = ce, hl_group = group, priority = priority })
             end
         end
-        for _, r in ipairs(tab_ranges) do
-            if r.chevron then
-                set_span(r.s, r.e, resolve_hl("LvimUiTabChevron"), 200)
-            else
-                local gtab = cfg.tab_hl
-                local global_hl = gtab and (r.active and gtab.active or gtab.inactive)
-                local per_hl = r.tab_hl and (r.active and r.tab_hl.active or r.tab_hl.inactive)
-                local final_hl = merge_bg(global_hl, per_hl)
-                set_span(r.s, r.e, resolve_hl(final_hl or (r.active and "LvimUiTabActive" or "LvimUiTabInactive")), 200)
-                if r.icon_s then
-                    set_span(
-                        r.icon_s,
-                        r.icon_e,
-                        resolve_hl(r.active and "LvimUiTabIconActive" or "LvimUiTabIconInactive"),
-                        300
-                    )
+        if tab_render then
+            for _, btn in ipairs(tab_render.buttons) do
+                if btn.c0 and not btn.sep then
+                    local is_active = btn.spec.active
+                    local global_hl = cfg.tab_hl and (is_active and cfg.tab_hl.active or cfg.tab_hl.inactive)
+                    local per_hl = btn.spec._tab_hl
+                        and (is_active and btn.spec._tab_hl.active or btn.spec._tab_hl.inactive)
+                    local fill = merge_bg(global_hl, per_hl) or (is_active and "LvimUiTabActive" or "LvimUiTabInactive")
+                    span(btn.c0, btn.c1, resolve_hl(fill), 200)
                 end
-                set_span(
-                    r.text_s,
-                    r.text_e,
-                    resolve_hl(r.active and "LvimUiTabTextActive" or "LvimUiTabTextInactive"),
-                    300
-                )
+            end
+            for _, sp in ipairs(tab_render.spans) do
+                span(sp[1], sp[2], resolve_hl(sp[3]), 300)
+            end
+            for _, ch in ipairs(tab_render.chevrons) do
+                span(ch[1], ch[2], resolve_hl("LvimUiTabChevron"), 200)
             end
         end
         hl_line(buf, ctx.meta_offset + 2, "LvimUiSeparator")

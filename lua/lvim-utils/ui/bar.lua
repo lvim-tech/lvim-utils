@@ -19,6 +19,29 @@ local M = {}
 local CHEVRON_LEFT = "‹"
 local CHEVRON_RIGHT = "›"
 
+--- The natural display width of a bar = the sum of its rendered buttons plus the inter-button
+--- separators (`sep`, default 2). Lets a caller size a window to fit the bar un-scrolled.
+---@param buttons LvimUiButtonSpec[]
+---@param sep? string
+---@return integer
+function M.width(buttons, sep)
+    local gap = vim.fn.strdisplaywidth(sep or "  ")
+    local total, prev = 0, false
+    for _, spec in ipairs(buttons or {}) do
+        if spec.separator then
+            total = total + 2 * #(spec.pad or "") + vim.fn.strdisplaywidth(spec.separator)
+            prev = false
+        else
+            if prev then
+                total = total + gap
+            end
+            total = total + vim.fn.strdisplaywidth((button.render(spec, "normal")))
+            prev = true
+        end
+    end
+    return total
+end
+
 ---@param opts { buttons: LvimUiButtonSpec[], width: integer, align?: "left"|"center"|"right", chevrons?: { left?: string, right?: string }, sep?: string, sel?: integer, hover?: integer, off?: integer }
 ---@return { line: string, spans: table[], chevrons: table[], buttons: table[], off: integer }
 function M.render(opts)

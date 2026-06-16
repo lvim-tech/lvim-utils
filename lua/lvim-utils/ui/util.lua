@@ -141,6 +141,51 @@ function M.resolve_border(b)
     return t
 end
 
+--- Per-side insets (top, right, bottom, left) of a resolved 8-element border: 1 cell for any side
+--- whose element is a non-empty string (a glyph OR a " " pad), 0 for an empty "" side.
+---@param b table|nil  a border resolved by M.resolve_border ({ tl, t, tr, r, br, b, bl, l })
+---@return integer top, integer right, integer bottom, integer left
+function M.insets(b)
+    if type(b) ~= "table" then
+        return 0, 0, 0, 0
+    end
+    local function on(i)
+        local e = b[i]
+        local s = type(e) == "table" and e[1] or e
+        return (s and s ~= "") and 1 or 0
+    end
+    return on(2), on(4), on(6), on(8)
+end
+
+-- ─── sizing helper ────────────────────────────────────────────────────────────
+
+--- Resolve one axis size. When `auto` is true, fit `content` (capped by `cap`); otherwise use the
+--- EXPLICIT value (a fraction ≤ 1 of `screen`, or an absolute count), falling back to `content` when
+--- it is unset. `cap` itself may be a fraction ≤ 1 of `screen` or an absolute count. Always ≥ 1.
+---@param auto boolean|nil
+---@param explicit number|nil
+---@param cap number|nil
+---@param content integer
+---@param screen integer
+---@return integer
+function M.axis_size(auto, explicit, cap, content, screen)
+    local function abs(v)
+        return v <= 1 and math.floor(screen * v) or math.floor(v)
+    end
+    local v
+    if auto then
+        v = content
+        if cap then
+            v = math.min(v, abs(cap))
+        end
+    elseif explicit then
+        v = abs(explicit)
+    else
+        v = content
+    end
+    return math.max(1, v)
+end
+
 -- ─── position helper ──────────────────────────────────────────────────────────
 
 --- Compute the (row, col) for nvim_open_win (both 0-based, relative = "editor").

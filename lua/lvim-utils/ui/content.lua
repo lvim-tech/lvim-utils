@@ -3,6 +3,7 @@
 -- Also covers the horizontal action bar in tabs mode.
 local util = require("lvim-utils.ui.util")
 local rows = require("lvim-utils.ui.rows")
+local bar = require("lvim-utils.ui.bar")
 
 local api = vim.api
 local M = {}
@@ -150,14 +151,13 @@ function M.build(ctx)
             )
         end
 
-        -- horizontal action bar
+        -- horizontal action bar — one ui.button "label" (icon + label) per action row, laid out by
+        -- ui.bar (centred / scrolled like every other bar). The render result is stashed on ctx for
+        -- apply_hl; action_bar_ranges keeps the { s, e, row_abs } shape the popup cursor code reads,
+        -- with s/e = each button's byte range in the rendered line (so action_bar_offset is 0).
         if ctx.horizontal_actions and ctx.action_bar_ht > 0 then
-            local bar, col_b, col_w = "", 0, 0
+            local specs, row_abs_of = {}, {}
             for i, ar in ipairs(ctx.action_rows) do
-                local icon_str = ico.action
-                local lbl_str = ar.label or ""
-                local seg = " " .. icon_str .. " " .. lbl_str .. " "
-                local s_b = col_b
                 local row_abs = 0
                 for ri, r in ipairs(ctx.rows) do
                     if r == ar then
@@ -165,27 +165,32 @@ function M.build(ctx)
                         break
                     end
                 end
-                table.insert(action_bar_ranges, {
-                    s = s_b,
-                    e = col_b + #seg,
-                    row_abs = row_abs,
-                    icon_s = s_b + 1,
-                    icon_e = s_b + 1 + #icon_str,
-                    text_s = s_b + 1 + #icon_str + 1,
-                    text_e = s_b + 1 + #icon_str + 1 + #lbl_str,
-                })
-                bar = bar .. seg
-                col_b = col_b + #seg
-                col_w = col_w + util.dw(seg)
-                if i < #ctx.action_rows then
-                    local sep = "  │  "
-                    bar = bar .. sep
-                    col_b = col_b + #sep
-                    col_w = col_w + util.dw(sep)
+                row_abs_of[i] = row_abs
+                specs[i] = {
+                    type = "label",
+                    icon = ico.action,
+                    label = ar.label or "",
+                    active = (row_abs == ctx.row_cursor),
+                    hl = {
+                        normal = { icon = "LvimUiButtonIconInactive", label = "LvimUiButtonTextInactive" },
+                        active = { icon = "LvimUiButtonIconActive", label = "LvimUiButtonTextActive" },
+                    },
+                }
+            end
+            local sel
+            for i, ra in ipairs(row_abs_of) do
+                if ra == ctx.row_cursor then
+                    sel = i
                 end
             end
-            action_bar_offset = math.floor((ctx.width - col_w) / 2)
-            table.insert(lines, util.center(bar, ctx.width))
+            local render = bar.render({ buttons = specs, width = ctx.width, align = "center", sel = sel })
+            ctx._action_render = render
+            for i, btn in ipairs(render.buttons) do
+                if btn.c0 then
+                    action_bar_ranges[#action_bar_ranges + 1] = { s = btn.c0, e = btn.c1, row_abs = row_abs_of[i] }
+                end
+            end
+            table.insert(lines, render.line)
         end
     elseif ctx.mode == "info" then
         for i = 1, ctx.content_height do
@@ -418,28 +423,41 @@ function M.apply_hl(buf, ctx, action_bar_ranges, action_bar_offset)
             end
         end
 
-        -- action bar: one extmark per button
-        if ctx.horizontal_actions and #action_bar_ranges > 0 then
+        -- action bar — two layers per button: a whole-button fill background (cfg.button_hl, else
+        -- LvimUiButton{Active,Inactive}) under the ui.bar icon/label fg spans, plus any ‹ › chevrons.
+        -- Driven by the ui.bar render stashed on ctx in M.build.
+        local render = ctx._action_render
+        if ctx.horizontal_actions and render then
             local bar_lnum = ctx.header_height + ctx.content_height
-            for _, seg in ipairs(action_bar_ranges) do
-                local is_active = seg.row_abs == ctx.row_cursor
-                local gbtn = cfg.button_hl
-                local btn_hl = gbtn and (is_active and gbtn.active or gbtn.inactive)
-                api.nvim_buf_set_extmark(buf, NS, bar_lnum, action_bar_offset + seg.s, {
-                    end_col = action_bar_offset + seg.e,
-                    hl_group = resolve_hl(btn_hl or (is_active and "LvimUiButtonActive" or "LvimUiButtonInactive")),
-                    priority = is_active and 900 or 200,
-                })
-                api.nvim_buf_set_extmark(buf, NS, bar_lnum, action_bar_offset + seg.icon_s, {
-                    end_col = action_bar_offset + seg.icon_e,
-                    hl_group = resolve_hl(is_active and "LvimUiButtonIconActive" or "LvimUiButtonIconInactive"),
-                    priority = is_active and 1000 or 300,
-                })
-                api.nvim_buf_set_extmark(buf, NS, bar_lnum, action_bar_offset + seg.text_s, {
-                    end_col = action_bar_offset + seg.text_e,
-                    hl_group = resolve_hl(is_active and "LvimUiButtonTextActive" or "LvimUiButtonTextInactive"),
-                    priority = is_active and 1000 or 300,
-                })
+            local bline = api.nvim_buf_get_lines(buf, bar_lnum, bar_lnum + 1, false)[1] or ""
+            local bmax = #bline
+            local function bspan(cs, ce, group, priority)
+                cs = math.max(0, math.min(cs, bmax))
+                ce = math.max(0, math.min(ce, bmax))
+                if ce > cs and group then
+                    api.nvim_buf_set_extmark(
+                        buf,
+                        NS,
+                        bar_lnum,
+                        cs,
+                        { end_col = ce, hl_group = group, priority = priority }
+                    )
+                end
+            end
+            for _, btn in ipairs(render.buttons) do
+                if btn.c0 and not btn.sep then
+                    local is_active = btn.spec.active
+                    local gbtn = cfg.button_hl
+                    local fill = (gbtn and (is_active and gbtn.active or gbtn.inactive))
+                        or (is_active and "LvimUiButtonActive" or "LvimUiButtonInactive")
+                    bspan(btn.c0, btn.c1, resolve_hl(fill), is_active and 900 or 200)
+                end
+            end
+            for _, sp in ipairs(render.spans) do
+                bspan(sp[1], sp[2], resolve_hl(sp[3]), 1000)
+            end
+            for _, ch in ipairs(render.chevrons) do
+                bspan(ch[1], ch[2], resolve_hl("LvimUiFooterChevron"), 300)
             end
         end
     else

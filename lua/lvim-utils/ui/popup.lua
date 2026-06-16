@@ -107,6 +107,9 @@ end
 ---@field items?            (string|SelectItem)[]
 ---@field tabs?             Tab[]
 ---@field placeholder?      string
+---@field prompt?           string                              input/confirm: the prompt shown as the title
+---@field default?          any                                 input: the initial field value
+---@field value?            any                                 input: alias for the initial field value
 ---@field callback?         fun(confirmed: boolean, result: any)
 ---@field on_change?        fun(row: Row)
 ---@field on_item_change?   fun(item: SelectItem)             Tabs mode: fires when the item cursor moves (live preview)
@@ -461,18 +464,20 @@ function M.open(opts, instance_cfg)
             w = math.max(w, dw(info) + 4)
         end
         if mode == "tabs" then
-            -- Must mirror header.lua's per-tab layout exactly: each tab is a padded icon box
-            -- ("  <icon>  ", only when it has an icon) followed by a padded text box
-            -- ("  <label>  "). Counting only the label box (the old behaviour) under-measured
-            -- every tab by its icon block, so ctx.width came out narrower than the rendered tab
-            -- bar — the header separator stopped short of the panel edge and the bar falsely
-            -- "overflowed", sprouting chevrons even with plenty of room.
-            local tl = ""
-            for _, t in ipairs(s.tabs) do
-                local icon_part = (t.icon and t.icon ~= "") and ("  " .. t.icon .. "  ") or ""
-                tl = tl .. icon_part .. "  " .. (t.label or "") .. "  "
+            -- Mirror header.lua's ui.bar tab layout exactly: each tab is a ui.button "label" — an
+            -- optional " <icon> " box (1 space each side) + the plain label — and ui.bar puts a
+            -- 2-space `sep` between tabs. Measuring that keeps ctx.width wide enough for the bar to
+            -- render un-scrolled (an under-measure made the separator stop short and the bar falsely
+            -- "overflow", sprouting chevrons even with plenty of room).
+            local tw = 0
+            for i, t in ipairs(s.tabs) do
+                if i > 1 then
+                    tw = tw + 2 -- ui.bar default sep between buttons
+                end
+                local icon_w = (t.icon and t.icon ~= "") and (dw(t.icon) + 2) or 0
+                tw = tw + icon_w + dw(t.label or "")
             end
-            w = math.max(w, dw(tl) + 2)
+            w = math.max(w, tw + 2)
             for _, t in ipairs(s.tabs) do
                 for _, r in ipairs(rows.flatten(t.rows or {}, true)) do
                     if not (s.horizontal_actions and r.type == "action") then
@@ -791,6 +796,7 @@ function M.open(opts, instance_cfg)
             info_readonly = s.info_readonly,
             back_key = s.back_key,
             tab_focus = s.tab_focus,
+            tab_off = s.tab_off,
         }
 
         ctx.hints = resolved_footer_hints(ctx)
@@ -799,11 +805,12 @@ function M.open(opts, instance_cfg)
         if s.win_header and api.nvim_win_is_valid(s.win_header) then
             set_win_opts(s.win_header, false)
             api.nvim_buf_clear_namespace(s.buf_header, NS, 0, -1)
-            local hdr_lines, tab_ranges, centered_offset = header_mod.build(ctx)
+            local hdr_lines, tab_render = header_mod.build(ctx)
+            s.tab_off = tab_render and tab_render.off or s.tab_off -- persist tab-bar scroll position
             vim.bo[s.buf_header].modifiable = true
             api.nvim_buf_set_lines(s.buf_header, 0, -1, false, hdr_lines)
             vim.bo[s.buf_header].modifiable = false
-            header_mod.apply_hl(s.buf_header, ctx, tab_ranges, centered_offset)
+            header_mod.apply_hl(s.buf_header, ctx, tab_render)
         end
 
         -- ── content window ───────────────────────────────────────────────────
