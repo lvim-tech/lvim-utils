@@ -315,7 +315,7 @@ local function render_chrome(state, L)
         -- tint of the button's own accent, else the generic LvimUiFrameSel), extended 1 col each side.
         if focused and sel and entry.buttons[sel] and entry.buttons[sel].c0 then
             local bb = entry.buttons[sel]
-            local grp = util.tint_hl(bb.spec and bb.spec.accent, 0.3, "LvimUiFrameSelDyn") or "LvimUiFrameSel"
+            local grp = util.tint_hl(bb.spec and bb.spec.accent, 0.18, "LvimUiFrameSelDyn") or "LvimUiFrameSel"
             placements[#placements + 1] = { ln - 1, math.max(0, bb.c0 - 1), bb.c1 + 1, grp, 150 }
         end
         for _, sp in ipairs(res.spans) do
