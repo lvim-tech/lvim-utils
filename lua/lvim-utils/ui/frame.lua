@@ -75,12 +75,14 @@ local function action_buttons(actions)
     local specs = {}
     for i, a in ipairs(actions or {}) do
         local set = { key = a.key_hl or "LvimUiFooterKey", name = a.label_hl or "LvimUiFooterLabel" }
+        -- Hover/selected: each part keeps its OWN bg tint, just stronger (+0.2) — no uniform overlay.
+        local hov = { key = a.key_hover or "LvimUiFooterKeyHover", name = a.label_hover or "LvimUiFooterLabelHover" }
         specs[i] = {
             type = "action",
             key = a.key,
             name = a.name or a.label or "",
             run = a.run,
-            hl = { normal = set, active = set, hover = set },
+            hl = { normal = set, active = set, hover = hov },
         }
     end
     return specs
@@ -313,9 +315,11 @@ local function render_chrome(state, L)
             entry.buttons[i] = { c0 = b.c0, c1 = b.c1, spec = b.spec, sep = b.sep }
         end
         state.bands[#state.bands + 1] = entry
-        -- Visible selection on the focused bar's selected button: a bg overlay UNDER the fg spans (a
-        -- tint of the button's own accent, else the generic LvimUiFrameSel), extended 1 col each side.
-        if focused and sel and entry.buttons[sel] and entry.buttons[sel].c0 then
+        -- Visible selection. HEADER bars: a bg overlay UNDER the fg spans (a tint of the button's own
+        -- accent, else LvimUiFrameSel) extended 1 col each side. FOOTER bars get NO overlay — their
+        -- selection is the per-segment `hover` hl (each part's own bg, stronger), so there is no left/
+        -- right bleed past the badges.
+        if where ~= "footer" and focused and sel and entry.buttons[sel] and entry.buttons[sel].c0 then
             local bb = entry.buttons[sel]
             local grp = util.tint_hl(bb.spec and bb.spec.accent, 0.18, "LvimUiFrameSelDyn") or "LvimUiFrameSel"
             placements[#placements + 1] = { ln - 1, math.max(0, bb.c0 - 1), bb.c1 + 1, grp, 150 }

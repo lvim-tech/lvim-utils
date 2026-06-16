@@ -94,6 +94,9 @@ return function(c)
         LvimUiFooter = { fg = c.blue, bold = true },
         LvimUiFooterKey = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true },
         LvimUiFooterLabel = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
+        -- Footer HOVER/selected: each part keeps its own bg tint, raised by +0.2 (0.3→0.5, 0.2→0.4).
+        LvimUiFooterKeyHover = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
+        LvimUiFooterLabelHover = { fg = c.yellow, bg = mtint(c.yellow, 0.4) },
         LvimUiFooterChevron = { fg = c.yellow, bold = true }, -- overflow scroll chevrons (‹ ›)
         LvimUiFrameSel = { bg = mtint(c.blue, 0.2) }, -- focused bar-button selection bg (no-accent fallback)
 
