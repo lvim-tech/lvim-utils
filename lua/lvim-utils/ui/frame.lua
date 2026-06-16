@@ -819,6 +819,33 @@ local function open_windows(state)
             end
         end,
     })
+    -- Cursor hygiene: the frame hides the hardware cursor while a list panel is focused, so when focus
+    -- moves OUT of the frame (e.g. `<C-w>w` to the editor above a docked split) the cursor must come
+    -- back, and re-hide on return. A list-style panel hides it; any other window shows it; the bar-menu
+    -- container manages its own.
+    api.nvim_create_autocmd("WinEnter", {
+        group = state.augroup,
+        callback = function()
+            if state._closed then
+                return
+            end
+            local w = api.nvim_get_current_win()
+            if w == state.container_win then
+                return
+            end
+            for _, pan in ipairs(state.panels) do
+                if pan.win == w then
+                    if pan.provider and pan.provider.hide_cursor then
+                        hide_cursor(state)
+                    else
+                        show_cursor(state)
+                    end
+                    return
+                end
+            end
+            show_cursor(state)
+        end,
+    })
 end
 
 --- Tear the frame down: close every window, restore the cursor + focus, fire `cfg.on_close` once.
