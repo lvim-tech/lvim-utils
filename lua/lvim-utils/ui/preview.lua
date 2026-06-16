@@ -84,24 +84,20 @@ function M.new(opts)
             -- Back-focus / close / sector keys on the REAL file buffer (the frame's panel keys are on the
             -- scratch pan.buf, which this window no longer shows). Routed through the frame.
             if mapped ~= pbuf then
-                local back = opts.back_key or "<C-h>"
-                vim.keymap.set("n", back, function()
-                    if pan.frame then
-                        pan.frame.focus_panel(opts.back_panel or 1)
+                -- This window shows the FILE buffer, so the frame's own panel/sector maps (on the scratch
+                -- pan.buf) don't apply — bind them here, routed through the frame: `<C-l>`/`<C-h>` move
+                -- between center panels, `<C-j>`/`<C-k>` step the vertical sectors.
+                local function fr(method, dir)
+                    return function()
+                        if pan.frame then
+                            pan.frame[method](dir)
+                        end
                     end
-                end, { buffer = pbuf, nowait = true, silent = true })
-                -- The sector keys must DRIVE the frame's sector cycle (so you can reach the footer past
-                -- the preview), not trap focus back in the list.
-                vim.keymap.set("n", "<C-j>", function()
-                    if pan.frame then
-                        pan.frame.sector(1)
-                    end
-                end, { buffer = pbuf, nowait = true, silent = true })
-                vim.keymap.set("n", "<C-k>", function()
-                    if pan.frame then
-                        pan.frame.sector(-1)
-                    end
-                end, { buffer = pbuf, nowait = true, silent = true })
+                end
+                vim.keymap.set("n", "<C-h>", fr("panel", -1), { buffer = pbuf, nowait = true, silent = true })
+                vim.keymap.set("n", "<C-l>", fr("panel", 1), { buffer = pbuf, nowait = true, silent = true })
+                vim.keymap.set("n", "<C-j>", fr("sector", 1), { buffer = pbuf, nowait = true, silent = true })
+                vim.keymap.set("n", "<C-k>", fr("sector", -1), { buffer = pbuf, nowait = true, silent = true })
                 for _, ck in ipairs((pan.frame and pan.frame.cfg.close_keys) or { "q" }) do
                     vim.keymap.set("n", ck, function()
                         if pan.frame then

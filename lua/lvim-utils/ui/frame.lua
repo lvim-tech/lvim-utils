@@ -57,8 +57,10 @@ end
 
 -- Default keymaps for the chassis; the consumer may override via `cfg.keys`.
 local DEFAULT_KEYS = {
-    sector_next = "<C-j>",
-    sector_prev = "<C-k>",
+    sector_next = "<C-j>", -- header · center · footer (down), from anywhere
+    sector_prev = "<C-k>", -- (up)
+    panel_next = "<C-l>", -- next center panel (right) — only while a center panel is focused
+    panel_prev = "<C-h>", -- previous center panel (left)
     menu_prev = { "h", "<Left>" },
     menu_next = { "l", "<Right>" },
     menu_confirm = { "<CR>", "<Space>" },
@@ -407,8 +409,10 @@ local function build_sectors(state)
             s[#s + 1] = { kind = "bar", band = band, where = "header" }
         end
     end
-    for i = 1, #state.panels do
-        s[#s + 1] = { kind = "panel", idx = i }
+    -- The whole center (all N panels) is ONE vertical sector — `<C-j>`/`<C-k>` step header · center ·
+    -- footer; `<C-l>`/`<C-h>` move between the panels INSIDE the center.
+    if #state.panels > 0 then
+        s[#s + 1] = { kind = "center" }
     end
     for _, band in ipairs(state.footer_bands) do
         if band.buttons then
@@ -418,8 +422,41 @@ local function build_sectors(state)
     return s
 end
 
---- Focus sector `i`: a PANEL sector focuses its window and shows the cursor (its provider drives the
---- keys); a BAR sector focuses the (non-focusable) container, hides the cursor and selects a button.
+--- Focus center panel `i`: pick the cursor mode, focus its window, start insert for an editable panel,
+--- fire on_focus. Records it as the current center panel.
+---@param state table
+---@param i integer
+local function focus_panel_win(state, i)
+    local pan = state.panels[i]
+    if not pan then
+        return
+    end
+    state.center_panel = i
+    -- A list-style provider shows its selection via cursorline, so hide the noisy hardware cursor.
+    if pan.provider and pan.provider.hide_cursor then
+        hide_cursor(state)
+    else
+        show_cursor(state)
+    end
+    if pan.win and api.nvim_win_is_valid(pan.win) then
+        api.nvim_set_current_win(pan.win)
+    end
+    -- An editable panel (the input field) enters insert at the end of its line.
+    if pan.provider and pan.provider.editable then
+        vim.schedule(function()
+            if pan.win and api.nvim_win_is_valid(pan.win) then
+                api.nvim_set_current_win(pan.win)
+                vim.cmd("startinsert!")
+            end
+        end)
+    end
+    if pan.provider and pan.provider.on_focus then
+        pcall(pan.provider.on_focus)
+    end
+end
+
+--- Focus sector `i`: the CENTER sector focuses its current panel (the panels are ONE vertical sector;
+--- `<C-l>`/`<C-h>` move between them); a BAR sector focuses the container, hides the cursor + selects.
 ---@param state table
 ---@param i integer
 local function focus_sector(state, i)
@@ -428,30 +465,9 @@ local function focus_sector(state, i)
         return
     end
     state.focus_idx = i
-    if sec.kind == "panel" then
-        state.focus = { kind = "panel", idx = sec.idx }
-        local pan = state.panels[sec.idx]
-        -- A list-style provider shows its selection via cursorline, so hide the noisy hardware cursor.
-        if pan.provider and pan.provider.hide_cursor then
-            hide_cursor(state)
-        else
-            show_cursor(state)
-        end
-        if pan.win and api.nvim_win_is_valid(pan.win) then
-            api.nvim_set_current_win(pan.win)
-        end
-        -- An editable panel (the input field) enters insert at the end of its line.
-        if pan.provider and pan.provider.editable then
-            vim.schedule(function()
-                if pan.win and api.nvim_win_is_valid(pan.win) then
-                    api.nvim_set_current_win(pan.win)
-                    vim.cmd("startinsert!")
-                end
-            end)
-        end
-        if pan.provider and pan.provider.on_focus then
-            pcall(pan.provider.on_focus)
-        end
+    if sec.kind == "center" then
+        state.focus = { kind = "center", panel = state.center_panel or 1 }
+        focus_panel_win(state, state.center_panel or 1)
     else
         sec.band._sel = sec.band._sel or 1
         state.focus = { kind = "bar", band = sec.band, where = sec.where }
@@ -469,9 +485,14 @@ end
 ---@return integer
 local function current_sector(state)
     local w = api.nvim_get_current_win()
-    for si, sec in ipairs(state.sectors) do
-        if sec.kind == "panel" and state.panels[sec.idx] and state.panels[sec.idx].win == w then
-            return si
+    -- Any center panel window maps to the single center sector.
+    for _, pan in ipairs(state.panels) do
+        if pan.win == w then
+            for si, sec in ipairs(state.sectors) do
+                if sec.kind == "center" then
+                    return si
+                end
+            end
         end
     end
     return state.focus_idx or 1
@@ -546,11 +567,19 @@ local function set_keys(state)
         end
     end
     for _, pan in ipairs(state.panels) do
+        -- Panels: vertical sector cycling (header·center·footer) AND horizontal panel nav (left/right);
+        -- the panel keys are ONLY here (not on the container), so `<C-l>`/`<C-h>` are inert in a bar.
         map(pan.buf, K.sector_next, function()
             sector_cycle(state, 1)
         end)
         map(pan.buf, K.sector_prev, function()
             sector_cycle(state, -1)
+        end)
+        map(pan.buf, K.panel_next, function()
+            state.panel(1)
+        end)
+        map(pan.buf, K.panel_prev, function()
+            state.panel(-1)
         end)
         if pan.provider and pan.provider.keys then
             pcall(pan.provider.keys, function(lhs, fn)
@@ -671,28 +700,45 @@ local function open_windows(state)
         render_chrome(state, state._geom)
     end
     state.sectors = build_sectors(state)
-    --- Focus a center panel by its index (used by a panel whose window hosts an external buffer, e.g.
-    --- the peek preview, to return focus to a sibling panel through the proper sector model).
-    state.focus_panel = function(i)
+    state.center_panel = 1
+    local function center_idx()
         for si, sec in ipairs(state.sectors) do
-            if sec.kind == "panel" and sec.idx == i then
-                focus_sector(state, si)
-                return
+            if sec.kind == "center" then
+                return si
             end
         end
     end
-    --- Cycle the focused sector (exposed so a panel hosting an external buffer — the preview — can
-    --- drive the SAME sector navigation from its own keymaps instead of trapping focus).
+    --- Focus center panel `i` (used by a panel hosting an external buffer — the preview — and the
+    --- "preview" footer action) through the proper sector model.
+    state.focus_panel = function(i)
+        state.center_panel = math.max(1, math.min(i, #state.panels))
+        local ci = center_idx()
+        if ci then
+            focus_sector(state, ci)
+        end
+    end
+    --- Move LEFT/RIGHT between the center panels (`dir` = +1 / -1). Only meaningful inside the center.
+    state.panel = function(dir)
+        local i = math.max(1, math.min((state.center_panel or 1) + dir, #state.panels))
+        if i ~= state.center_panel then
+            focus_panel_win(state, i)
+        end
+    end
+    --- Cycle the focused sector header · center · footer (exposed so an external-buffer panel can drive
+    --- the same navigation from its own keymaps).
     state.sector = function(dir)
         sector_cycle(state, dir)
     end
-    --- Toggle the first header bar sector (a "menu" shortcut): focus it, or return to panel 1 if it is
-    --- already focused. Returns true when it lands ON the header bar.
+    --- Toggle the first header bar sector (the "menu" shortcut): focus it, or return to the center if it
+    --- is already focused. Returns true when it lands ON the header bar.
     state.toggle_header = function()
         for si, sec in ipairs(state.sectors) do
             if sec.kind == "bar" and sec.where == "header" then
                 if state.focus and state.focus.kind == "bar" and state.focus_idx == si then
-                    state.focus_panel(1)
+                    local ci = center_idx()
+                    if ci then
+                        focus_sector(state, ci)
+                    end
                     return false
                 end
                 focus_sector(state, si)
@@ -702,14 +748,7 @@ local function open_windows(state)
         return false
     end
     set_keys(state)
-    local first_panel = 1
-    for idx, sec in ipairs(state.sectors) do
-        if sec.kind == "panel" then
-            first_panel = idx
-            break
-        end
-    end
-    focus_sector(state, first_panel)
+    focus_sector(state, center_idx() or 1)
 
     -- Closing any frame window externally (`:q`, a programmatic close) tears the whole frame down once.
     state.augroup = api.nvim_create_augroup("LvimUiFrame_" .. tostring(state.container_win), { clear = true })
