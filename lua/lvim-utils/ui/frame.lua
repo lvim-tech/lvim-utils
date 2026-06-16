@@ -602,6 +602,9 @@ local function set_keys(state)
         for _, ck in ipairs(state.cfg.close_keys or {}) do
             map(pan.buf, ck, state.close)
         end
+        for _, lk in ipairs(state.cfg.leave_keys or {}) do
+            map(pan.buf, lk, state.leave)
+        end
     end
     map(state.container_buf, K.menu_prev, function()
         menu_move(state, -1)
@@ -620,6 +623,9 @@ local function set_keys(state)
     end)
     for _, ck in ipairs(state.cfg.close_keys or {}) do
         map(state.container_buf, ck, state.close)
+    end
+    for _, lk in ipairs(state.cfg.leave_keys or {}) do
+        map(state.container_buf, lk, state.leave)
     end
 
     -- Header button hotkeys work from EVERYWHERE: on every panel (all keys) and the container (all but
@@ -758,6 +764,14 @@ local function open_windows(state)
     state.sector = function(dir)
         sector_cycle(state, dir)
     end
+    --- Leave the frame WITHOUT closing it: restore the cursor and focus the window the frame was opened
+    --- from. The frame stays open — a persistent panel you can return to (re-focus a panel window).
+    state.leave = function()
+        show_cursor(state)
+        if state.origin and api.nvim_win_is_valid(state.origin) then
+            api.nvim_set_current_win(state.origin)
+        end
+    end
     --- Map every HEADER bar button's hotkey on `buf` (firing its `run`), so e.g. filter keys work from
     --- anywhere. `reserved` lists keys to SKIP (the menu nav keys on the container, so `h`/`l` still move
     --- the selection there). Called on each panel buffer, the container, and the preview's file buffer.
@@ -815,6 +829,32 @@ local function open_windows(state)
                     return
                 end
             end
+        end,
+    })
+    -- Keep the hardware cursor correct as focus moves (so leaving to a persistent frame's origin shows
+    -- it again, and returning to a list panel re-hides it): a list-style panel hides it, anything else
+    -- (other panels, a window OUTSIDE the frame) shows it; the bar-menu container manages its own.
+    api.nvim_create_autocmd("WinEnter", {
+        group = state.augroup,
+        callback = function()
+            if state._closed then
+                return
+            end
+            local w = api.nvim_get_current_win()
+            if w == state.container_win then
+                return
+            end
+            for _, pan in ipairs(state.panels) do
+                if pan.win == w then
+                    if pan.provider and pan.provider.hide_cursor then
+                        hide_cursor(state)
+                    else
+                        show_cursor(state)
+                    end
+                    return
+                end
+            end
+            show_cursor(state)
         end,
     })
 end

@@ -109,6 +109,13 @@ function M.new(opts)
                         end
                     end, { buffer = pbuf, nowait = true, silent = true })
                 end
+                for _, lk in ipairs((pan.frame and pan.frame.cfg.leave_keys) or {}) do
+                    vim.keymap.set("n", lk, function()
+                        if pan.frame then
+                            pan.frame.leave()
+                        end
+                    end, { buffer = pbuf, nowait = true, silent = true })
+                end
                 mapped = pbuf
             end
 
