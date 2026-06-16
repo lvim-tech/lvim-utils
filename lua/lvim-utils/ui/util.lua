@@ -157,6 +157,36 @@ function M.insets(b)
     return on(2), on(4), on(6), on(8)
 end
 
+--- Define highlight `out` as a TINT of `accent`'s foreground blended toward the panel bg
+--- (`LvimUiPeekNormal`) by `t` (0 = bg, 1 = the full accent); when `fg_too`, the fg is the accent too
+--- (bold). For chrome cells / selections coloured by their own accent. Returns `out`, or nil when the
+--- accent has no resolvable fg.
+---@param accent? string
+---@param t number
+---@param out string
+---@param fg_too? boolean
+---@return string|nil
+function M.tint_hl(accent, t, out, fg_too)
+    local af = accent and api.nvim_get_hl(0, { name = accent, link = false })
+    local fg = af and af.fg
+    if not fg then
+        return nil
+    end
+    local nb = api.nvim_get_hl(0, { name = "LvimUiPeekNormal", link = false })
+    local bg = nb.bg or 0
+    local function comp(c, sh)
+        return math.floor(c / sh) % 256
+    end
+    local function mix(a, b)
+        return math.floor(a * t + b * (1 - t) + 0.5)
+    end
+    local rgb = mix(comp(fg, 65536), comp(bg, 65536)) * 65536
+        + mix(comp(fg, 256), comp(bg, 256)) * 256
+        + mix(comp(fg, 1), comp(bg, 1))
+    api.nvim_set_hl(0, out, { bg = rgb, fg = fg_too and fg or nil, bold = fg_too or nil })
+    return out
+end
+
 -- ─── sizing helper ────────────────────────────────────────────────────────────
 
 --- Resolve one axis size. When `auto` is true, fit `content` (capped by `cap`); otherwise use the

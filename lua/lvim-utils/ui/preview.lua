@@ -85,14 +85,23 @@ function M.new(opts)
             -- scratch pan.buf, which this window no longer shows). Routed through the frame.
             if mapped ~= pbuf then
                 local back = opts.back_key or "<C-h>"
-                local function to_list()
+                vim.keymap.set("n", back, function()
                     if pan.frame then
                         pan.frame.focus_panel(opts.back_panel or 1)
                     end
-                end
-                vim.keymap.set("n", back, to_list, { buffer = pbuf, nowait = true, silent = true })
-                vim.keymap.set("n", "<C-j>", to_list, { buffer = pbuf, nowait = true, silent = true })
-                vim.keymap.set("n", "<C-k>", to_list, { buffer = pbuf, nowait = true, silent = true })
+                end, { buffer = pbuf, nowait = true, silent = true })
+                -- The sector keys must DRIVE the frame's sector cycle (so you can reach the footer past
+                -- the preview), not trap focus back in the list.
+                vim.keymap.set("n", "<C-j>", function()
+                    if pan.frame then
+                        pan.frame.sector(1)
+                    end
+                end, { buffer = pbuf, nowait = true, silent = true })
+                vim.keymap.set("n", "<C-k>", function()
+                    if pan.frame then
+                        pan.frame.sector(-1)
+                    end
+                end, { buffer = pbuf, nowait = true, silent = true })
                 for _, ck in ipairs((pan.frame and pan.frame.cfg.close_keys) or { "q" }) do
                     vim.keymap.set("n", ck, function()
                         if pan.frame then

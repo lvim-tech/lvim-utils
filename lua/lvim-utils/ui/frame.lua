@@ -311,6 +311,13 @@ local function render_chrome(state, L)
             entry.buttons[i] = { c0 = b.c0, c1 = b.c1, spec = b.spec, sep = b.sep }
         end
         state.bands[#state.bands + 1] = entry
+        -- Visible selection on the focused bar's selected button: a bg overlay UNDER the fg spans (a
+        -- tint of the button's own accent, else the generic LvimUiFrameSel), extended 1 col each side.
+        if focused and sel and entry.buttons[sel] and entry.buttons[sel].c0 then
+            local bb = entry.buttons[sel]
+            local grp = util.tint_hl(bb.spec and bb.spec.accent, 0.3, "LvimUiFrameSelDyn") or "LvimUiFrameSel"
+            placements[#placements + 1] = { ln - 1, math.max(0, bb.c0 - 1), bb.c1 + 1, grp, 150 }
+        end
         for _, sp in ipairs(res.spans) do
             placements[#placements + 1] = { ln - 1, sp[1], sp[2], sp[3], 200 }
         end
@@ -456,7 +463,21 @@ local function focus_sector(state, i)
     render_chrome(state, state._geom)
 end
 
---- Move focus to the next/prev sector (wraps).
+--- The sector index of the CURRENTLY focused window — a panel by its window, else the tracked bar.
+--- Reading the real window keeps `<C-j>`/`<C-k>` correct even if focus changed outside the frame.
+---@param state table
+---@return integer
+local function current_sector(state)
+    local w = api.nvim_get_current_win()
+    for si, sec in ipairs(state.sectors) do
+        if sec.kind == "panel" and state.panels[sec.idx] and state.panels[sec.idx].win == w then
+            return si
+        end
+    end
+    return state.focus_idx or 1
+end
+
+--- Move focus to the next/prev sector (wraps), starting from the actually-focused window.
 ---@param state table
 ---@param dir integer
 local function sector_cycle(state, dir)
@@ -464,7 +485,7 @@ local function sector_cycle(state, dir)
     if n == 0 then
         return
     end
-    focus_sector(state, ((state.focus_idx - 1 + dir) % n) + 1)
+    focus_sector(state, ((current_sector(state) - 1 + dir) % n) + 1)
 end
 
 --- Move the focused bar's selection by `dir`, skipping non-interactive separators; redraw (which
@@ -659,6 +680,26 @@ local function open_windows(state)
                 return
             end
         end
+    end
+    --- Cycle the focused sector (exposed so a panel hosting an external buffer — the preview — can
+    --- drive the SAME sector navigation from its own keymaps instead of trapping focus).
+    state.sector = function(dir)
+        sector_cycle(state, dir)
+    end
+    --- Toggle the first header bar sector (a "menu" shortcut): focus it, or return to panel 1 if it is
+    --- already focused. Returns true when it lands ON the header bar.
+    state.toggle_header = function()
+        for si, sec in ipairs(state.sectors) do
+            if sec.kind == "bar" and sec.where == "header" then
+                if state.focus and state.focus.kind == "bar" and state.focus_idx == si then
+                    state.focus_panel(1)
+                    return false
+                end
+                focus_sector(state, si)
+                return true
+            end
+        end
+        return false
     end
     set_keys(state)
     local first_panel = 1
