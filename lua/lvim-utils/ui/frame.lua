@@ -289,8 +289,10 @@ local function render_chrome(state, L)
         if band.meta ~= nil then
             lines[ln] = util.center(band.meta, W)
             if band.meta ~= "" and band.hl then
+                -- 1 space of padding on each side, so a title's bg chrome reads " LVIM LSP " not hugging.
                 local s = math.floor((W - util.dw(band.meta)) / 2)
-                placements[#placements + 1] = { ln - 1, math.max(0, s), s + #band.meta, band.hl, 200 }
+                placements[#placements + 1] =
+                    { ln - 1, math.max(0, s - 1), math.min(W, s + #band.meta + 1), band.hl, 200 }
             end
             return
         end
