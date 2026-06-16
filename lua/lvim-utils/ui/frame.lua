@@ -619,7 +619,9 @@ local function open_windows(state)
     for i, pan in ipairs(state.panels) do
         local pl = L.panels[i]
         pan.buf = api.nvim_create_buf(false, true)
-        vim.bo[pan.buf].bufhidden = "wipe"
+        -- "hide" not "wipe": an external-buffer panel (preview) swaps its window to a real file buffer,
+        -- which would WIPE a `wipe` scratch buf out from under the still-pending keymaps. Deleted in close.
+        vim.bo[pan.buf].bufhidden = "hide"
         pan.win = api.nvim_open_win(pan.buf, i == 1, {
             relative = "editor",
             width = pl.width,
@@ -702,6 +704,9 @@ local function close(state)
     for _, pan in ipairs(state.panels or {}) do
         if pan.win and api.nvim_win_is_valid(pan.win) then
             pcall(api.nvim_win_close, pan.win, true)
+        end
+        if pan.buf and api.nvim_buf_is_valid(pan.buf) then
+            pcall(api.nvim_buf_delete, pan.buf, { force = true })
         end
     end
     if state.container_win and api.nvim_win_is_valid(state.container_win) then
