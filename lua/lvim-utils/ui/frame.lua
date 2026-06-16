@@ -354,6 +354,12 @@ local function render_panel(state, idx)
         return
     end
     local L = state._geom.panels[idx]
+    -- An `update` provider OWNS its window — it may swap in an external buffer (e.g. the peek preview
+    -- showing the real file buffer with its own syntax). The frame does not write lines for it.
+    if pan.provider and pan.provider.update then
+        pcall(pan.provider.update, pan, L)
+        return
+    end
     local lines, hls = {}, {}
     if pan.provider and pan.provider.render then
         local ok, rl, rh = pcall(pan.provider.render, L.width, L.height)
@@ -599,6 +605,7 @@ local function open_windows(state)
         pan.refresh = function() -- a provider re-renders its own panel after a state change (toggle, …)
             render_panel(state, i)
         end
+        pan.frame = state -- providers reach the frame (focus_panel / close / cfg) through their panel
         render_panel(state, i)
     end
 
@@ -607,6 +614,16 @@ local function open_windows(state)
         render_chrome(state, state._geom)
     end
     state.sectors = build_sectors(state)
+    --- Focus a center panel by its index (used by a panel whose window hosts an external buffer, e.g.
+    --- the peek preview, to return focus to a sibling panel through the proper sector model).
+    state.focus_panel = function(i)
+        for si, sec in ipairs(state.sectors) do
+            if sec.kind == "panel" and sec.idx == i then
+                focus_sector(state, si)
+                return
+            end
+        end
+    end
     set_keys(state)
     local first_panel = 1
     for idx, sec in ipairs(state.sectors) do
