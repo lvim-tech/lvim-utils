@@ -137,7 +137,7 @@ local function compute_geom(state, place)
     local cfg = state.cfg
     -- A docked split container draws no border (its edge is the split divider); a float uses cfg.border.
     local cbord = place and util.resolve_border("none") or util.resolve_border(cfg.border)
-    local ct, _, _, cl = util.insets(cbord)
+    local ct, cr, cb, cl = util.insets(cbord)
 
     local panels = state.panels
     local n = #panels
@@ -185,6 +185,13 @@ local function compute_geom(state, place)
     -- Float: centre on screen. Split: the container window's actual screen position (passed in `place`).
     local row = place and place.row or math.max(1, math.floor((vim.o.lines - H) / 2 - 1))
     local col = place and place.col or math.max(1, math.floor((vim.o.columns - W) / 2))
+    -- A bottom/top-docked FLOAT spans the full width and anchors to that edge — a docked panel WITHOUT a
+    -- real window split, so there is NO native separator / statusline boundary above it.
+    if not place and (cfg.position == "bottom" or cfg.position == "top") then
+        W = vim.o.columns - cl - cr
+        col = 0
+        row = cfg.position == "bottom" and math.max(0, vim.o.lines - H - ct - cb - 1) or 0
+    end
     local cc_row, cc_col = row + ct, col + cl
     local center_top = cc_row + header_h
     local center_h = math.max(1, H - header_h - footer_h)
