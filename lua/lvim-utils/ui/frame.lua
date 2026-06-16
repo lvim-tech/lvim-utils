@@ -658,6 +658,7 @@ local function open_windows(state)
             width = (not horiz) and g0.W or nil,
             height = horiz and g0.H or nil,
             style = "minimal",
+            focusable = false, -- the chrome split is never directly focused; only the panels over it
         })
         local pos = api.nvim_win_get_position(state.container_win)
         L = compute_geom(state, {
@@ -759,6 +760,13 @@ local function open_windows(state)
     --- the same navigation from its own keymaps).
     state.sector = function(dir)
         sector_cycle(state, dir)
+    end
+    --- Focus the window the frame was opened from (the editor), keeping the frame open. The WinEnter
+    --- hook restores the cursor there.
+    state.to_origin = function()
+        if state.origin and api.nvim_win_is_valid(state.origin) then
+            api.nvim_set_current_win(state.origin)
+        end
     end
     --- Map every HEADER bar button's hotkey on `buf` (firing its `run`), so e.g. filter keys work from
     --- anywhere. `reserved` lists keys to SKIP (the menu nav keys on the container, so `h`/`l` still move
