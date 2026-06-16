@@ -679,6 +679,11 @@ local function open_windows(state)
         end
     else
         L = compute_geom(state)
+        -- The brand is the window's TOP-border title (needs a top border, ct > 0). `title_pos` must only
+        -- be set WITH a title — nvim errors otherwise.
+        local brand = (L.ct > 0 and state.cfg.title and state.cfg.title ~= "")
+                and { { " " .. state.cfg.title .. " ", state.cfg.title_hl or "LvimUiPeekTitle" } }
+            or nil
         state.container_win = api.nvim_open_win(state.container_buf, false, {
             relative = "editor",
             width = L.W,
@@ -689,11 +694,8 @@ local function open_windows(state)
             style = "minimal",
             focusable = false,
             zindex = state.zindex,
-            -- The brand is the window's TOP-border title (needs a top border, i.e. ct > 0).
-            title = (L.ct > 0 and state.cfg.title and state.cfg.title ~= "") and {
-                { " " .. state.cfg.title .. " ", state.cfg.title_hl or "LvimUiPeekTitle" },
-            } or nil,
-            title_pos = "center",
+            title = brand,
+            title_pos = brand and "center" or nil,
         })
     end
     state._geom = L
