@@ -118,6 +118,10 @@ return {
         group_icon_open = "", -- file-group header icon when expanded
         group_icon_closed = "", -- file-group header icon when collapsed
         guide_icon = "", -- prefix before an expanded group row ("" = plain indent)
+        -- Overflow chevrons for the responsive filter bar (header) and key-hint footer, shown on the
+        -- side(s) whose content runs past the panel width. Glyphs configurable; coloured by
+        -- LvimUiPeekFilterChevron / LvimUiPeekFooterChevron (yellow by default).
+        chevrons = { left = "", right = "" },
         keys = {
             down = "j",
             up = "k",
@@ -131,6 +135,17 @@ return {
             focus_preview = "<C-l>", -- from the list: move focus into the preview pane
             focus_list = "<C-h>", -- from the preview: move focus back to the list
             filter = "f", -- cycle the active button of the bar's PRIMARY group (when a bar is shown)
+            -- The filter bar as a keyboard MENU: `m` (from either pane) focuses it; inside, move the
+            -- selection / apply / leave. When the bar overflows the panel it scrolls with ‹ › chevrons.
+            focus_menu = "m",
+            menu_prev = { "h", "<Left>" },
+            menu_next = { "l", "<Right>" },
+            menu_confirm = { "<CR>", "<Space>" },
+            menu_exit = { "<Esc>", "q" },
+            -- Move focus DOWN / UP through the panel's sectors (header · center · footer). Configurable
+            -- — e.g. set them to "]" / "[".
+            sector_next = "<C-j>",
+            sector_prev = "<C-k>",
             close = "q",
         },
     },

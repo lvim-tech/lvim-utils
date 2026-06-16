@@ -155,6 +155,9 @@ return function(c)
         -- the path follows on the bar. Both keep the real yellow fg.
         LvimUiPeekFileBar = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
         LvimUiPeekFile = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
+        -- The filetype icon shown before the file name — its own group (yellow), independent of the
+        -- per-filetype devicon colour; shares the file name's strong yellow tint cell.
+        LvimUiPeekFileIcon = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
         LvimUiPeekGroup = { fg = c.fg, bold = true },
         LvimUiPeekGroupIcon = { fg = c.red }, -- the chevron (▸/▾) fold arrows
         LvimUiPeekDir = { fg = c.comment },
@@ -169,12 +172,27 @@ return function(c)
         -- its label a yellow 0.2-tint box — matching the LvimUiFooter* convention.
         LvimUiPeekFooterKey = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true },
         LvimUiPeekFooterLabel = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
+        -- Hover variants: SAME fg, the bg tint stepped up by 0.2 (so each part keeps its colour and
+        -- just deepens) — the footer buttons use these as their per-segment hover state.
+        LvimUiPeekFooterKeyHover = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
+        LvimUiPeekFooterLabelHover = { fg = c.yellow, bg = mtint(c.yellow, 0.4) },
         -- Filter bar (centred bracket-key buttons): fg-only, no background. Active = the full accent
         -- (bold), inactive = the same accent kept mostly intact (0.6 = 60% accent toward bg) so it
-        -- stays clearly readable — the old 0.45 was too washed out. Scope buttons use this blue;
-        -- diagnostics override per severity. (mtint(c, t): t=1 is the full colour, t=0 is the bg.)
-        LvimUiPeekFilterActive = { fg = c.blue, bold = true },
-        LvimUiPeekFilterInactive = { fg = mtint(c.blue, 0.6) },
-        LvimUiPeekFilterSep = { fg = c.green }, -- the ● separator between filter groups
+        -- stays clearly readable — the old 0.45 was too washed out. The generic ([A]ll / scope)
+        -- buttons use this green; diagnostics override per severity. (mtint(c, t): t=1 full, t=0 bg.)
+        LvimUiPeekFilterActive = { fg = c.green, bold = true },
+        LvimUiPeekFilterInactive = { fg = mtint(c.green, 0.6) },
+        LvimUiPeekFilterSep = { fg = c.yellow }, -- the ● separator before/between filter groups
+        -- The button under the keyboard selection in a focused bar: a clearly visible bg drawn OVER the
+        -- button (above its fg/badge spans, bg-only so it keeps its fg) + bold, so the selection reads
+        -- on the footer badges too.
+        LvimUiPeekFilterSelected = { bg = mtint(c.fg, 0.35), bold = true },
+        -- Mouse-hover over a header/footer button: a subtle tint above the panel (≈ +0.1), clearly
+        -- weaker than the selection. (mtint t: 0 = panel bg, 1 = full fg.)
+        LvimUiPeekHover = { bg = mtint(c.fg, 0.12) },
+        -- Overflow scroll chevrons (yellow by default), separate groups for the filter bar (header)
+        -- and the key-hint footer so each can be themed on its own.
+        LvimUiPeekFilterChevron = { fg = c.yellow, bold = true },
+        LvimUiPeekFooterChevron = { fg = c.yellow, bold = true },
     }
 end

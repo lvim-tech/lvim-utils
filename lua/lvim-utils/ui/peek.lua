@@ -17,6 +17,7 @@
 
 local api = vim.api
 local util = require("lvim-utils.ui.util")
+local uibar = require("lvim-utils.ui.bar")
 
 local M = {}
 
@@ -28,10 +29,20 @@ local NS_CHROME = api.nvim_create_namespace("LvimUiPeekChrome")
 ---@type fun(state: table)
 local close_all
 
--- Forward declaration: swap the bottom-border footer to a pane's hints (defined below open_panel;
--- referenced by the WinEnter autocmd in set_keys, which is defined earlier).
----@type fun(state: table, pane: "list"|"preview")
-local set_footer
+-- Forward declaration: enter a bar "menu" (focus + keyboard selection). Defined before set_keys, but
+-- referenced earlier by update_preview's preview keymap (the `m` key from the preview).
+---@type fun(state: table, where?: string)
+local enter_menu
+
+-- Forward declaration: cycle focus through the sectors (header · center · footer). Defined before
+-- set_keys, referenced earlier by update_preview's preview keymaps (the sector keys).
+---@type fun(state: table, dir: integer)
+local sector_cycle
+
+-- Forward declaration: the footer ACTION defs ({key,name,run}) — the single source for the footer
+-- buttons AND the footer bar-menu hotkeys. Defined near build_action_buttons; used earlier by set_keys.
+---@type fun(state: table): table[]
+local footer_actions
 
 -- Forward declaration: recompute geometry and re-place the panes in place (defined after
 -- open_panel; referenced by the VimResized autocmd in set_keys, which is defined earlier).
@@ -78,6 +89,36 @@ local function show_cursor(state)
         state.saved_guicursor = nil
     end
     state.cursor_hidden = false
+end
+
+--- Define highlight `out` as a TINT of `accent`'s foreground: bg = the accent fg blended toward the
+--- panel bg (`LvimUiPeekNormal`) by `t` (0 = panel bg, 1 = the full accent colour); when `fg_too`, fg
+--- is the accent colour too (bold) for a chrome cell coloured by its TYPE. Recomputed from the CURRENT
+--- theme each call (survives colorscheme changes). Returns `out`, or nil when the accent has no fg.
+---@param accent? string
+---@param t number
+---@param out string
+---@param fg_too? boolean
+---@return string|nil
+local function tint_hl(accent, t, out, fg_too)
+    local af = accent and api.nvim_get_hl(0, { name = accent, link = false })
+    local fg = af and af.fg
+    if not fg then
+        return nil
+    end
+    local nb = api.nvim_get_hl(0, { name = "LvimUiPeekNormal", link = false })
+    local bg = nb.bg or 0
+    local function comp(c, sh)
+        return math.floor(c / sh) % 256
+    end
+    local function mix(a, b)
+        return math.floor(a * t + b * (1 - t) + 0.5)
+    end
+    local rgb = mix(comp(fg, 65536), comp(bg, 65536)) * 65536
+        + mix(comp(fg, 256), comp(bg, 256)) * 256
+        + mix(comp(fg, 1), comp(bg, 1))
+    api.nvim_set_hl(0, out, { bg = rgb, fg = fg_too and fg or nil, bold = fg_too or nil })
+    return out
 end
 
 ---@class LvimUiPeekItem
@@ -272,6 +313,26 @@ local function focused_item(state)
     return state.items_flat[state.cur], state.cur
 end
 
+--- A filetype icon glyph for `filename` from nvim-web-devicons when installed. Its COLOUR is
+--- intentionally discarded — the winbar paints the icon with its own group (`LvimUiPeekFileIcon`),
+--- not the per-filetype devicon colour. Falls back to a generic document glyph.
+---@param filename string
+---@return string
+local function file_icon(filename)
+    local ok, devicons = pcall(require, "nvim-web-devicons")
+    if ok and devicons then
+        local icon = devicons.get_icon(
+            vim.fn.fnamemodify(filename, ":t"),
+            vim.fn.fnamemodify(filename, ":e"),
+            { default = true }
+        )
+        if icon and icon ~= "" then
+            return icon
+        end
+    end
+    return "󰈙"
+end
+
 --- Update the right pane: load the focused location's real buffer and mark the match range.
 ---@param state table
 local function update_preview(state)
@@ -286,11 +347,11 @@ local function update_preview(state)
     if ft and vim.bo[pbuf].filetype ~= ft then
         vim.bo[pbuf].filetype = ft
     end
-    -- Preview winbar (full width): the file name first, then its directory path.
+    -- Preview winbar (full width): the filetype icon, the file name, then its directory path.
     local rel = vim.fn.fnamemodify(it.filename, ":~:.")
     local tail = vim.fn.fnamemodify(it.filename, ":t")
     local dir = vim.fn.fnamemodify(rel, ":h")
-    local wb = "%#LvimUiPeekFile# " .. tail .. " "
+    local wb = "%#LvimUiPeekFileIcon# " .. file_icon(it.filename) .. " %#LvimUiPeekFile#" .. tail .. " "
     if dir ~= "." and dir ~= "" then
         wb = wb .. "%#LvimUiPeekFileBar# " .. dir
     end
@@ -325,6 +386,19 @@ local function update_preview(state)
             if api.nvim_win_is_valid(state.list_win) then
                 api.nvim_set_current_win(state.list_win)
             end
+        end)
+        -- `m` from the preview also focuses the filter bar menu (only when there is a bar).
+        if state.bar then
+            pmap(p.keys.focus_menu or "m", function()
+                enter_menu(state, "header")
+            end)
+        end
+        -- Sector navigation from the preview too.
+        pmap(p.keys.sector_next or "<C-j>", function()
+            sector_cycle(state, 1)
+        end)
+        pmap(p.keys.sector_prev or "<C-k>", function()
+            sector_cycle(state, -1)
         end)
         pmap(p.keys.close, function()
             close_all(state)
@@ -361,50 +435,6 @@ local function expanded_set(state)
         return state.expanded
     end
     return { [state.item_group[state.cur] or 1] = true }
-end
-
---- Build the filter bar as an installer-style row of bracket-key buttons (`[A]ll 5  [E]rror 2 …`),
---- centred on the WHOLE panel under the title. The bracketed first letter is the button's hotkey;
---- the active button is shown by its accent (bold), inactive ones dimmed; the live count follows the
---- label. Returns the (uncentred) line text, its highlight spans, and the clickable button byte
---- ranges; render_chrome centres it and offsets the ranges.
----@param state table
----@return string text, table spans, table buttons  buttons = { {c0, c1, group_idx, button_id} }
-local function build_bar_row(state)
-    local bar = state.bar
-    local text, spans, buttons = "", {}, {}
-    local function put(s, hl)
-        if s ~= "" and hl then
-            spans[#spans + 1] = { #text, #text + #s, hl }
-        end
-        text = text .. s
-    end
-    for gi, g in ipairs(bar.groups) do
-        if gi > 1 then
-            put("   ", nil) -- separate the groups (scope ● severity) with a thick dot
-            put("●", "LvimUiPeekFilterSep")
-            put("   ", nil)
-        end
-        for bi, b in ipairs(g.buttons) do
-            if bi > 1 then
-                put("  ", nil) -- gap between buttons of one group
-            end
-            local count = 0
-            for _, it in ipairs(state.all_items) do
-                if passes_bar(bar, it, g) and (not b.predicate or b.predicate(it)) then
-                    count = count + 1
-                end
-            end
-            local on = b.id == g.active
-            local key_hl = b.hl_active or "LvimUiPeekFilterActive" -- the [X] hint always in the accent
-            local rest_hl = on and (b.hl_active or "LvimUiPeekFilterActive") or (b.hl or "LvimUiPeekFilterInactive")
-            local c0 = #text
-            put("[" .. b.label:sub(1, 1) .. "]", key_hl)
-            put(b.label:sub(2) .. " " .. count, rest_hl)
-            buttons[#buttons + 1] = { c0, #text, gi, b.id }
-        end
-    end
-    return text, spans, buttons
 end
 
 --- Render the list, rebuild the row map, then place the marker / cursor and refresh the preview.
@@ -492,11 +522,35 @@ local function refresh(state)
     end
     vim.bo[buf].modifiable = false
 
-    -- List winbar: kind + the (filtered) count, e.g. "Diagnostics (5)".
+    -- List winbar: kind + the (filtered) count, LABELLED by the active PRIMARY filter so it shows what
+    -- the count is OF — e.g. "Diagnostics  All (7)" / "Diagnostics  Error (2)". Falls back to a plain
+    -- "(N)" when there is no bar / no primary group.
     if api.nvim_win_is_valid(state.list_win) then
-        vim.wo[state.list_win].winbar = "%#LvimUiPeekKind# "
+        local label, accent
+        for _, g in ipairs(state.bar and state.bar.groups or {}) do
+            if g.primary then
+                for _, b in ipairs(g.buttons) do
+                    if b.id == g.active then
+                        label = b.label
+                        accent = b.hl_active or "LvimUiPeekFilterActive"
+                    end
+                end
+            end
+        end
+        -- Both winbar cells are tinted by the active filter's TYPE colour (Error → red, All → green, …),
+        -- each keeping its OWN tint STRENGTH: the kind label is the stronger 0.4 chrome, the count the
+        -- lighter 0.3 one (matching the static LvimUiPeekKind / …Bar). No accent → the static groups.
+        local kind_hl = (accent and tint_hl(accent, 0.4, "LvimUiPeekKindLabel", true)) or "LvimUiPeekKind"
+        local count_hl = (accent and tint_hl(accent, 0.3, "LvimUiPeekKindType", true)) or "LvimUiPeekKindBar"
+        vim.wo[state.list_win].winbar = "%#"
+            .. kind_hl
+            .. "# "
             .. (state.kind or "Locations")
-            .. " %#LvimUiPeekKindBar# ("
+            .. " %#"
+            .. count_hl
+            .. "# "
+            .. (label and (label .. " ") or "")
+            .. "("
             .. #state.items_flat
             .. ")%="
     end
@@ -529,6 +583,10 @@ close_all = function(state)
     -- Bring the hardware cursor back before anything else, so it is restored even if a later
     -- step errors (the list pane was focused, so it was hidden).
     show_cursor(state)
+    if state.saved_mousemove ~= nil then
+        vim.o.mousemoveevent = state.saved_mousemove
+        state.saved_mousemove = nil
+    end
     if state.augroup then
         pcall(api.nvim_del_augroup_by_id, state.augroup)
         state.augroup = nil
@@ -675,6 +733,150 @@ local function cycle_primary(state)
     end
 end
 
+--- The buttons of the bar the menu is focused on (header = filter buttons, footer = action buttons).
+---@param state table
+---@return table[]
+local function active_buttons(state)
+    if state.menu and state.menu.where == "footer" then
+        return state.footer_buttons or {}
+    end
+    return state.bar_buttons or {}
+end
+
+--- Fire a button: every button spec (filter or action) carries a `run` callback (the bar/`ui.button`
+--- model). Separators have no spec/run and are ignored.
+---@param spec table|nil
+local function activate_button(spec)
+    if spec and spec.run then
+        spec.run()
+    end
+end
+
+--- The header menu's initial selection: the active button of the PRIMARY group (e.g. the diagnostics
+--- severity All/Error/…, switched far more often than the scope group), falling back to any active
+--- button, then 1.
+---@param state table
+---@return integer
+local function menu_initial_sel(state)
+    local any_active
+    for i, bb in ipairs(state.bar_buttons or {}) do
+        if bb.spec and bb.spec.active then
+            if bb.spec.primary then
+                return i
+            end
+            any_active = any_active or i
+        end
+    end
+    return any_active or 1
+end
+
+--- Focus a bar (`where` = "header" | "footer") as a keyboard menu: focus the chrome container, hide
+--- the cursor, select a button and redraw with the selection + responsive chevrons.
+---@param state table
+---@param where? string
+enter_menu = function(state, where)
+    where = where or "header"
+    if where == "header" and not (state.bar and state.bar_buttons and #state.bar_buttons > 0) then
+        return
+    end
+    if where == "footer" and not (state.footer_buttons and #state.footer_buttons > 0) then
+        return
+    end
+    if not (state.container_win and api.nvim_win_is_valid(state.container_win)) then
+        return
+    end
+    local ret = (state.menu and state.menu.ret) or api.nvim_get_current_win()
+    -- Restore the selection where it was last left in THIS bar (the scroll offset persists too — both
+    -- are kept on leave), falling back to the active filter (header) / the first button (footer).
+    local sel = state["_sel_" .. where] or (where == "header" and menu_initial_sel(state) or 1)
+    state.menu = { where = where, sel = sel, ret = ret }
+    api.nvim_set_current_win(state.container_win)
+    local ln = where == "footer" and (state.footer_line or 1) or (state.bar_line or 1)
+    pcall(api.nvim_win_set_cursor, state.container_win, { ln, 0 })
+    hide_cursor(state)
+    render_chrome(state)
+end
+
+--- Leave the menu and return focus to the pane it was entered from (its WinEnter restores the cursor).
+--- The selection AND scroll offset of the bar are kept (not reset), so re-entering resumes where you
+--- left off and the bar stays scrolled as it was.
+---@param state table
+local function leave_menu(state)
+    if not state.menu then
+        return
+    end
+    local ret = state.menu.ret
+    state["_sel_" .. state.menu.where] = state.menu.sel
+    state.menu = nil
+    render_chrome(state)
+    if ret and api.nvim_win_is_valid(ret) then
+        api.nvim_set_current_win(ret)
+    end
+end
+
+--- Move the menu selection by `delta` buttons (clamped), skipping non-interactive separators, and
+--- redraw (which scrolls it into view).
+---@param state table
+---@param delta integer
+local function menu_move(state, delta)
+    if not state.menu then
+        return
+    end
+    local btns = active_buttons(state)
+    local n = #btns
+    if n == 0 then
+        return
+    end
+    local step = delta > 0 and 1 or -1
+    local i = state.menu.sel
+    repeat
+        i = i + step
+    until i < 1 or i > n or not (btns[i] and btns[i].sep) -- skip separators
+    if i >= 1 and i <= n then
+        state.menu.sel = i
+        render_chrome(state)
+    end
+end
+
+--- Activate the selected button (apply filter / run action); stays in the menu.
+---@param state table
+local function menu_confirm(state)
+    if not state.menu then
+        return
+    end
+    local bb = active_buttons(state)[state.menu.sel]
+    if bb and not bb.sep then
+        activate_button(bb.spec)
+    end
+end
+
+--- Cycle focus through the sectors: header (filter bar) → center (list) → footer (actions). `dir` = 1
+--- moves down, -1 up; wraps. Sectors that do not exist (header without a bar) are skipped.
+---@param state table
+---@param dir integer
+sector_cycle = function(state, dir)
+    local order = {}
+    if state.bar then
+        order[#order + 1] = "header"
+    end
+    order[#order + 1] = "center"
+    order[#order + 1] = "footer"
+    local cur = (state.menu and state.menu.where) or "center"
+    local idx = 1
+    for i, n in ipairs(order) do
+        if n == cur then
+            idx = i
+            break
+        end
+    end
+    local target = order[((idx - 1 + dir) % #order) + 1]
+    if target == "center" then
+        leave_menu(state)
+    else
+        enter_menu(state, target)
+    end
+end
+
 --- Drag the divider between the panes with the mouse: set the list pane to an ABSOLUTE width from
 --- the pointer position and re-lay-out live. Works whether the pointer is over the list or the
 --- (non-focusable) preview — getmousepos() reports the window under it and the in-window column, and
@@ -779,6 +981,47 @@ local function set_keys(state)
         map(p.keys.filter, function()
             cycle_primary(state)
         end)
+        -- `m` (from the list — the preview maps it too) focuses the filter bar as a keyboard menu.
+        map(p.keys.focus_menu or "m", function()
+            enter_menu(state, "header")
+        end)
+    end
+    -- Sector navigation (configurable, e.g. "]" / "["): cycle header · center · footer.
+    map(p.keys.sector_next or "<C-j>", function()
+        sector_cycle(state, 1)
+    end)
+    map(p.keys.sector_prev or "<C-k>", function()
+        sector_cycle(state, -1)
+    end)
+    -- Menu navigation on the CHROME buffer (live only while a bar — header or footer — is focused):
+    -- move the selection / apply / leave, plus the sector keys so cycling continues from the menu.
+    local function cmap(lhs, fn)
+        for _, key in ipairs(type(lhs) == "table" and lhs or { lhs }) do
+            vim.keymap.set("n", key, fn, { buffer = state.container_buf, nowait = true, silent = true })
+        end
+    end
+    cmap(p.keys.menu_prev or { "h", "<Left>" }, function()
+        menu_move(state, -1)
+    end)
+    cmap(p.keys.menu_next or { "l", "<Right>" }, function()
+        menu_move(state, 1)
+    end)
+    cmap(p.keys.menu_confirm or { "<CR>", "<Space>" }, function()
+        menu_confirm(state)
+    end)
+    cmap(p.keys.menu_exit or { "<Esc>", "q" }, function()
+        leave_menu(state)
+    end)
+    cmap(p.keys.sector_next or "<C-j>", function()
+        sector_cycle(state, 1)
+    end)
+    cmap(p.keys.sector_prev or "<C-k>", function()
+        sector_cycle(state, -1)
+    end)
+    if state.bar then
+        cmap(p.keys.focus_menu or "m", function()
+            leave_menu(state)
+        end)
     end
     -- Caller-supplied row actions: each runs on the focused item, receiving a `close` callback so it
     -- can tear the peek down (e.g. jump elsewhere then act).
@@ -796,33 +1039,118 @@ local function set_keys(state)
         close_all(state)
     end)
 
-    -- Mouse: a click on the centred filter bar (in the container window, row 1) toggles the button
-    -- under the pointer; otherwise single click selects (or folds a header), double click opens.
-    map("<LeftMouse>", function()
-        local m = vim.fn.getmousepos()
-        if state.bar and m.winid == state.container_win and m.line == state.bar_line then
-            local col = m.column - 1 -- 0-based byte offset into the bar line
-            for _, bb in ipairs(state.bar_buttons or {}) do
-                if col >= bb.c0 and col < bb.c1 then
-                    set_filter(state, bb.gi, bb.id)
-                    return
+    -- A bar hit-test: returns (where, button, index) when the pointer `m` is over a clickable button
+    -- on the header (filter) or footer (action) bar in the container window, else nil.
+    local function bar_hit(m)
+        if m.winid ~= state.container_win then
+            return nil
+        end
+        local col = m.column - 1 -- 0-based byte offset into the bar line
+        local function find(buttons, where)
+            for i, bb in ipairs(buttons or {}) do
+                if bb.c0 and col >= bb.c0 and col < bb.c1 then
+                    return where, bb, i
                 end
             end
+        end
+        if state.bar and m.line == state.bar_line then
+            return find(state.bar_buttons, "header")
+        end
+        if m.line == state.footer_line then
+            return find(state.footer_buttons, "footer")
+        end
+    end
+
+    -- Mouse: a click on a header/footer button runs it; a click elsewhere in the chrome is ignored;
+    -- a click in the list selects (or folds a header); double click opens.
+    map("<LeftMouse>", function()
+        local m = vim.fn.getmousepos()
+        local where, bb = bar_hit(m)
+        if where and bb and not bb.sep then
+            activate_button(bb.spec)
+            return
+        end
+        if m.winid == state.container_win then
             return
         end
         activate(state, m.line, false)
     end)
-    -- Bracket-key hotkeys: a button with an explicit `key` jumps straight to it (mapped on the list
-    -- buffer only, so the preview keeps its motions). Buttons without a `key` are reachable by click
-    -- or the `f` cycle — used when a group has too many buttons for unique letters (e.g. symbol kinds).
+    -- Hover: tint the button under the pointer (needs 'mousemoveevent', enabled in M.open).
+    map("<MouseMove>", function()
+        local where, _, idx = bar_hit(vim.fn.getmousepos())
+        local new = where and { where = where, idx = idx } or nil
+        local changed = (state.hover ~= nil) ~= (new ~= nil)
+            or (new and (state.hover.where ~= new.where or state.hover.idx ~= new.idx))
+        if changed then
+            state.hover = new
+            render_chrome(state)
+        end
+    end)
+    -- Keys the bar MENU owns (navigation / control): a button hotkey is NOT bound on the chrome buffer
+    -- for these, so h/l/<CR>/<Esc>/q/m/<C-j>/<C-k> keep navigating / confirming / leaving the menu. The
+    -- button stays reachable by selecting it + <CR>, and its key still works from the list.
+    local reserved_menu = {}
+    do
+        local function add(v)
+            for _, x in ipairs(type(v) == "table" and v or { v }) do
+                reserved_menu[x] = true
+            end
+        end
+        add(p.keys.menu_prev or { "h", "<Left>" })
+        add(p.keys.menu_next or { "l", "<Right>" })
+        add(p.keys.menu_confirm or { "<CR>", "<Space>" })
+        add(p.keys.menu_exit or { "<Esc>", "q" })
+        add(p.keys.focus_menu or "m")
+        add(p.keys.sector_next or "<C-j>")
+        add(p.keys.sector_prev or "<C-k>")
+    end
+    -- Bracket-key hotkeys, defined ONCE: each filter button's `key` works from BOTH the list (`map`)
+    -- and the bar menu (`cmap`, unless the key is a reserved menu key). It applies the filter, and
+    -- inside the menu also moves the selection to that button.
     if state.bar then
         for gi, g in ipairs(state.bar.groups) do
             for _, b in ipairs(g.buttons) do
                 if b.key then
-                    map(b.key, function()
-                        set_filter(state, gi, b.id)
-                    end)
+                    local id, key = b.id, b.key
+                    local fire = function()
+                        set_filter(state, gi, id)
+                        if state.menu and state.menu.where == "header" then
+                            for i, bb in ipairs(state.bar_buttons) do
+                                if bb.spec and bb.spec.key == key then
+                                    state.menu.sel = i
+                                    render_chrome(state)
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    map(b.key, fire) -- from the list
+                    if not reserved_menu[b.key] then
+                        cmap(b.key, fire) -- from the bar menu (unless the key navigates the menu)
+                    end
                 end
+            end
+        end
+    end
+    -- The footer action hotkeys (the same `footer_actions` source that builds the footer buttons) work
+    -- from a bar menu too, on the chrome buffer — unless the key is a reserved menu key (those keep
+    -- navigating / confirming / leaving the menu; the action is reached by selecting it + <CR>). The
+    -- rest (split / preview …) run and move the footer selection.
+    do
+        for _, d in ipairs(footer_actions(state)) do
+            if d.key and not reserved_menu[d.key] then
+                local key, run = d.key, d.run
+                cmap(key, function()
+                    if state.menu and state.menu.where == "footer" then
+                        for i, bb in ipairs(state.footer_buttons) do
+                            if bb.spec and bb.spec.key == key then
+                                state.menu.sel = i
+                                break
+                            end
+                        end
+                    end
+                    run()
+                end)
             end
         end
     end
@@ -849,15 +1177,23 @@ local function set_keys(state)
         group = state.augroup,
         callback = function()
             local w = api.nvim_get_current_win()
+            -- Focus reached a CONTENT pane (e.g. via the footer's preview action / C-l-C-h): we left the
+            -- bar, so drop any menu selection + hover and redraw the chrome to clear their highlight.
+            local function leave_bars()
+                if state.menu or state.hover then
+                    state.menu, state.hover = nil, nil
+                    render_chrome(state)
+                end
+            end
             if w == state.list_win then
+                leave_bars()
                 -- Returning to the list re-centres the preview on the focused location (it may
                 -- have been scrolled away while the preview pane was focused).
                 hide_cursor(state)
-                set_footer(state, "list")
                 update_preview(state)
             elseif w == state.preview_win then
+                leave_bars()
                 show_cursor(state)
-                set_footer(state, "preview")
             elseif w ~= state.container_win then
                 close_all(state)
             end
@@ -892,10 +1228,128 @@ toggle_group_to = function(state, gi)
     end
 end
 
---- Render the container chrome buffer: the centred filter bar on content row 0 (when `state.bar`,
---- spanning the full width under the title) and a divider at `sep_col` on the remaining rows (the
---- inner panes leave exactly that column visible). Dimensions are remembered on `state._chrome` so a
---- filter change can redraw the bar without recomputing the layout. The rest is the panel background.
+--- Build the HEADER filter bar's entries for `ui.bar`: one `label` button per group option (`[X]abel
+--- N`, key=accent, label/count follow active/inactive, live count, `run` = apply the filter) plus a
+--- `●` separator between groups. The active option carries `active = true`.
+---@param state table
+---@return table[]  -- ui.bar entries (button specs + separators)
+local function build_filter_buttons(state)
+    local barcfg = state.bar
+    local entries = {}
+    for gi, g in ipairs(barcfg.groups) do
+        if gi > 1 then
+            entries[#entries + 1] = { separator = "●", hl = "LvimUiPeekFilterSep", pad = "   " }
+        end
+        for _, b in ipairs(g.buttons) do
+            local count = 0
+            for _, it in ipairs(state.all_items) do
+                if passes_bar(barcfg, it, g) and (not b.predicate or b.predicate(it)) then
+                    count = count + 1
+                end
+            end
+            local accent = b.hl_active or "LvimUiPeekFilterActive"
+            local dim = b.hl or "LvimUiPeekFilterInactive"
+            entries[#entries + 1] = {
+                type = "label",
+                label = b.label,
+                count = count,
+                key = b.key, -- so the hotkey works from inside the bar menu too (set on the chrome buffer)
+                accent = accent, -- the button's "own colour" — its hover/select bg is a tint of this
+                active = b.id == g.active,
+                primary = g.primary, -- the menu's initial selection prefers the PRIMARY group's active one
+                run = function()
+                    set_filter(state, gi, b.id)
+                end,
+                hl = {
+                    -- the [X] key is always the accent; the label + count follow active / inactive.
+                    -- hover == normal here: the header's hover is a separate bg overlay (place_bar).
+                    normal = { key = accent, label = dim, count = dim },
+                    active = { key = accent, label = accent, count = accent },
+                    hover = { key = accent, label = dim, count = dim },
+                },
+            }
+        end
+    end
+    return entries
+end
+
+--- The footer ACTION definitions — the SINGLE source for both the footer buttons and the footer
+--- bar-menu hotkeys (key + action declared once). Each = { key, name, run }.
+---@param state table
+---@return table[]
+footer_actions = function(state)
+    local k = state.cfg.keys or {}
+    local defs = {
+        {
+            key = k.jump or "<CR>",
+            name = "open",
+            run = function()
+                do_jump(state, "edit")
+            end,
+        },
+        {
+            key = k.split or "s",
+            name = "split",
+            run = function()
+                do_jump(state, "split")
+            end,
+        },
+        {
+            key = k.focus_preview or "<C-l>",
+            name = "preview",
+            run = function()
+                if state.preview_win and api.nvim_win_is_valid(state.preview_win) then
+                    api.nvim_set_current_win(state.preview_win)
+                end
+            end,
+        },
+    }
+    if state.bar then
+        -- The `menu` button TOGGLES on the same key: it opens the header menu from the list/footer and
+        -- reads "menu"; while a menu is focused the key leaves it, so it reads "back".
+        defs[#defs + 1] = {
+            key = k.focus_menu or "m",
+            name = state.menu and "back" or "menu",
+            run = function()
+                if state.menu then
+                    leave_menu(state)
+                else
+                    enter_menu(state, "header")
+                end
+            end,
+        }
+    end
+    defs[#defs + 1] = {
+        key = k.close or "q",
+        name = "close",
+        run = function()
+            close_all(state)
+        end,
+    }
+    return defs
+end
+
+--- Build the FOOTER action bar's entries for `ui.bar` from `footer_actions` (` <key>  name ` buttons).
+---@param state table
+---@return table[]  -- ui.bar entries (action button specs)
+local function build_action_buttons(state)
+    -- hover keeps each part's colour and only deepens its bg tint (≈ +0.1) — a per-segment state.
+    local hl = {
+        normal = { key = "LvimUiPeekFooterKey", name = "LvimUiPeekFooterLabel" },
+        active = { key = "LvimUiPeekFooterKey", name = "LvimUiPeekFooterLabel" },
+        hover = { key = "LvimUiPeekFooterKeyHover", name = "LvimUiPeekFooterLabelHover" },
+    }
+    local entries = {}
+    for _, d in ipairs(footer_actions(state)) do
+        entries[#entries + 1] = { type = "action", key = d.key, name = d.name, run = d.run, hl = hl }
+    end
+    return entries
+end
+
+--- Render the container chrome buffer: the centred filter bar on content row 2 (when `state.bar`), the
+--- action footer bar on the last content row, and a divider at `sep_col` on the pane rows between them.
+--- Each bar is composed by `compose_bar` (centre / scroll + chevrons) and carries the menu selection +
+--- hover highlights. Dimensions are remembered on `state._chrome` so a redraw needs no relayout.
 ---@param state table
 ---@param W? integer       defaults to the stored value (filter-change redraws pass nothing)
 ---@param H? integer
@@ -922,29 +1376,60 @@ render_chrome = function(state, W, H, sep_col, sep_char)
         end
         return string.rep(" ", W)
     end
-    -- With a bar: content row 1 is a blank spacer under the title and row 2 is the bar (both span
-    -- the full width, so neither carries the divider). `bar_ln` is the bar's 1-based buffer line.
+    -- Header rows 1 (spacer) & 2 (filter bar, when present) and the LAST content row (action footer,
+    -- when enabled) span the full width — no divider; the panes occupy the rows between them.
+    local has_footer = state.cfg.footer ~= false
     local bar_ln = 2
+    local footer_ln = has_footer and H or nil
     local lines = {}
     for i = 1, H do
-        lines[i] = base_line(not (has_bar and i <= bar_ln))
+        local full = (has_bar and i <= bar_ln) or i == footer_ln
+        lines[i] = base_line(not full)
     end
 
-    -- Compose + centre the filter bar. Centre by DISPLAY width (the ● separator is multibyte); the
-    -- left pad is spaces, so its byte count == its column count, which keeps the recorded button BYTE
-    -- ranges aligned with getmousepos().column (also byte-based).
-    local bar_spans, bar_btns, bar_pad
-    if has_bar then
-        local t, sp, btns = build_bar_row(state)
-        local tw = vim.fn.strdisplaywidth(t)
-        bar_pad = math.max(0, math.floor((W - tw) / 2))
-        local s = string.rep(" ", bar_pad) .. t
-        local sw = bar_pad + tw
-        if sw < W then
-            s = s .. string.rep(" ", W - sw)
+    -- Both bars go through the shared `ui.bar` primitive (centre / scroll + chevrons + per-button
+    -- state); the peek only supplies button specs and draws its own selection / hover overlays.
+    state.bar_buttons, state.footer_buttons = {}, {}
+    state.bar_line = has_bar and bar_ln or nil
+    state.footer_line = footer_ln or nil
+
+    --- Render `entries` through `ui.bar` into `lines[ln]`, record per-button rows into `dest`, return
+    --- the placement data (hl spans + chevron ranges) for after the buffer write.
+    local function lay_bar(ln, entries, off_field, where, dest)
+        local sel = (state.menu and state.menu.where == where) and state.menu.sel or nil
+        -- The footer keeps each part's colour for BOTH highlight kinds via its per-segment button
+        -- state: the keyboard-selected button (in the footer menu) OR the mouse-hovered one render in
+        -- the "hover" state, so the footer never gets a flat uniform overlay. The header still uses bg
+        -- overlays (its filter buttons are fg-only, so a uniform tint is fine there).
+        local hover
+        if where == "footer" then
+            hover = sel or (state.hover and state.hover.where == "footer" and state.hover.idx) or nil
         end
-        lines[bar_ln] = s
-        bar_spans, bar_btns = sp, btns
+        local res = uibar.render({
+            buttons = entries,
+            width = W,
+            align = "center",
+            chevrons = state.cfg.chevrons,
+            sel = sel,
+            hover = hover,
+            off = state[off_field],
+        })
+        state[off_field] = res.off
+        lines[ln] = res.line
+        for i, b in ipairs(res.buttons) do
+            dest[i] = { row = ln, c0 = b.c0, c1 = b.c1, spec = b.spec, sep = b.sep }
+        end
+        return res.spans, res.chevrons
+    end
+
+    local header_spans, header_chev, footer_spans, footer_chev
+    if has_bar then
+        header_spans, header_chev =
+            lay_bar(bar_ln, build_filter_buttons(state), "_bar_off", "header", state.bar_buttons)
+    end
+    if footer_ln then
+        footer_spans, footer_chev =
+            lay_bar(footer_ln, build_action_buttons(state), "_footer_off", "footer", state.footer_buttons)
     end
 
     vim.bo[state.container_buf].modifiable = true
@@ -952,79 +1437,62 @@ render_chrome = function(state, W, H, sep_col, sep_char)
     vim.bo[state.container_buf].modifiable = false
     api.nvim_buf_clear_namespace(state.container_buf, NS_CHROME, 0, -1)
 
-    state.bar_buttons = {}
-    state.bar_line = has_bar and bar_ln or nil
-    if has_bar then
-        for _, s in ipairs(bar_spans) do
-            pcall(api.nvim_buf_set_extmark, state.container_buf, NS_CHROME, bar_ln - 1, bar_pad + s[1], {
-                end_col = bar_pad + s[2],
-                hl_group = s[3],
+    -- Place a bar's highlights: the selection bg (menu) and hover bg drawn UNDER the fg spans (lower
+    -- priority, so the button keeps its colours), then the fg spans, then the overflow chevrons.
+    local function place_bar(ln, where, buttons, spans, chev, chev_hl)
+        -- Selection / hover bg for the HEADER (bg-only, keeps each segment's fg). Each is a TINT of the
+        -- focused button's OWN accent colour, and extends ONE column past the text on each side (into
+        -- the inter-button gap) so the highlight does not hug the glyphs. The footer keeps its colours
+        -- via its per-segment button state (see lay_bar), so it gets no overlay here.
+        local function header_bg(bb, t, out, fallback, priority)
+            if not (bb and bb.c0 and not bb.sep) then
+                return
+            end
+            local group = tint_hl(bb.spec and bb.spec.accent, t, out) or fallback
+            pcall(api.nvim_buf_set_extmark, state.container_buf, NS_CHROME, ln - 1, math.max(0, bb.c0 - 1), {
+                end_col = bb.c1 + 1, -- 1 space of padding on each side
+                hl_group = group,
+                priority = priority,
             })
         end
-        for _, b in ipairs(bar_btns) do
-            state.bar_buttons[#state.bar_buttons + 1] =
-                { row = bar_ln, c0 = bar_pad + b[1], c1 = bar_pad + b[2], gi = b[3], id = b[4] }
+        if where ~= "footer" and state.menu and state.menu.where == where then
+            header_bg(buttons[state.menu.sel], 0.3, "LvimUiPeekHeaderSel", "LvimUiPeekFilterSelected", 250)
+        end
+        if where ~= "footer" and state.hover and state.hover.where == where then
+            header_bg(buttons[state.hover.idx], 0.18, "LvimUiPeekHeaderHover", "LvimUiPeekHover", 240)
+        end
+        for _, s in ipairs(spans or {}) do
+            pcall(api.nvim_buf_set_extmark, state.container_buf, NS_CHROME, ln - 1, s[1], {
+                end_col = s[2],
+                hl_group = s[3],
+                priority = 200,
+            })
+        end
+        for _, ch in ipairs(chev or {}) do
+            pcall(api.nvim_buf_set_extmark, state.container_buf, NS_CHROME, ln - 1, ch[1], {
+                end_col = ch[2],
+                hl_group = chev_hl,
+                priority = 200,
+            })
         end
     end
+    if has_bar then
+        place_bar(bar_ln, "header", state.bar_buttons, header_spans, header_chev, "LvimUiPeekFilterChevron")
+    end
+    if footer_ln then
+        place_bar(footer_ln, "footer", state.footer_buttons, footer_spans, footer_chev, "LvimUiPeekFooterChevron")
+    end
+
     if sep_char then
         local from = has_bar and bar_ln or 0
-        for ln = from, H - 1 do
+        local to = footer_ln and (footer_ln - 2) or (H - 1) -- pane rows only (skip the footer row)
+        for ln = from, to do
             pcall(api.nvim_buf_set_extmark, state.container_buf, NS_CHROME, ln, sep_col, {
                 end_col = sep_col + #sep_char,
                 hl_group = "LvimUiPeekBorder",
             })
         end
     end
-end
-
---- Build the focus-aware key-hint footer for the container's bottom border. The list pane shows the
---- full set (navigate / group / open / split / focus preview / close); the preview shows just the
---- way back and close — so the border always advertises exactly what the focused pane can do.
----@param state table
----@param pane "list"|"preview"
----@return table[]  nvim border-footer chunks ({ text, hl_group })
-local function footer_chunks(state, pane)
-    local k = state.cfg.keys or {}
-    ---@type table[]  list of { keys, label }
-    local hints
-    if pane == "preview" then
-        hints = {
-            { k.focus_list or "<C-h>", "list" },
-            { k.close or "q", "close" },
-        }
-    else
-        hints = {
-            { (k.down or "j") .. "/" .. (k.up or "k"), "move" },
-            { k.next_group or "<Tab>", "group" },
-            { k.jump or "<CR>", "open" },
-            { (k.split or "s") .. "/" .. (k.vsplit or "v") .. "/" .. (k.tabedit or "t"), "split" },
-            { k.focus_preview or "<C-l>", "preview" },
-            { k.close or "q", "close" },
-        }
-    end
-    local chunks = {}
-    for i, h in ipairs(hints) do
-        chunks[#chunks + 1] = { " " .. h[1] .. " ", "LvimUiPeekFooterKey" }
-        chunks[#chunks + 1] = { " " .. h[2] .. " ", "LvimUiPeekFooterLabel" }
-        if i < #hints then
-            chunks[#chunks + 1] = { " ", "LvimUiPeekNormal" }
-        end
-    end
-    return chunks
-end
-
---- Swap the container's bottom-border footer to the focused pane's hints. No-op when the footer is
---- disabled or the container border has no bottom side to carry it.
----@param state table
----@param pane "list"|"preview"
-set_footer = function(state, pane)
-    if not state.footer_ok or not (state.container_win and api.nvim_win_is_valid(state.container_win)) then
-        return
-    end
-    pcall(api.nvim_win_set_config, state.container_win, {
-        footer = footer_chunks(state, pane),
-        footer_pos = "center",
-    })
 end
 
 --- Pure geometry: compute every rect of the panel from the CURRENT `vim.o.columns`/`vim.o.lines`
@@ -1075,12 +1543,13 @@ local function compute_layout(state)
     list_cw = math.max(8, math.min(list_cw, avail - 8))
     local prev_cw = avail - list_cw
 
-    -- When a filter bar is present it takes two content rows — a blank spacer row under the title,
-    -- then the centred subtitle bar — so the panes start two rows lower and lose two rows of height.
+    -- A filter bar takes two content rows at the TOP (blank spacer + the bar); the action footer bar
+    -- takes one row at the BOTTOM. The panes start below the header and lose both to height.
     local bar_h = state.bar and 2 or 0
+    local footer_h = p.footer ~= false and 1 or 0
     local inner_top = cc_row + bar_h
-    local list_h = math.max(1, H - bar_h - lt - lbm)
-    local prev_h = math.max(1, H - bar_h - pt - pbm)
+    local list_h = math.max(1, H - bar_h - footer_h - lt - lbm)
+    local prev_h = math.max(1, H - bar_h - footer_h - pt - pbm)
     local list_left = p.list_position ~= "right"
     -- Footprints lay out left→right: [first pane][divider][second pane]. Each pane's nvim col is
     -- its LEFT-BORDER position; the divider sits in the gap (a column the panes don't cover).
@@ -1103,8 +1572,8 @@ local function compute_layout(state)
     }
 end
 
---- The container's float config from a computed layout (border, frame, brand title — the footer is
---- applied separately by set_footer so it can follow the focused pane).
+--- The container's float config from a computed layout (border, frame, brand title). The footer is a
+--- content row rendered by render_chrome, not a border footer.
 ---@param state table
 ---@param L table
 ---@return table copts
@@ -1157,17 +1626,12 @@ local function open_panel(state)
 
     state.container_buf = api.nvim_create_buf(false, true)
     local copts = container_config(state, L)
-    -- The key-hint footer rides the container's BOTTOM border (needs one). The list opens focused,
-    -- so it starts on the list hints; WinEnter swaps it to the preview set and back.
-    state.footer_ok = p.footer ~= false and L.cb > 0
-    if state.footer_ok then
-        copts.footer = footer_chunks(state, "list")
-        copts.footer_pos = "center"
-    end
     state.container_win = api.nvim_open_win(state.container_buf, false, copts)
     vim.wo[state.container_win].winhighlight = "Normal:LvimUiPeekNormal,FloatBorder:LvimUiPeekBorder"
     vim.wo[state.container_win].winbar = ""
 
+    -- The action footer + filter bar are rendered as content rows inside the container buffer (so they
+    -- are focusable / clickable), not on the border.
     render_chrome(state, L.W, L.H, L.sep_col, p.separator)
 
     state.list_win = api.nvim_open_win(state.list_buf, true, {
@@ -1235,9 +1699,6 @@ relayout = function(state)
         })
     end
     render_chrome(state, L.W, L.H, L.sep_col, p.separator)
-    if state.footer_ok then
-        set_footer(state, api.nvim_get_current_win() == state.preview_win and "preview" or "list")
-    end
     refresh(state)
 end
 
@@ -1267,6 +1728,9 @@ function M.open(opts, instance_cfg)
     }
     vim.bo[state.list_buf].filetype = "lvim-utils-peek"
     vim.bo[state.list_buf].bufhidden = "wipe"
+    -- Enable mouse-move events for the button hover tint (restored on close).
+    state.saved_mousemove = vim.o.mousemoveevent
+    vim.o.mousemoveevent = true
     -- Build the (filtered) model and place the initial selection.
     apply_filter(state)
 
