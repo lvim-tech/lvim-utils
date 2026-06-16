@@ -31,7 +31,7 @@ local M = {}
 ---@field count? number|string|fun(): (number|string|nil)  -- "label" type: optional dynamic trailing count
 ---@field key? string            -- hotkey; "action" shows it whole, "label" brackets its letter in `label`
 ---@field key_pos? integer       -- "label" type: 1-based char index to bracket (disambiguates repeats)
----@field name? string           -- "action" type: the caption after the key badge
+---@field name? string|fun(): string  -- "action" type: the caption (a fn is evaluated each render)
 ---@field run? fun()             -- what firing the button does
 ---@field active? boolean        -- whether this button is the semantically active one (the bar reads it)
 ---@field hl table               -- { normal = {...}, active = {...}, hover = {...} } — see the type docs above
@@ -68,8 +68,12 @@ function M.render(spec, state)
         text = text .. s
     end
     if spec.type == "action" then
+        local name = spec.name
+        if type(name) == "function" then
+            name = name() -- a dynamic caption (e.g. the footer "menu" ⇄ "back" toggle)
+        end
         put(" " .. (spec.key or "") .. " ", hl.key)
-        put(" " .. (spec.name or "") .. " ", hl.name)
+        put(" " .. (name or "") .. " ", hl.name)
     else
         -- Optional leading icon box (` <icon> `) — tabs / horizontal-action buttons lead with this.
         if spec.icon and spec.icon ~= "" then
