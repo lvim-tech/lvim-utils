@@ -612,6 +612,19 @@ local function set_keys(state)
     for _, ck in ipairs(state.cfg.close_keys or {}) do
         map(state.container_buf, ck, state.close)
     end
+
+    -- Header button hotkeys work from EVERYWHERE: on every panel (all keys) and the container (all but
+    -- the menu nav keys, so `h`/`l` still move the selection while a bar is focused).
+    for _, pan in ipairs(state.panels) do
+        state.map_hotkeys(pan.buf, {})
+    end
+    local reserved = {}
+    for _, group in ipairs({ K.menu_prev, K.menu_next, K.menu_confirm }) do
+        for _, l in ipairs(type(group) == "table" and group or { group }) do
+            reserved[#reserved + 1] = l
+        end
+    end
+    state.map_hotkeys(state.container_buf, reserved)
 end
 
 -- ─── open / close ─────────────────────────────────────────────────────────────
@@ -732,6 +745,26 @@ local function open_windows(state)
     --- the same navigation from its own keymaps).
     state.sector = function(dir)
         sector_cycle(state, dir)
+    end
+    --- Map every HEADER bar button's hotkey on `buf` (firing its `run`), so e.g. filter keys work from
+    --- anywhere. `reserved` lists keys to SKIP (the menu nav keys on the container, so `h`/`l` still move
+    --- the selection there). Called on each panel buffer, the container, and the preview's file buffer.
+    state.map_hotkeys = function(buf, reserved)
+        local skip = {}
+        for _, r in ipairs(reserved or {}) do
+            skip[r] = true
+        end
+        for _, sec in ipairs(state.sectors) do
+            if sec.kind == "bar" and sec.where == "header" then
+                for _, spec in ipairs(sec.band.buttons or {}) do
+                    if spec.key and spec.run and not spec.separator and not skip[spec.key] then
+                        vim.keymap.set("n", spec.key, function()
+                            spec.run(state)
+                        end, { buffer = buf, nowait = true, silent = true })
+                    end
+                end
+            end
+        end
     end
     --- Toggle the first header bar sector (the "menu" shortcut): focus it, or return to the center if it
     --- is already focused. Returns true when it lands ON the header bar.

@@ -98,6 +98,10 @@ function M.new(opts)
                 vim.keymap.set("n", "<C-l>", fr("panel", 1), { buffer = pbuf, nowait = true, silent = true })
                 vim.keymap.set("n", "<C-j>", fr("sector", 1), { buffer = pbuf, nowait = true, silent = true })
                 vim.keymap.set("n", "<C-k>", fr("sector", -1), { buffer = pbuf, nowait = true, silent = true })
+                -- Header button hotkeys (e.g. filters) work from the preview too.
+                if pan.frame and pan.frame.map_hotkeys then
+                    pan.frame.map_hotkeys(pbuf, {})
+                end
                 for _, ck in ipairs((pan.frame and pan.frame.cfg.close_keys) or { "q" }) do
                     vim.keymap.set("n", ck, function()
                         if pan.frame then
