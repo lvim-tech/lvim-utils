@@ -28,6 +28,10 @@ local util = require("lvim-utils.ui.util")
 
 local M = {}
 
+-- The canonical popup border: an 8-space PADDING border (no visible line). Every lvim-tech UI uses it —
+-- line borders (rounded/single/double) and native border-titles are not used; titles are content rows.
+local PADDING = { " ", " ", " ", " ", " ", " ", " ", " " }
+
 --- Pick one item from a list — a 1-panel `frame` (the list) + a confirm/cancel footer. `<C-j>`
 --- descends into the footer (which scrolls to follow the selection on a narrow popup); the list shows
 --- its selection via cursorline. callback(confirmed, index, item).
@@ -94,8 +98,8 @@ function M.select(opts)
 
     return frame.open({
         mode = "float",
-        title = opts.title or "Select",
-        border = "rounded",
+        border = PADDING,
+        header = { title = opts.title or "Select" }, -- content-row, blue-tinted (LvimUiPeekTitle)
         panel_border = "none",
         auto_width = true,
         max_width = 0.6,
@@ -204,8 +208,8 @@ function M.multiselect(opts)
 
     frame.open({
         mode = "float",
-        title = opts.title or "Select",
-        border = "rounded",
+        border = PADDING,
+        header = { title = opts.title or "Select" }, -- content-row, blue-tinted (LvimUiPeekTitle)
         panel_border = "none",
         auto_width = true,
         max_width = 0.6,
@@ -290,8 +294,8 @@ function M.input(opts)
 
     frame.open({
         mode = "float",
-        title = opts.title or opts.prompt or "Input",
-        border = "rounded",
+        border = PADDING,
+        header = { title = opts.title or opts.prompt or "Input" }, -- content-row, blue-tinted
         panel_border = "none",
         auto_width = true,
         max_width = opts.width or 0.6,
@@ -447,7 +451,7 @@ function M.tabs(opts)
 
     frame.open({
         mode = "float",
-        border = opts.border or "rounded",
+        border = opts.border or PADDING,
         close_keys = opts.close_keys,
         keymaps = opts.keymaps,
         panel_border = "none",
@@ -499,13 +503,16 @@ function M.info(content, opts)
     }
     frame.open({
         mode = "float",
-        title = opts.title or "Info",
-        border = "rounded",
+        border = opts.border or PADDING,
+        close_keys = opts.close_keys,
+        keymaps = opts.keymaps,
         panel_border = "none",
         auto_width = true,
         max_width = opts.width or 0.7,
         auto_height = true,
         max_height = opts.height or 0.7,
+        -- A content-row title (NOT a native border-title), like the rest of the new UI.
+        header = opts.title ~= false and { title = opts.title or "Info" } or nil,
         panels = { { provider = provider } },
         footer = opts.footer == false and nil or {
             actions = {
