@@ -19,40 +19,27 @@
 
 local uibar = require("lvim-utils.ui.bar")
 local util = require("lvim-utils.ui.util")
+local cursor = require("lvim-utils.cursor")
 
 local api = vim.api
 local NS = api.nvim_create_namespace("lvim_utils_ui_frame")
 
 local M = {}
 
--- ─── cursor hiding (bar-menu mode) ────────────────────────────────────────────
--- While a header/footer BAR sector is focused there is no text cursor to show — the selected button
--- is the cursor — so hide the hardware cursor (transparent 1-cell bar via a blend=100 group, the same
--- technique as lvim-utils.cursor) and restore it the moment focus returns to a panel.
-
---- Hide the hardware cursor (no-op when already hidden). Saves the prior guicursor on `state`.
----@param state table
-local function hide_cursor(state)
-    if state.cursor_hidden then
-        return
+-- ─── cursor hiding ────────────────────────────────────────────────────────────
+-- Hiding the hardware cursor is delegated to lvim-utils.cursor (the ONE cursor system): the chrome
+-- container and every panel whose provider sets `hide_cursor` carry the `lvim-ui-frame` filetype,
+-- registered as a CURRENT-ONLY panel ft. So the module hides the cursor only while one of those is the
+-- focused window (a list panel, or the container while a bar sector is selected) and shows it in
+-- editable panels (the input field, the real preview buffer) and outside the frame. `cursor.update()`
+-- is called right after a programmatic focus change so it applies without a one-frame flash.
+local FRAME_FT = "lvim-ui-frame"
+local cursor_registered = false
+local function register_frame_ft()
+    if not cursor_registered then
+        cursor_registered = true
+        pcall(cursor.setup, { panel_ft = { FRAME_FT } })
     end
-    state.saved_guicursor = vim.o.guicursor
-    api.nvim_set_hl(0, "LvimUtilsHiddenCursor", { blend = 100, nocombine = true })
-    vim.o.guicursor = "a:ver1-LvimUtilsHiddenCursor"
-    state.cursor_hidden = true
-end
-
---- Restore the cursor saved by hide_cursor (no-op when not hidden).
----@param state table
-local function show_cursor(state)
-    if not state.cursor_hidden then
-        return
-    end
-    if state.saved_guicursor then
-        vim.o.guicursor = state.saved_guicursor
-        state.saved_guicursor = nil
-    end
-    state.cursor_hidden = false
 end
 
 -- Default keymaps for the chassis; the consumer may override via `cfg.keys`.
@@ -90,11 +77,12 @@ end
 
 --- Build the header band stack: optional title/subtitle/info META lines, then any explicit bands.
 --- A band is `{ meta = text, hl }` (a centred line) or `{ buttons = LvimUiButtonSpec[], align }` (a bar).
+--- ALWAYS leads with a blank band — 1 row of "air" under the (border-)title, per the UI canon.
 ---@param h table|nil
 ---@return table[]
 local function header_bands(h)
     h = h or {}
-    local bands = {}
+    local bands = { { meta = "" } } -- 1 blank row under the title
     if h.title then
         bands[#bands + 1] = { meta = h.title, hl = h.title_hl or "LvimUiPeekTitle" }
     end
@@ -111,6 +99,7 @@ local function header_bands(h)
 end
 
 --- Build the footer band stack: an `actions` shorthand becomes one bar band, then any explicit bands.
+--- Leads with a blank band — 1 row of "air" above the footer, per the UI canon.
 ---@param f table|nil
 ---@return table[]
 local function footer_bands(f)
@@ -121,6 +110,9 @@ local function footer_bands(f)
     end
     for _, b in ipairs(f.bands or {}) do
         bands[#bands + 1] = b
+    end
+    if #bands > 0 then
+        table.insert(bands, 1, { meta = "" }) -- 1 blank row above the footer content
     end
     return bands
 end
@@ -453,15 +445,12 @@ local function focus_panel_win(state, i)
         return
     end
     state.center_panel = i
-    -- A list-style provider shows its selection via cursorline, so hide the noisy hardware cursor.
-    if pan.provider and pan.provider.hide_cursor then
-        hide_cursor(state)
-    else
-        show_cursor(state)
-    end
     if pan.win and api.nvim_win_is_valid(pan.win) then
         api.nvim_set_current_win(pan.win)
     end
+    -- The panel's filetype drives cursor visibility (hide-cursor panels carry FRAME_FT) — apply it now to
+    -- avoid a one-frame flash.
+    cursor.update()
     -- An editable panel (the input field) enters insert at the end of its line.
     if pan.provider and pan.provider.editable then
         vim.schedule(function()
@@ -500,7 +489,7 @@ local function focus_sector(state, i)
             api.nvim_set_current_win(state.container_win)
             state._focusing_bar = false
         end
-        hide_cursor(state)
+        cursor.update() -- container is current (FRAME_FT) → cursor hidden in bar-menu mode
     end
     render_chrome(state, state._geom)
 end
@@ -548,8 +537,8 @@ local function escape_to_neighbor(state, dir)
     if target == 0 or target == state.container_win or not api.nvim_win_is_valid(target) then
         return false
     end
-    show_cursor(state) -- the frame hid the hardware cursor for its list/bar; the editor needs it back
     api.nvim_set_current_win(target)
+    cursor.update() -- the editor (normal ft) is current now → cursor visible again
     return true
 end
 
@@ -758,8 +747,11 @@ end
 --- Build the container + the N panel windows from a computed layout.
 ---@param state table
 local function open_windows(state)
+    register_frame_ft() -- ensure lvim-utils.cursor knows FRAME_FT (current-only) for cursor hiding
     state.zindex = state.cfg.zindex or 50
     state.container_buf = api.nvim_create_buf(false, true)
+    -- The chrome container hides the hardware cursor while a bar sector is focused (it becomes current).
+    vim.bo[state.container_buf].filetype = FRAME_FT
 
     local L
     if state.cfg.mode == "split" then
@@ -815,9 +807,9 @@ local function open_windows(state)
         })
     end
     state._geom = L
-    -- Mark every frame window so generic "close all floating windows" utilities can skip them — the panels
-    -- are floats (and so is the container in float mode), but the frame is a managed UI that tears itself
-    -- down as a unit, not a stray popup to be swept away.
+    local docked = state.cfg.mode == "split"
+    -- The CONTAINER holds only chrome and is never directly interacted with — always mark it so generic
+    -- float helpers ("close all floats" / "focus next float") skip it and land on the content panel.
     vim.w[state.container_win].lvim_frame = true
     vim.wo[state.container_win].winhighlight = "Normal:LvimUiPeekNormal,FloatBorder:LvimUiPeekBorder"
 
@@ -827,14 +819,18 @@ local function open_windows(state)
         local pl = L.panels[i]
         pan.buf = api.nvim_create_buf(false, true)
         vim.bo[pan.buf].bufhidden = "hide" -- keep the scratch buffer alive while hidden; deleted in close()
-        -- `focusable = false`: the panels are NOT part of the user's native window navigation — `<C-w>`/
-        -- `<C-l>` must reach the surrounding editor splits, not land inside the peek. The frame focuses a
-        -- panel programmatically (`nvim_set_current_win`, which ignores `focusable`); the user enters via
-        -- the frame's own keys (`<C-o>` / focus_panel) and moves between panels with `<C-l>`/`<C-h>`.
-        -- In SPLIT mode the container is a REAL window, so the panel floats sit above it with NO elevated
-        -- zindex (default) — otherwise they'd also stack above unrelated floats (e.g. lvim-space) that open
-        -- over the docked area and hide them. In FLOAT mode the container IS a float, so the panels need
-        -- `zindex + 1` to stay above it.
+        -- A list-style provider shows its selection via cursorline → give its buffer FRAME_FT so the cursor
+        -- module hides the hardware cursor while it is focused. Editable panels (input / the real preview
+        -- buffer) keep their normal filetype, so the cursor stays visible there.
+        if pan.provider and pan.provider.hide_cursor then
+            vim.bo[pan.buf].filetype = FRAME_FT
+        end
+        -- DOCKED (split): `focusable = false` — the panels are NOT part of native window nav (`<C-w>`/
+        -- `<C-l>` must reach the surrounding editor splits, not land inside the peek); the frame focuses
+        -- them programmatically. FLOAT (modal): `focusable = true` so mouse / "focus next float" helpers
+        -- can reach the content panel. zindex: in SPLIT the container is a REAL window, so the floats sit
+        -- above it at the default (else they'd stack over unrelated floats like lvim-space); in FLOAT the
+        -- container IS a float, so the panels need `zindex + 1` to stay above it.
         pan.win = api.nvim_open_win(pan.buf, i == 1, {
             relative = "editor",
             width = pl.width,
@@ -843,10 +839,14 @@ local function open_windows(state)
             col = pl.col,
             border = pl.border,
             style = "minimal",
-            focusable = false,
-            zindex = state.cfg.mode ~= "split" and (state.zindex + 1) or nil,
+            focusable = not docked,
+            zindex = not docked and (state.zindex + 1) or nil,
         })
-        vim.w[pan.win].lvim_frame = true -- managed UI window; "close all floats" helpers skip it (see container)
+        -- Mark the panel ONLY when docked (a persistent peek to protect). A FLOAT-mode panel is left
+        -- unmarked so "close all floats" dismisses it and "focus next float" lands on it.
+        if docked then
+            vim.w[pan.win].lvim_frame = true
+        end
         if pan.provider and pan.provider.cursorline then
             vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:LvimUiPeekCursorLine"
             vim.wo[pan.win].cursorline = true
@@ -1032,17 +1032,14 @@ local function open_windows(state)
             for _, pan in ipairs(state.panels) do
                 if pan.win == w then
                     set_blur(false)
-                    if pan.provider and pan.provider.hide_cursor then
-                        hide_cursor(state)
-                    else
-                        show_cursor(state)
-                    end
+                    cursor.update() -- panel ft decides (hide-cursor list vs editable preview)
                     return
                 end
             end
-            -- Focus left the frame entirely → clear the selection highlight and restore the cursor.
+            -- Focus left the frame entirely → clear the selection highlight; the cursor module shows the
+            -- cursor again (the editor's normal-ft buffer is current now).
             set_blur(true)
-            show_cursor(state)
+            cursor.update()
         end,
     })
 end
@@ -1057,7 +1054,6 @@ local function close(state)
     if state.augroup then
         pcall(api.nvim_del_augroup_by_id, state.augroup)
     end
-    show_cursor(state)
     -- Let providers release any external state before we drop the windows (the frame's own scratch panel
     -- buffers are deleted below, taking their keymaps/extmarks with them, but a provider may hold things
     -- outside them — e.g. autocommands, or keymaps on a real buffer).
@@ -1080,6 +1076,7 @@ local function close(state)
     if state.origin and api.nvim_win_is_valid(state.origin) then
         pcall(api.nvim_set_current_win, state.origin)
     end
+    cursor.update() -- the frame's hide-cursor buffers are gone → show the cursor in the editor again
     if state.cfg.on_close then
         pcall(state.cfg.on_close)
     end

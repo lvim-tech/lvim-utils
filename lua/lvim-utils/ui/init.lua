@@ -28,9 +28,9 @@ local util = require("lvim-utils.ui.util")
 
 local M = {}
 
--- The canonical popup border: an 8-space PADDING border (no visible line). Every lvim-tech UI uses it —
--- line borders (rounded/single/double) and native border-titles are not used; titles are content rows.
-local PADDING = { " ", " ", " ", " ", " ", " ", " ", " " }
+-- The canonical popup border: ONLY a top " " edge (no ring), so the frame's native border-title (brand)
+-- has somewhere to sit. Titles are always border-titles, blue-tinted — the diagnostics-panel approach.
+local FRAME_BORDER = { "", " ", "", "", "", "", "", "" }
 
 --- Pick one item from a list — a 1-panel `frame` (the list) + a confirm/cancel footer. `<C-j>`
 --- descends into the footer (which scrolls to follow the selection on a narrow popup); the list shows
@@ -98,8 +98,8 @@ function M.select(opts)
 
     return frame.open({
         mode = "float",
-        border = PADDING,
-        header = { title = opts.title or "Select" }, -- content-row, blue-tinted (LvimUiPeekTitle)
+        border = FRAME_BORDER,
+        title = opts.title or "Select", -- native border-title, blue-tinted (LvimUiPeekTitle)
         panel_border = "none",
         auto_width = true,
         max_width = 0.6,
@@ -208,8 +208,8 @@ function M.multiselect(opts)
 
     frame.open({
         mode = "float",
-        border = PADDING,
-        header = { title = opts.title or "Select" }, -- content-row, blue-tinted (LvimUiPeekTitle)
+        border = FRAME_BORDER,
+        title = opts.title or "Select", -- native border-title, blue-tinted (LvimUiPeekTitle)
         panel_border = "none",
         auto_width = true,
         max_width = 0.6,
@@ -294,8 +294,8 @@ function M.input(opts)
 
     frame.open({
         mode = "float",
-        border = PADDING,
-        header = { title = opts.title or opts.prompt or "Input" }, -- content-row, blue-tinted
+        border = FRAME_BORDER,
+        title = opts.title or opts.prompt or "Input", -- native border-title, blue-tinted
         panel_border = "none",
         auto_width = true,
         max_width = opts.width or 0.6,
@@ -406,9 +406,9 @@ function M.tabs(opts)
         return specs
     end
 
-    -- Header: a content-row title (NOT a native border-title) + the subtitle "message" wrapped in a blank
-    -- line above and below + a tab bar (live switch) when more than one tab.
-    local header = { title = opts.title }
+    -- Header: the subtitle "message" wrapped in a blank line above and below + a tab bar (live switch)
+    -- when more than one tab. The TITLE is the frame's native border-title (set below), not a header band.
+    local header = {}
     local bands = {}
     if opts.subtitle then
         bands[#bands + 1] = { meta = "" }
@@ -444,14 +444,14 @@ function M.tabs(opts)
     end
     if #bands > 0 then
         header.bands = bands
-    end
-    if not (header.title or header.bands) then
+    else
         header = nil
     end
 
     frame.open({
         mode = "float",
-        border = opts.border or PADDING,
+        border = opts.border or FRAME_BORDER,
+        title = opts.title, -- native border-title, blue-tinted (LvimUiPeekTitle)
         close_keys = opts.close_keys,
         keymaps = opts.keymaps,
         panel_border = "none",
@@ -503,7 +503,8 @@ function M.info(content, opts)
     }
     frame.open({
         mode = "float",
-        border = opts.border or PADDING,
+        border = opts.border or FRAME_BORDER,
+        title = opts.title ~= false and (opts.title or "Info") or nil, -- native border-title, blue-tinted
         close_keys = opts.close_keys,
         keymaps = opts.keymaps,
         panel_border = "none",
@@ -511,8 +512,6 @@ function M.info(content, opts)
         max_width = opts.width or 0.7,
         auto_height = true,
         max_height = opts.height or 0.7,
-        -- A content-row title (NOT a native border-title), like the rest of the new UI.
-        header = opts.title ~= false and { title = opts.title or "Info" } or nil,
         panels = { { provider = provider } },
         footer = opts.footer == false and nil or {
             actions = {

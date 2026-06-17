@@ -15,7 +15,8 @@ local M = {}
 local api = vim.api
 
 ---@class CursorState
----@field fts            table<string, boolean>   Registered filetypes that trigger hiding
+---@field fts            table<string, boolean>   Popup filetypes: hide whenever visible in ANY window
+---@field panel_fts      table<string, boolean>   Panel filetypes: hide only while one is the CURRENT window
 ---@field input_buffers  table<integer, boolean>  Buffers explicitly marked as input (never hidden)
 ---@field augroup        integer|nil              Autocmd group handle
 ---@field saved_guicursor string|nil             Original guicursor value saved before hiding
@@ -24,6 +25,8 @@ local api = vim.api
 ---@type CursorState
 local state = {
     fts = {},
+    panel_fts = {}, -- "current-only" filetypes: hide the cursor ONLY while one is the CURRENT window (a
+    -- persistent side panel like the outline), NOT globally whenever it is visible somewhere
     input_buffers = {},
     augroup = nil,
     saved_guicursor = nil,
@@ -67,8 +70,8 @@ local function is_input(buf)
     return state.input_buffers[buf] == true
 end
 
----Return true when buf has a filetype registered for cursor hiding.
----Input buffers are excluded even if their filetype matches.
+---Return true when buf's filetype hides the cursor while buf is the CURRENT window — a popup ft OR a
+---panel (current-only) ft. Input buffers are excluded even if their filetype matches.
 ---@param buf integer
 ---@return boolean
 local function is_hidden_buffer(buf)
@@ -79,18 +82,24 @@ local function is_hidden_buffer(buf)
         return false
     end
     local ft = vim.bo[buf].filetype
-    return ft ~= nil and state.fts[ft] == true
+    return ft ~= nil and (state.fts[ft] == true or state.panel_fts[ft] == true)
 end
 
----Return true when at least one visible window contains a hidden-filetype buffer.
----Used to keep the cursor hidden even when focus moves to a non-popup window
----while a popup is still open.
+---Return true when at least one visible window contains a POPUP-filetype buffer. Used to keep the cursor
+---hidden even when focus moves to a non-popup window while a popup is still open. PANEL (current-only)
+---filetypes are NOT counted — a persistent side panel must not hide the cursor in the code beside it.
 ---@return boolean
 local function any_hidden_win_open()
     for _, win in ipairs(api.nvim_list_wins()) do
         if api.nvim_win_is_valid(win) then
             local ok, buf = pcall(api.nvim_win_get_buf, win)
-            if ok and buf and is_hidden_buffer(buf) then
+            if
+                ok
+                and buf
+                and api.nvim_buf_is_valid(buf)
+                and not is_input(buf)
+                and state.fts[vim.bo[buf].filetype] == true
+            then
                 return true
             end
         end
@@ -218,11 +227,15 @@ end
 
 --- Initialise the cursor module.
 --- Registers filetypes that should trigger cursor hiding and installs autocmds.
----@param opts? { filetypes?: string[], ft?: string[] }
+---@param opts? { filetypes?: string[], ft?: string[], panel_filetypes?: string[], panel_ft?: string[] }
 function M.setup(opts)
     opts = opts or {}
     for _, ft in ipairs(opts.filetypes or opts.ft or {}) do
         state.fts[ft] = true
+    end
+    -- Persistent side panels: hide the cursor only while one is the CURRENT window (not globally).
+    for _, ft in ipairs(opts.panel_filetypes or opts.panel_ft or {}) do
+        state.panel_fts[ft] = true
     end
     refresh_autocmds()
 end
