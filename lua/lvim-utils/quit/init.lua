@@ -200,6 +200,21 @@ function M.open(opts)
     ui.tabs({
         title = "Quit",
         subtitle = #unsaved .. " file(s) with unsaved changes",
+        border = { " ", " ", " ", " ", " ", " ", " ", " " }, -- padding border, no visible line
+        -- `<Enter>` toggles the focused file row (handled by the form); `q` quits WITHOUT saving; `<Esc>`
+        -- just dismisses the dialog (stays in neovim).
+        close_keys = { "<Esc>" },
+        keymaps = {
+            {
+                key = "q",
+                run = function(st)
+                    st.close()
+                    vim.schedule(function()
+                        vim.cmd("qa!")
+                    end)
+                end,
+            },
+        },
         tabs = { { label = "Unsaved Files", rows = rows } },
         callback = function() end,
     })

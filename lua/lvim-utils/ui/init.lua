@@ -402,8 +402,15 @@ function M.tabs(opts)
         return specs
     end
 
-    -- Header: optional title/subtitle meta + a tab bar (live switch) when more than one tab.
-    local header = { title = opts.title, subtitle = opts.subtitle }
+    -- Header: a content-row title (NOT a native border-title) + the subtitle "message" wrapped in a blank
+    -- line above and below + a tab bar (live switch) when more than one tab.
+    local header = { title = opts.title }
+    local bands = {}
+    if opts.subtitle then
+        bands[#bands + 1] = { meta = "" }
+        bands[#bands + 1] = { meta = opts.subtitle, hl = "LvimUiSubtitle" }
+        bands[#bands + 1] = { meta = "" }
+    end
     if #tabset > 1 then
         local tab_btns = {}
         for i, t in ipairs(tabset) do
@@ -419,27 +426,30 @@ function M.tabs(opts)
                 },
             }
         end
-        header.bands = {
-            {
-                buttons = tab_btns,
-                on_change = function(spec, st)
-                    active = spec._tab
-                    for _, b in ipairs(tab_btns) do
-                        b.active = (b._tab == active)
-                    end
-                    form_p.set_rows((split(active)))
-                    st.refresh_chrome()
-                end,
-            },
+        bands[#bands + 1] = {
+            buttons = tab_btns,
+            on_change = function(spec, st)
+                active = spec._tab
+                for _, b in ipairs(tab_btns) do
+                    b.active = (b._tab == active)
+                end
+                form_p.set_rows((split(active)))
+                st.refresh_chrome()
+            end,
         }
     end
-    if not (header.title or header.subtitle or header.bands) then
+    if #bands > 0 then
+        header.bands = bands
+    end
+    if not (header.title or header.bands) then
         header = nil
     end
 
     frame.open({
         mode = "float",
-        border = "rounded",
+        border = opts.border or "rounded",
+        close_keys = opts.close_keys,
+        keymaps = opts.keymaps,
         panel_border = "none",
         auto_width = true,
         max_width = opts.width or 0.7,

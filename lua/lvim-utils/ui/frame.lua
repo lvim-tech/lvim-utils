@@ -672,6 +672,18 @@ local function set_keys(state)
         map(state.container_buf, ck, state.close)
     end
 
+    -- Extra consumer keymaps that fire from ANYWHERE in the frame (every panel + the container), each a
+    -- `{ key = lhs|lhs[], run = fn(state) }` — e.g. the Quit dialog's `q` = quit without saving.
+    for _, km in ipairs(state.cfg.keymaps or {}) do
+        local fn = function()
+            km.run(state)
+        end
+        for _, pan in ipairs(state.panels) do
+            map(pan.buf, km.key, fn)
+        end
+        map(state.container_buf, km.key, fn)
+    end
+
     -- Header button hotkeys work from EVERYWHERE: on every panel (all keys) and the container (all but
     -- the menu nav keys, so `h`/`l` still move the selection while a bar is focused).
     for _, pan in ipairs(state.panels) do

@@ -114,7 +114,7 @@ end
 ---@field on_change?        fun(row: Row)
 ---@field on_item_change?   fun(item: SelectItem)             Tabs mode: fires when the item cursor moves (live preview)
 ---@field on_row_change?    fun(row: Row): string?            Tabs typed-rows: called each render with the focused row; return a string to use as a live subtitle (e.g. per-row help). Requires an initial `subtitle` so the slot is reserved.
----@field border?           "rounded"|"single"|"double"|"none"
+---@field border?           "rounded"|"single"|"double"|"none"|string[]  enum name OR an 8-element border array
 ---@field width?            integer                             Fixed width (overrides auto and config)
 ---@field max_width?        integer                             Cap for auto width (overrides config max_width)
 ---@field height?           number                              Fixed total height: 0.1-1.0 fraction of screen or absolute lines
@@ -138,7 +138,7 @@ end
 ---@field folds?            {start_line:integer, end_line:integer}[]
 ---@field fold_icon?        string                             Icon for collapsed fold indicator
 ---@field markview?         boolean
----@field keymaps?          table<string, fun()|{fn:fun(), label:string}> Custom keymaps with optional footer labels (info / tabs mode)
+---@field keymaps?          table<string, fun()|{fn:fun(), label:string}> | { key: string|string[], run: fun(state: table) }[]  old popup: key→fn map; frame (tabs): list of { key, run } active anywhere
 ---@field zindex?           integer
 ---@field on_open?          fun(buf: integer, win: integer)
 ---@field hide_cursor?      boolean                            false = keep cursor visible (default: true for most modes)
