@@ -1,22 +1,21 @@
--- lvim-utils.ui.button: render one toolbar "button" into text + highlight spans.
+-- lvim-utils.ui.button: render one bar element into text + highlight spans.
 --
--- Two visual types, each with normal / active / hover states; a state supplies ONE hl per segment, so
--- every part of the button is themed independently and the whole button is fully caller-coloured:
+-- The ONE box model used across the whole UI: every visible element is a box —
+--   { <content>, style = { padding = { front, back }, <colour> } }
+-- where the colour is per-state (normal/active/hover) for interactive boxes or a single `hl` for static
+-- ones. This module renders the two bar element TYPES out of that model:
 --
---   "label"   — `[W]orkspace 7` / ` 󰈙  Tab ` : an optional leading ICON box, the caption (with the
---               KEY's letter bracketed when a key is given, else plain), and an optional dynamic
---               count. A pick-one-of-many item (filter / tab / scope / horizontal action). `hl[state]
---               = { icon, key, label, count }`.  spec = { type = "label", label, icon?, count?, key?,
---               run?, hl }
---   "action"  — ` <CR>  open `  : the whole key as a badge + a name; a command you fire.
---               `hl[state] = { key, name }`.  spec = { type = "action", key, name, run?, hl }
+--   "button"    — a LEAD box + a TEXT box.
+--                 · lead box  = an icon glyph (`icon`) OR, with `key_badge`, the whole `key` as a badge.
+--                 · text box  = the caption (`text`); when NOT a badge, `key`/`key_pos` brackets one
+--                   letter of the caption (the `[X]` shortcut hint, drawn in the lead/accent colour),
+--                   and an optional `count` trails inside the text box.
+--                 · `style = { icon = <box>, text = <box> }`, each box per-state. Default padding {2,2}.
+--   "separator" — a SINGLE box carrying an optional divider glyph/text (`text`), or nothing at all = a
+--                 pure space. Static (one colour). `style = <box>` directly. Bar chevrons are rendered
+--                 as separator specs, so they share this exact path.
 --
--- For the "label" type the bracket marks the KEY's letter where it appears in the label (case-
--- insensitively): `key="a"`/"All" → `[A]ll`, `key="o"`/"Workspace" → `W[o]rkspace`. It falls back to
--- the first letter when the key is multi-char or not found in the label. With NO key/key_pos the label
--- is rendered plain (no brackets) — for tabs / action buttons that lead with an icon instead.
--- `count` may be a value or a function returning one (evaluated at render, so it stays dynamic). `run`
--- is what the button does when its key / <CR> / a click fires it — consumed by `ui.bar`, not here.
+-- `run`/`active`/the click target live on the spec but are consumed by `ui.bar`, not here.
 --
 ---@module "lvim-utils.ui.button"
 
@@ -24,19 +23,65 @@ local M = {}
 
 ---@alias LvimUiButtonState "normal"|"active"|"hover"
 
+---@class LvimUiBoxStyle
+---@field padding? integer|integer[]  -- { front, back } (or a number = symmetric)
+---@field normal? string              -- per-state colour (interactive boxes)
+---@field active? string
+---@field hover? string
+---@field hl? string                  -- single colour (static boxes: separator / chevron / title)
+
 ---@class LvimUiButtonSpec
----@field type "label"|"action"
----@field label? string          -- "label" type: the caption (bracketed key + rest, or plain)
----@field icon? string           -- "label" type: optional leading icon, rendered as its own padded box
----@field count? number|string|fun(): (number|string|nil)  -- "label" type: optional dynamic trailing count
----@field key? string            -- hotkey; "action" shows it whole, "label" brackets its letter in `label`
----@field key_pos? integer       -- "label" type: 1-based char index to bracket (disambiguates repeats)
----@field name? string|fun(): string  -- "action" type: the caption (a fn is evaluated each render)
----@field run? fun()             -- what firing the button does
----@field active? boolean        -- whether this button is the semantically active one (the bar reads it)
----@field hl table               -- { normal = {...}, active = {...}, hover = {...} } — see the type docs above
----@field separator? string      -- ui.bar entry: a non-interactive separator glyph instead of a button
----@field pad? string            -- ui.bar separator entry: padding put on each side of the separator
+---@field type "button"|"separator"
+---@field icon? string                -- button: lead box glyph (when not a key badge)
+---@field text? string|fun(): string  -- button: caption ; separator: optional divider glyph/text
+---@field key? string                 -- hotkey; with `key_badge` the lead box shows it whole, else it
+---                                    --   brackets its letter in `text`
+---@field key_pos? integer            -- button: explicit 1-based char index in `text` to bracket
+---@field key_badge? boolean          -- true: lead box = the whole `key` as a badge (action style)
+---@field count? number|string|fun(): (number|string|nil)  -- button: optional trailing count
+---@field active? boolean             -- the semantically active button (the bar reads it)
+---@field run? fun()                  -- what firing the button does (consumed by ui.bar)
+---@field separator? string           -- legacy ui.bar marker — a non-interactive entry (see ui.bar)
+---@field style? table                -- button: { icon = LvimUiBoxStyle, text = LvimUiBoxStyle }
+---                                    --   separator: LvimUiBoxStyle directly
+
+-- ── helpers ───────────────────────────────────────────────────────────────────
+
+---@param n integer
+---@return string
+local function sp(n)
+    return string.rep(" ", math.max(0, n))
+end
+
+--- Resolve a { front, back } pair from a padding value: a number (symmetric), a { front, back } table,
+--- or nil (→ the given defaults).
+---@param v integer|integer[]|nil
+---@param df integer
+---@param db integer
+---@return integer front, integer back
+local function pad_pair(v, df, db)
+    if type(v) == "number" then
+        return v, v
+    elseif type(v) == "table" then
+        return v[1] or df, v[2] or db
+    end
+    return df, db
+end
+
+--- Resolve a box's highlight group for `state`: per-state when the box defines normal/active/hover,
+--- else its single static `hl`.
+---@param bs LvimUiBoxStyle|nil
+---@param state LvimUiButtonState|nil
+---@return string|nil
+local function box_hl(bs, state)
+    if not bs then
+        return nil
+    end
+    if state and (bs.normal or bs.active or bs.hover) then
+        return bs[state] or bs.normal
+    end
+    return bs.hl or bs.normal
+end
 
 --- The 1-based char index in `label` to bracket as the shortcut hint: an explicit `key_pos`, else the
 --- KEY's first occurrence (case-insensitively), else the first char. The single home of the "[X]"
@@ -53,53 +98,64 @@ function M.key_pos(label, key, key_pos)
     return math.max(1, math.min(pos or 1, #label > 0 and #label or 1))
 end
 
+-- ── render ────────────────────────────────────────────────────────────────────
+
 --- Render `spec` in `state`. Returns the text and its hl spans ({ byte_c0, byte_c1, hl_group }, byte
---- columns into the returned text). Falls back to the `normal` hl set for an unknown/missing state.
+--- columns into the returned text).
 ---@param spec LvimUiButtonSpec
 ---@param state LvimUiButtonState
 ---@return string text, table[] spans
 function M.render(spec, state)
-    local hl = (spec.hl and (spec.hl[state] or spec.hl.normal)) or {}
     local text, spans = "", {}
-    local function put(s, group)
-        if s ~= "" and group then
-            spans[#spans + 1] = { #text, #text + #s, group }
+    local function put(s, hl)
+        if s ~= "" and hl then
+            spans[#spans + 1] = { #text, #text + #s, hl }
         end
         text = text .. s
     end
-    if spec.type == "action" then
-        local name = spec.name
-        if type(name) == "function" then
-            name = name() -- a dynamic caption (e.g. the footer "menu" ⇄ "back" toggle)
-        end
-        put(" " .. (spec.key or "") .. " ", hl.key)
-        put(" " .. (name or "") .. " ", hl.name)
-    else
-        -- Optional leading icon box (` <icon> `) — tabs / horizontal-action buttons lead with this.
-        if spec.icon and spec.icon ~= "" then
-            put(" " .. spec.icon .. " ", hl.icon)
-        end
-        local label = spec.label or ""
-        -- Which label letter to bracket: explicit `key_pos` (1-based char index) when given — use it to
-        -- disambiguate repeats, e.g. `label="Xoxo", key_pos=4` → `Xox[o]`. Otherwise auto-locate the
-        -- KEY's letter (case-insensitively, first occurrence) — `key="o"`/"Workspace" → `W[o]rkspace` —
-        -- falling back to the first letter when the key is multi-char. With NO key at all, render plain.
-        if spec.key or spec.key_pos then
-            local pos = M.key_pos(label, spec.key, spec.key_pos)
-            put(label:sub(1, pos - 1), hl.label)
-            put("[" .. label:sub(pos, pos) .. "]", hl.key)
-            put(label:sub(pos + 1), hl.label)
-        else
-            put(label, hl.label)
-        end
-        local count = spec.count
-        if type(count) == "function" then
-            count = count()
-        end
-        if count ~= nil and count ~= "" then
-            put(" " .. tostring(count), hl.count)
-        end
+
+    -- separator: a single static box — optional glyph/text + padding, or nothing = a pure space.
+    if spec.type == "separator" then
+        local bs = spec.style or {}
+        local f, b = pad_pair(bs.padding, 0, 0)
+        put(sp(f) .. (spec.text or spec.separator or "") .. sp(b), box_hl(bs, state))
+        return text, spans
     end
+
+    -- button: a lead box (icon / key badge) + a text box (caption [+ bracketed key] [+ count]).
+    local style = spec.style or {}
+    local istyle, tstyle = style.icon or {}, style.text or {}
+    local lf, lb = pad_pair(istyle.padding, 2, 2)
+    local tf, tb = pad_pair(tstyle.padding, 2, 2)
+    local ihl, thl = box_hl(istyle, state), box_hl(tstyle, state)
+
+    local lead = spec.key_badge and spec.key or spec.icon
+    if lead and lead ~= "" then
+        put(sp(lf) .. lead .. sp(lb), ihl)
+    end
+
+    local txt = spec.text
+    if type(txt) == "function" then
+        txt = txt()
+    end
+    txt = txt or ""
+    put(sp(tf), thl) -- text box left pad
+    if not spec.key_badge and (spec.key or spec.key_pos) and txt ~= "" then
+        local pos = M.key_pos(txt, spec.key, spec.key_pos)
+        put(txt:sub(1, pos - 1), thl)
+        put("[" .. txt:sub(pos, pos) .. "]", ihl) -- the bracketed key takes the lead/accent colour
+        put(txt:sub(pos + 1), thl)
+    else
+        put(txt, thl)
+    end
+    local count = spec.count
+    if type(count) == "function" then
+        count = count()
+    end
+    if count ~= nil and count ~= "" then
+        put(" " .. tostring(count), thl)
+    end
+    put(sp(tb), thl) -- text box right pad
     return text, spans
 end
 

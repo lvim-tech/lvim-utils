@@ -63,6 +63,9 @@ function M.new(opts)
             refresh()
         elseif t == "bool" or t == "boolean" then
             row.value = not row.value
+            if row.run then
+                row.run(row.value) -- the row's own setter (e.g. writes into the pending settings)
+            end
             if on_change then
                 on_change(row)
             end
@@ -78,6 +81,9 @@ function M.new(opts)
                     end
                 end
                 row.value = list[(cur % #list) + 1]
+                if row.run then
+                    row.run(row.value)
+                end
                 if on_change then
                     on_change(row)
                 end
@@ -91,6 +97,9 @@ function M.new(opts)
             }, function(input)
                 if input ~= nil then
                     row.value = numeric and (tonumber(input) or row.value) or input
+                    if row.run then
+                        row.run(row.value)
+                    end
                     if on_change then
                         on_change(row)
                     end
@@ -122,6 +131,10 @@ function M.new(opts)
                 local disp = rows.row_display(r, ico)
                 if not rows.is_selectable(r) then
                     lines[i] = r.center and util.center(disp, width) or util.lpad(disp, width, 2)
+                    -- A spacer / divider row (the `──────` between groups) takes the separator colour.
+                    if r.type == "spacer" or r.type == "spacer_line" then
+                        hls[#hls + 1] = { i - 1, 0, #lines[i], "LvimUiSeparator" }
+                    end
                 else
                     lines[i] = util.lpad(disp, width, 2)
                     -- Colour the leading type icon; the rest reads on the panel background.
@@ -152,11 +165,15 @@ function M.new(opts)
                 activate(st)
             end)
         end,
-        --- Swap the row set in place (tab switch) and re-render.
+        --- Swap the row set in place (tab switch) and re-render; land the cursor on the first selectable
+        --- row of the new set (else it lingers on a now-stale / non-selectable line).
         ---@param new_rows Row[]
         set_rows = function(new_rows)
             model = new_rows
             refresh()
+            if pan and pan.win and api.nvim_win_is_valid(pan.win) then
+                pcall(api.nvim_win_set_cursor, pan.win, { rows.first_selectable(flat()) or 1, 0 })
+            end
         end,
     }
 end

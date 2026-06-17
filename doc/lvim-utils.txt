@@ -168,8 +168,11 @@ free. `opts.mode` chooses the look — `"split"` (embedded splits at the bottom)
       on_jump = function(item, cmd) end,    -- optional; cmd = edit|split|vsplit|tabedit
   })
 <
-Items group by `filename` (header = icon + name + directory + count); returns
-false when empty. `ui.peek.expand` is "auto" (only the focused group open,
+Items group by `filename` (header = fold icon + name in green + directory in
+yellow + a bracketed `[count]` in the ACTIVE filter's colour); returns false when
+empty. A filter with no matches shows a "No <Filter> <kind>" message (in that
+filter's colour) instead of a blank list, and the preview clears.
+`ui.peek.expand` is "auto" (only the focused group open,
 follows the cursor) or "manual" (toggle groups by click / <CR> on a header).
 Keys: j/k move, <Tab>/<S-Tab> file groups, <CR> open (or fold a header in
 manual), s/v/t split/vsplit/tab, <C-l>/<C-h> switch pane, f cycle the filter
@@ -228,10 +231,17 @@ panels/printers and config.
 ==============================================================================
 8. CURSOR                                                *lvim-utils-cursor*
 
-Hides the cursor while a buffer with a registered filetype is focused (via the
-`LvimUtilsHiddenCursor` group). Useful for the popup UI buffers.
+Hides the hardware cursor based on the visible/current buffers' filetypes (via the
+`LvimUtilsHiddenCursor` group, blend=100). The ONE cursor system — the `ui` frame
+engine delegates its cursor hiding here. Two lists:
+  ft        hide whenever such a buffer is visible in ANY window (transient popups)
+  panel_ft  hide ONLY while that buffer is the CURRENT window (persistent side panels)
+`mark_input_buffer(buf, true)` keeps the cursor VISIBLE in an input field.
 >lua
-  require("lvim-utils.cursor").setup({ ft = { "lvim-utils-ui", "neo-tree" } })
+  require("lvim-utils.cursor").setup({
+      ft = { "lvim-ui-frame", "neo-tree" },
+      panel_ft = { "lvim-lsp-outline" },
+  })
 <
 ==============================================================================
 9. GX                                                        *lvim-utils-gx*

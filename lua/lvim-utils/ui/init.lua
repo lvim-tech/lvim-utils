@@ -18,9 +18,6 @@
 --   M.info(content, opts) – read-only markdown/text info window
 --   M.close_info(win)     – programmatically close an info window
 
-local hl = require("lvim-utils.highlight")
-local colors = require("lvim-utils.config").colors
-local popup = require("lvim-utils.ui.popup")
 local frame = require("lvim-utils.ui.frame")
 local form = require("lvim-utils.ui.form")
 local rows = require("lvim-utils.ui.rows")
@@ -28,9 +25,31 @@ local util = require("lvim-utils.ui.util")
 
 local M = {}
 
--- The canonical popup border: ONLY a top " " edge (no ring), so the frame's native border-title (brand)
--- has somewhere to sit. Titles are always border-titles, blue-tinted — the diagnostics-panel approach.
-local FRAME_BORDER = { "", " ", "", "", "", "", "", "" }
+---@class UiOpts
+---@field title? string|false        -- border-title (false hides it for M.info)
+---@field items? any[]               -- select / multiselect items
+---@field tabs? table[]              -- tabs: { { label, icon?, rows } , … }
+---@field callback? fun(...): any    -- result callback (signature varies per presenter)
+---@field on_change? fun(row: table) -- tabs: fired on every typed-row edit
+---@field subtitle? string           -- tabs: a message line under the title
+---@field default? any               -- input: initial value
+---@field value? any                 -- input: alias for default
+---@field prompt? string             -- input: prompt → title fallback
+---@field width? number              -- max width (fraction ≤1 or count)
+---@field height? number             -- max height
+---@field border? any                -- frame border override
+---@field close_keys? string[]       -- keys that close the frame
+---@field keymaps? table[]           -- extra frame-wide keymaps { { key, run } }
+---@field highlights? table[]        -- info: extra content highlights
+---@field on_open? fun(buf: integer, win: integer)  -- info: after open
+---@field footer? boolean            -- info: false → no footer
+---@field footer_items? table[]      -- info: extra footer action buttons { { key, name, run } } before `q close`
+---@field hide_cursor? boolean       -- info: hide the hardware cursor (read-only viewer)
+
+-- The canonical popup border: a top " " edge (for the native border-title / brand) plus a " " gutter on
+-- the LEFT and RIGHT (no bottom, no ring) so the content breathes off the window edges. Titles are always
+-- border-titles, blue-tinted — the diagnostics-panel approach. (resolve_border fills the two top corners.)
+local FRAME_BORDER = { "", " ", "", " ", "", "", "", " " }
 
 --- Pick one item from a list — a 1-panel `frame` (the list) + a confirm/cancel footer. `<C-j>`
 --- descends into the footer (which scrolls to follow the selection on a narrow popup); the list shows
@@ -39,6 +58,7 @@ local FRAME_BORDER = { "", " ", "", "", "", "", "", "" }
 function M.select(opts)
     opts = opts or {}
     local items = opts.items or {}
+    ---@type fun(...): any
     local cb = opts.callback or function() end
     if #items == 0 then
         vim.schedule(function()
@@ -99,22 +119,23 @@ function M.select(opts)
     return frame.open({
         mode = "float",
         border = FRAME_BORDER,
-        title = opts.title or "Select", -- native border-title, blue-tinted (LvimUiPeekTitle)
+        title = opts.title or "Select", -- a plain string → a single blue-tinted border-title text box
         panel_border = "none",
-        auto_width = true,
-        max_width = 0.6,
-        auto_height = true,
-        max_height = 0.6,
-        panels = { { provider = provider } },
+        size = { width = { auto = true, max = 0.6 }, height = { auto = true, max = 0.6 } },
+        content = { blocks = { { id = "list", provider = provider } } },
         footer = {
-            actions = {
-                { key = "<CR>", name = "confirm", run = pick },
+            bars = {
                 {
-                    key = "<Esc>",
-                    name = "cancel",
-                    run = function(st)
-                        st.close()
-                    end,
+                    items = {
+                        { key = "<CR>", name = "confirm", run = pick },
+                        {
+                            key = "<Esc>",
+                            name = "cancel",
+                            run = function(st)
+                                st.close()
+                            end,
+                        },
+                    },
                 },
             },
         },
@@ -135,6 +156,7 @@ end
 function M.multiselect(opts)
     opts = opts or {}
     local items = opts.items or {}
+    ---@type fun(...): any
     local cb = opts.callback or function() end
     if #items == 0 then
         vim.schedule(function()
@@ -209,29 +231,30 @@ function M.multiselect(opts)
     frame.open({
         mode = "float",
         border = FRAME_BORDER,
-        title = opts.title or "Select", -- native border-title, blue-tinted (LvimUiPeekTitle)
+        title = opts.title or "Select",
         panel_border = "none",
-        auto_width = true,
-        max_width = 0.6,
-        auto_height = true,
-        max_height = 0.6,
-        panels = { { provider = provider } },
+        size = { width = { auto = true, max = 0.6 }, height = { auto = true, max = 0.6 } },
+        content = { blocks = { { id = "list", provider = provider } } },
         footer = {
-            actions = {
+            bars = {
                 {
-                    key = "<Space>",
-                    name = "toggle",
-                    run = function()
-                        toggle_current()
-                    end,
-                },
-                { key = "<CR>", name = "confirm", run = confirm },
-                {
-                    key = "<Esc>",
-                    name = "cancel",
-                    run = function(st)
-                        st.close()
-                    end,
+                    items = {
+                        {
+                            key = "<Space>",
+                            name = "toggle",
+                            run = function()
+                                toggle_current()
+                            end,
+                        },
+                        { key = "<CR>", name = "confirm", run = confirm },
+                        {
+                            key = "<Esc>",
+                            name = "cancel",
+                            run = function(st)
+                                st.close()
+                            end,
+                        },
+                    },
                 },
             },
         },
@@ -250,6 +273,7 @@ end
 ---@param opts UiOpts
 function M.input(opts)
     opts = opts or {}
+    ---@type fun(...): any
     local cb = opts.callback or function() end
     local default = tostring(opts.default or opts.value or "")
     local confirmed = false
@@ -295,21 +319,23 @@ function M.input(opts)
     frame.open({
         mode = "float",
         border = FRAME_BORDER,
-        title = opts.title or opts.prompt or "Input", -- native border-title, blue-tinted
+        title = opts.title or opts.prompt or "Input",
         panel_border = "none",
-        auto_width = true,
-        max_width = opts.width or 0.6,
-        auto_height = true,
-        panels = { { provider = provider } },
+        size = { width = { auto = true, max = opts.width or 0.6 }, height = { auto = true } },
+        content = { blocks = { { id = "input", provider = provider } } },
         footer = {
-            actions = {
-                { key = "<CR>", name = "confirm", run = confirm },
+            bars = {
                 {
-                    key = "<Esc>",
-                    name = "cancel",
-                    run = function(st)
-                        st.close()
-                    end,
+                    items = {
+                        { key = "<CR>", name = "confirm", run = confirm },
+                        {
+                            key = "<Esc>",
+                            name = "cancel",
+                            run = function(st)
+                                st.close()
+                            end,
+                        },
+                    },
                 },
             },
         },
@@ -330,6 +356,7 @@ function M.confirm(opts)
     opts = opts or {}
     local yes_label, no_label = opts.yes or "Yes", opts.no or "No"
     local items = opts.default_no and { no_label, yes_label } or { yes_label, no_label }
+    ---@type fun(...): any
     local cb = opts.callback or function() end
     M.select({
         title = opts.title or opts.prompt or " Confirm",
@@ -352,6 +379,7 @@ function M.tabs(opts)
     if #tabset == 0 then
         return
     end
+    ---@type fun(...): any
     local cb = opts.callback or function() end
     local active = 1
     local done = false
@@ -365,6 +393,11 @@ function M.tabs(opts)
             else
                 content[#content + 1] = r
             end
+        end
+        -- Drop trailing spacer / divider rows from the body: they separated the fields from the action
+        -- rows, which now live in the FOOTER, so otherwise they dangle (a stray ────── at the bottom).
+        while #content > 0 and (content[#content].type == "spacer" or content[#content].type == "spacer_line") do
+            content[#content] = nil
         end
         return content, actions
     end
@@ -406,62 +439,80 @@ function M.tabs(opts)
         return specs
     end
 
-    -- Header: the subtitle "message" wrapped in a blank line above and below + a tab bar (live switch)
-    -- when more than one tab. The TITLE is the frame's native border-title (set below), not a header band.
-    local header = {}
-    local bands = {}
+    -- Header bars: an optional subtitle text bar + a tab bar (live switch) when more than one tab. The
+    -- TITLE is the frame's border-title, not a header bar.
+    local bars = {}
+    local set_active_tab -- (multi-tab) switch to a tab; shared by the tab bar and the body l/h keymaps
     if opts.subtitle then
-        bands[#bands + 1] = { meta = "" }
-        bands[#bands + 1] = { meta = opts.subtitle, hl = "LvimUiSubtitle" }
-        bands[#bands + 1] = { meta = "" }
+        bars[#bars + 1] = { text = opts.subtitle, hl = "LvimUiSubtitle" }
     end
     if #tabset > 1 then
         local tab_btns = {}
         for i, t in ipairs(tabset) do
             tab_btns[i] = {
-                type = "label",
+                type = "button",
                 icon = t.icon,
-                label = t.label or ("Tab " .. i),
+                text = t.label or ("Tab " .. i),
                 _tab = i,
                 active = (i == 1),
-                hl = {
-                    normal = { icon = "LvimUiTabIconInactive", label = "LvimUiTabTextInactive" },
-                    active = { icon = "LvimUiTabIconActive", label = "LvimUiTabTextActive" },
+                style = {
+                    icon = {
+                        padding = { 2, 2 },
+                        normal = "LvimUiTabIconInactive",
+                        active = "LvimUiTabIconActive",
+                        hover = "LvimUiTabIconHover",
+                    },
+                    text = {
+                        padding = { 2, 2 },
+                        normal = "LvimUiTabTextInactive",
+                        active = "LvimUiTabTextActive",
+                        hover = "LvimUiTabTextHover",
+                    },
                 },
             }
         end
-        bands[#bands + 1] = {
-            buttons = tab_btns,
-            on_change = function(spec, st)
-                active = spec._tab
-                for _, b in ipairs(tab_btns) do
-                    b.active = (b._tab == active)
-                end
-                form_p.set_rows((split(active)))
+        local tab_bar = { items = tab_btns }
+        set_active_tab = function(st, i)
+            i = math.max(1, math.min(i, #tabset))
+            if i == active then
+                return
+            end
+            active = i
+            tab_bar._sel = active
+            for _, b in ipairs(tab_btns) do
+                b.active = (b._tab == active)
+            end
+            form_p.set_rows((split(active)))
+            -- Re-fit to the new tab's content (dynamic height) + re-render chrome.
+            if st.relayout then
+                st.relayout()
+            else
                 st.refresh_chrome()
-            end,
-        }
-    end
-    if #bands > 0 then
-        header.bands = bands
-    else
-        header = nil
+            end
+        end
+        tab_bar.on_change = function(spec, st)
+            set_active_tab(st, spec._tab)
+        end
+        bars[#bars + 1] = tab_bar
+        bars[#bars + 1] = { text = "" } -- 1 blank "air" row between the tab bar and the content
     end
 
-    frame.open({
+    local st = frame.open({
         mode = "float",
         border = opts.border or FRAME_BORDER,
-        title = opts.title, -- native border-title, blue-tinted (LvimUiPeekTitle)
+        title = opts.title, -- border-title, blue-tinted (LvimUiPeekTitle)
         close_keys = opts.close_keys,
         keymaps = opts.keymaps,
         panel_border = "none",
-        auto_width = true,
-        max_width = opts.width or 0.7,
-        auto_height = true,
-        max_height = opts.height or 0.8,
-        header = header,
-        panels = { { provider = form_p } },
-        footer = (#actions1 > 0) and { actions = action_specs(actions1) } or nil,
+        -- A given `width` is FIXED (e.g. the per-server form at 0.8); otherwise the frame auto-fits the
+        -- content (capped at 0.7). Height is always dynamic (fits the active tab), capped at `height` ⊕ 0.9.
+        size = {
+            width = opts.width and { fixed = opts.width } or { auto = true, max = 0.7 },
+            height = { auto = true, max = opts.height or 0.9 },
+        },
+        header = (#bars > 0) and { bars = bars } or nil,
+        content = { blocks = { { id = "form", provider = form_p } } },
+        footer = (#actions1 > 0) and { bars = { { items = action_specs(actions1) } } } or nil,
         on_close = function()
             if not done then
                 vim.schedule(function()
@@ -470,6 +521,20 @@ function M.tabs(opts)
             end
         end,
     })
+
+    -- `l` / `h` switch tabs from the content body too (multi-tab) — not only while the tab bar is focused,
+    -- matching the project panel. (Plain h/l are free on the body; the form owns j/k/<CR>.)
+    if set_active_tab then
+        local body_buf = st.panels[1] and st.panels[1].buf
+        if body_buf and vim.api.nvim_buf_is_valid(body_buf) then
+            vim.keymap.set("n", "l", function()
+                set_active_tab(st, active + 1)
+            end, { buffer = body_buf, nowait = true, silent = true })
+            vim.keymap.set("n", "h", function()
+                set_active_tab(st, active - 1)
+            end, { buffer = body_buf, nowait = true, silent = true })
+        end
+    end
 end
 
 --- Read-only info viewer — a 1-panel `frame` that scrolls the content, with a `q close` footer.
@@ -484,6 +549,9 @@ function M.info(content, opts)
         or (type(content) == "table" and vim.list_extend({}, content) or {})
     local buf_ref, win_ref
     local provider = {
+        -- A read-only viewer may hide the hardware cursor (delegated to lvim-utils.cursor via FRAME_FT);
+        -- the active line still reads via cursorline. Off by default (e.g. hover keeps the cursor).
+        hide_cursor = opts.hide_cursor == true,
         size = function()
             local w = 1
             for _, l in ipairs(lines) do
@@ -492,7 +560,20 @@ function M.info(content, opts)
             return w + 4, math.max(1, #lines)
         end,
         render = function()
-            return lines, opts.highlights or {}
+            -- Accept BOTH the positional `{ row, c0, c1, hl[, prio] }` and the named
+            -- `{ line, col_start, col_end, group }` highlight shapes (the LSP info builder uses the
+            -- latter); a `-1` end_col means "to the end of the line".
+            local hls = {}
+            for _, h in ipairs(opts.highlights or {}) do
+                local row = h.line ~= nil and h.line or h[1]
+                local c0 = h.col_start ~= nil and h.col_start or h[2]
+                local c1 = h.col_end ~= nil and h.col_end or h[3]
+                if c1 == -1 then
+                    c1 = #(lines[(row or 0) + 1] or "")
+                end
+                hls[#hls + 1] = { row, c0, c1, h.group or h[4], h[5] }
+            end
+            return lines, hls
         end,
         keys = function(_, p)
             buf_ref, win_ref = p.buf, p.win
@@ -501,29 +582,34 @@ function M.info(content, opts)
             end
         end,
     }
+    -- Footer: the consumer's extra action buttons (`opts.footer_items` — e.g. fold all / unfold all),
+    -- then the standard `q close`. Each is a footer action shorthand `{ key, name, run }`.
+    local footer_items = {}
+    for _, it in ipairs(opts.footer_items or {}) do
+        footer_items[#footer_items + 1] = it
+    end
+    footer_items[#footer_items + 1] = {
+        key = "q",
+        name = "close",
+        run = function(st)
+            st.close()
+        end,
+    }
     frame.open({
         mode = "float",
         border = opts.border or FRAME_BORDER,
-        title = opts.title ~= false and (opts.title or "Info") or nil, -- native border-title, blue-tinted
+        title = opts.title ~= false and (opts.title or "Info") or nil, -- border-title, blue-tinted
         close_keys = opts.close_keys,
         keymaps = opts.keymaps,
         panel_border = "none",
-        auto_width = true,
-        max_width = opts.width or 0.7,
-        auto_height = true,
-        max_height = opts.height or 0.7,
-        panels = { { provider = provider } },
-        footer = opts.footer == false and nil or {
-            actions = {
-                {
-                    key = "q",
-                    name = "close",
-                    run = function(st)
-                        st.close()
-                    end,
-                },
-            },
+        -- A given `width` / `height` is FIXED (a clean rectangle — e.g. the LSP info viewer, whose folded
+        -- height the consumer computes); else auto-fit (capped 0.7 / 0.85).
+        size = {
+            width = opts.width and { fixed = opts.width } or { auto = true, max = 0.7 },
+            height = opts.height and { fixed = opts.height } or { auto = true, max = 0.85 },
         },
+        content = { blocks = { { id = "info", provider = provider } } },
+        footer = opts.footer == false and nil or { bars = { { items = footer_items } } },
     })
     return buf_ref, win_ref
 end
@@ -548,52 +634,17 @@ end
 ---          input: fun(opts: table), tabs: fun(opts: table),
 ---          info: fun(content: any, opts: table): integer, integer }
 function M.new(instance_cfg)
-    local inst = {}
-
-    function inst.select(opts)
-        opts.mode = "select"
-        popup.open(opts, instance_cfg)
-    end
-
-    function inst.multiselect(opts)
-        opts.mode = "multiselect"
-        popup.open(opts, instance_cfg)
-    end
-
-    function inst.input(opts)
-        opts.mode = "input"
-        popup.open(opts, instance_cfg)
-    end
-
-    function inst.confirm(opts)
-        M.confirm(opts)
-    end
-
-    function inst.tabs(opts)
-        opts.mode = "tabs"
-        return popup.open(opts, instance_cfg)
-    end
-
-    function inst.info(content, opts)
-        opts = opts or {}
-        local lines = type(content) == "string" and vim.split(content, "\n")
-            or (type(content) == "table" and vim.list_extend({}, content) or {})
-        local buf_ref, win_ref
-        local user_on_open = opts.on_open
-        opts.mode = "info"
-        opts.content = lines
-        opts.on_open = function(b, w)
-            buf_ref = b
-            win_ref = w
-            if user_on_open then
-                user_on_open(b, w)
-            end
-        end
-        popup.open(opts, instance_cfg)
-        return buf_ref, win_ref
-    end
-
-    return inst
+    local _ = instance_cfg -- reserved: per-instance colour/icon overrides are a follow-up
+    -- Every presenter is now the shared frame-based one, so an instance is a thin namespace over the
+    -- module functions (kept for API compatibility — e.g. lvim-lsp calls `ui.new(cfg).tabs(...)`).
+    return {
+        select = M.select,
+        multiselect = M.multiselect,
+        input = M.input,
+        confirm = M.confirm,
+        tabs = M.tabs,
+        info = M.info,
+    }
 end
 
 return M

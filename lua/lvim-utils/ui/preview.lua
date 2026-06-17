@@ -17,6 +17,17 @@ local api = vim.api
 
 local M = {}
 
+-- A single shared BLANK scratch buffer shown when there is no location to preview (an empty filtered list)
+-- — so the preview clears instead of keeping the previous file. Shared across previews (no per-open leak).
+local shared_empty
+local function empty_buffer()
+    if not (shared_empty and api.nvim_buf_is_valid(shared_empty)) then
+        shared_empty = api.nvim_create_buf(false, true)
+        vim.bo[shared_empty].bufhidden = "hide"
+    end
+    return shared_empty
+end
+
 -- The frame nav keys bound on the focused preview buffer → the method/dir they drive on the frame.
 local NAV = {
     { "<C-h>", "panel", -1 },
@@ -119,7 +130,20 @@ function M.new(opts)
         end,
         update = function(pan, _geom)
             local it = opts.item and opts.item()
-            if not (it and it.filename and pan.win and api.nvim_win_is_valid(pan.win)) then
+            if not (pan.win and api.nvim_win_is_valid(pan.win)) then
+                return
+            end
+            -- No focused location (e.g. the filtered list is empty) → show the BLANK placeholder so the
+            -- preview doesn't keep showing the previous file. Leave it alone if the user is editing it.
+            if not (it and it.filename) then
+                if api.nvim_get_current_win() ~= pan.win then
+                    local eb = empty_buffer()
+                    if api.nvim_win_get_buf(pan.win) ~= eb then
+                        api.nvim_win_set_buf(pan.win, eb)
+                    end
+                    cur_file = nil
+                    vim.wo[pan.win].winbar = ""
+                end
                 return
             end
             frame = pan.frame
@@ -157,7 +181,9 @@ function M.new(opts)
             vim.wo[pan.win].signcolumn = "no" -- diagnostic signs live in the list panel, not here
             vim.wo[pan.win].foldcolumn = "0"
             vim.wo[pan.win].cursorline = true
-            vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:LvimUiPeekCursorLine"
+            -- The preview is the RIGHT panel of the multi-panel peek → NEUTRAL cursorline (a bg line over
+            -- the real source), matching the list panel; never the popup-list yellow.
+            vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:LvimUiCursorLine"
 
             -- Place the cursor on the location (no extmark — a highlight on the real buffer would bleed
             -- into every other window showing this file).

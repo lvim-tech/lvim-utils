@@ -41,7 +41,7 @@ return function(c)
         -- BODY (0.05) for the secondary/inactive one. Each element keeps its own role colour.
         LvimUiNormal = { bg = panel_bg, fg = c.fg },
         LvimUiBorder = { bg = panel_bg, fg = c.blue },
-        LvimUiSeparator = { fg = c.cyan },
+        LvimUiSeparator = { fg = c.red }, -- the ────── divider row between groups in a list/form
         LvimUiCursorLine = { bg = c.bg }, -- active list row (neutral, no tint)
         LvimUiInput = { bg = c.bg_input, fg = c.fg },
 
@@ -52,16 +52,19 @@ return function(c)
         LvimUiSubtitle = { fg = c.orange, bg = mtint(c.orange, BODY) },
         LvimUiInfo = { fg = c.yellow, bg = mtint(c.yellow, BODY) },
 
-        -- Tab bar. Icon + text each render as their own YELLOW-tinted box. Active: icon 0.5,
-        -- text 0.4 (a solid yellow block). Inactive: lighter (icon 0.3, text 0.2).
+        -- Tab bar. The ICON box is the BLUE key-badge accent (follows the footer `q close` key style);
+        -- the TEXT box stays yellow. Each renders its own tinted box, in three states:
+        --   inactive (secondary) · active (the selected tab) · hover (the focused-sector selection).
         LvimUiTabActive = { fg = c.red, bg = mtint(c.red, STRONG), bold = true },
         LvimUiTabInactive = { fg = c.red, bg = mtint(c.red, BODY) },
         -- Overflow chevrons (hidden tabs) — red with a 0.3 tint, padded 1 space front/back.
         LvimUiTabChevron = { fg = c.red, bg = mtint(c.red, 0.3), bold = true },
-        LvimUiTabIconActive = { fg = c.yellow, bg = mtint(c.yellow, 0.5) },
-        LvimUiTabIconInactive = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
+        LvimUiTabIconActive = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true },
+        LvimUiTabIconInactive = { fg = c.blue, bg = mtint(c.blue, 0.2) },
+        LvimUiTabIconHover = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
         LvimUiTabTextActive = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
         LvimUiTabTextInactive = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
+        LvimUiTabTextHover = { fg = c.yellow, bg = mtint(c.yellow, 0.5), bold = true },
 
         -- Action bar buttons (active = STRONG, inactive = BODY)
         LvimUiButtonActive = { fg = c.orange, bg = mtint(c.orange, STRONG), bold = true },
@@ -98,6 +101,8 @@ return function(c)
         LvimUiFooterKeyHover = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
         LvimUiFooterLabelHover = { fg = c.yellow, bg = mtint(c.yellow, 0.4) },
         LvimUiFooterChevron = { fg = c.yellow, bold = true }, -- overflow scroll chevrons (‹ ›)
+        LvimUiBarChevron = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true }, -- bar overflow chevron BOX (‹ ›)
+        LvimUiBarSep = { fg = c.blue, bg = mtint(c.blue, 0.12) }, -- visible bar separator box (➤ / ● between groups)
         LvimUiFrameSel = { bg = mtint(c.blue, 0.2) }, -- focused bar-button selection bg (no-accent fallback)
 
         -- Spacer / divider rows
@@ -152,6 +157,7 @@ return function(c)
         LvimUiPeekNormal = { bg = panel_bg, fg = c.fg },
         LvimUiPeekBorder = { bg = panel_bg, fg = c.blue },
         LvimUiPeekTitle = { fg = c.blue, bg = mtint(c.blue, STRONG), bold = true },
+        LvimUiPeekTitleIcon = { fg = c.blue, bg = mtint(c.blue, 0.4), bold = true }, -- title ICON box (accent)
         -- List winbar: a green bar (tint 0.2 across its whole width), with the kind ("References")
         -- standing out on a stronger green (tint 0.3).
         LvimUiPeekKindBar = { fg = c.green, bg = mtint(c.green, 0.3) },
@@ -163,15 +169,15 @@ return function(c)
         -- The filetype icon shown before the file name — its own group (yellow), independent of the
         -- per-filetype devicon colour; shares the file name's strong yellow tint cell.
         LvimUiPeekFileIcon = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
-        LvimUiPeekGroup = { fg = c.fg, bold = true },
+        LvimUiPeekGroup = { fg = c.green, bold = true }, -- the file NAME (tail)
         LvimUiPeekGroupIcon = { fg = c.red }, -- the chevron (▸/▾) fold arrows
-        LvimUiPeekDir = { fg = c.comment },
+        LvimUiPeekDir = { fg = c.yellow }, -- the file PATH (dir)
         LvimUiPeekCount = { fg = c.comment },
         -- The preview's line numbers are intentionally left to the editor's own LineNr /
         -- CursorLineNr (see ui/peek.lua dress()), so the preview reads like a normal buffer.
         LvimUiPeekText = { fg = c.fg },
         LvimUiPeekGuide = { fg = c.comment },
-        LvimUiPeekCursorLine = { bg = c.bg },
+        LvimUiPeekCursorLine = { fg = c.yellow, bg = c.bg }, -- list hover row: yellow TEXT (matches the row icon), default bg
         LvimUiPeekMatch = { fg = c.blue, bg = mtint(c.blue, 0.25), bold = true },
         -- Footer key hints on the container's bottom border: each key is a blue 0.3-tint badge,
         -- its label a yellow 0.2-tint box — matching the LvimUiFooter* convention.

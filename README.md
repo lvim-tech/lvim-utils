@@ -110,21 +110,27 @@ require("lvim-utils").setup({
 
 ### `cursor`
 
-Hides the cursor whenever a buffer with a registered filetype is visible in any window. Uses a dedicated highlight group (`LvimUtilsHiddenCursor`) with `blend=100` and a 1-cell vertical bar shape — works in both GUI and TUI with `termguicolors`.
+Hides the hardware cursor based on the current/visible buffers' filetypes. Uses a dedicated highlight group (`LvimUtilsHiddenCursor`) with `blend=100` and a 1-cell vertical bar shape — works in both GUI and TUI with `termguicolors`. This is the ONE cursor system; the `ui` frame engine delegates all its cursor hiding here.
+
+Two filetype lists:
+
+- **`ft`** (transient popups) — the cursor is hidden whenever such a buffer is visible in **any** window, so it stays hidden while a modal popup owns the screen even if focus flickers elsewhere.
+- **`panel_ft`** (persistent side panels) — the cursor is hidden **only while that panel is the current window**, so it stays visible in the code beside an always-open panel.
 
 ```lua
 require("lvim-utils.cursor").setup({
-    ft = { "lvim-utils-ui", "neo-tree", "NvimTree" },
+    ft = { "lvim-ui-frame", "neo-tree", "NvimTree" }, -- hidden whenever visible
+    panel_ft = { "lvim-lsp-outline" }, -- hidden only while current
 })
 ```
 
 **API**
 
-| Function                          | Description                                          |
-| --------------------------------- | ---------------------------------------------------- |
-| `setup(opts)`                     | Register filetypes and install autocmds              |
-| `mark_input_buffer(bufnr, value)` | Exempt a buffer from hiding (e.g. text-input popups) |
-| `update()`                        | Force-refresh cursor state                           |
+| Function                          | Description                                                  |
+| --------------------------------- | ----------------------------------------------------------- |
+| `setup(opts)`                     | Register `ft` / `panel_ft` filetypes and install autocmds   |
+| `mark_input_buffer(bufnr, value)` | Keep the cursor VISIBLE in a buffer (e.g. a text-input field) even if its filetype is registered |
+| `update()`                        | Force-refresh cursor state                                  |
 
 ---
 
@@ -393,14 +399,22 @@ Set `horizontal_actions = true` to render all `action` rows as a button bar at t
 
 #### `info`
 
-Read-only scrollable info window. Optionally renders content as Markdown via [markview.nvim](https://github.com/OXY2DEV/markview.nvim).
+Read-only scrollable info window (a single-panel `frame`). Content is a string or a list of lines, with optional per-span highlighting.
 
 ```lua
-local buf, win = require("lvim-utils.ui").info(
-    { "# Title", "", "Some **markdown** content." },
-    { title = "About", markview = true }
-)
+local buf, win = require("lvim-utils.ui").info({ "Title", "", "Some content." }, { title = "About" })
 ```
+
+| Option              | Description                                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------- |
+| `title`             | Border-title text (`false` → no title)                                                                |
+| `width` / `height`  | FIXED size (a fraction ≤ 1 of the screen, or an absolute count); omit either for auto-fit             |
+| `highlights`        | `{ line, col_start, col_end, group }` (or positional `{ row, c0, c1, hl }`); `col_end = -1` = line end |
+| `footer_items`      | Extra footer action buttons `{ { key, name, run } }`, shown before the standard `q close`              |
+| `hide_cursor`       | Hide the hardware cursor (read-only viewer; the active row still reads via cursorline)                 |
+| `footer`            | `false` → no footer bar                                                                                |
+| `on_open(buf, win)` | Called after the window opens (set window-local options, extra keymaps, folds…)                       |
+| `border` / `close_keys` / `keymaps` | Frame overrides                                                                        |
 
 #### `close_info`
 
@@ -530,7 +544,10 @@ require("lvim-utils.ui").peek({
 })
 ```
 
-Items are grouped by `filename` (first-seen order). Returns `false` when `items` is empty.
+Items are grouped by `filename` (first-seen order). Each group header is a fold icon + the file
+name (green) + its directory (yellow) + a bracketed `[count]` painted in the **active filter's
+colour**. A filter with no matches shows a `No <Filter> <kind>` message (in that filter's colour)
+instead of a blank list, and the preview pane clears. Returns `false` when `items` is empty.
 List keys (configurable via `ui.peek.keys`): `j`/`k` move, `<Tab>`/`<S-Tab>` jump between file
 groups, `<CR>` open a location (or fold a header in manual mode), `s`/`v`/`t` open in
 split/vsplit/tab, `<C-l>`/`<C-h>` move focus between the panes, `f` cycle the filter bar's primary

@@ -111,8 +111,10 @@ return {
         -- glyph), highlighted with LvimUiPeekBorder (bg = the float bg), so each pane and the whole
         -- panel get clean float-bg padding with no visible lines. Put a glyph on any side to draw it.
         border = { " ", " ", " ", " ", " ", " ", " ", " " }, -- the whole panel (container)
-        list_border = { " ", " ", " ", " ", " ", " ", " ", " " }, -- the list pane
-        preview_border = { " ", " ", " ", " ", " ", " ", " ", " " }, -- the preview pane
+        -- NO top/bottom edge (only the frame's 1 air row separates the panels from the title / footer —
+        -- a panel top/bottom " " would double it); left/right " " keeps the horizontal padding.
+        list_border = { "", "", "", " ", "", "", "", " " }, -- the list pane
+        preview_border = { "", "", "", " ", "", "", "", " " }, -- the preview pane
         title = "LVIM LSP", -- centred; on the container's top border when it has one, else a header row
         footer = true, -- key-hint line on the container's bottom border (needs one); swaps per focused pane
         group_icon_open = "", -- file-group header icon when expanded

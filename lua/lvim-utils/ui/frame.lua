@@ -10,10 +10,19 @@
 -- the divider columns between panels) is rendered into a single non-focusable CONTAINER buffer so it
 -- stays pinned; the center panels are separate floating windows on top, so only they scroll.
 --
--- Sizing is per axis: `auto_width`/`auto_height` fit the content (capped by `max_width`/`max_height`),
--- else the explicit `width`/`height` (fraction of the screen, or absolute) is used.
+-- The whole config is a nested tree:
+--   { title (box), border, size = { width/height = { auto, min, max, fixed } },
+--     header = { bars = { { items, align?, chevrons?, on_change? } | { text } } },
+--     content = { blocks = { { id, provider, size = { width }, border } } },   -- 1..N
+--     footer = { bars = { … } } }
+-- Each bar holds `items` (button / separator boxes) and owns its overflow chevrons; each block hosts a
+-- content provider, addressed by `id` (`st.focus_block`). Sizing is per axis — `auto` fits the content
+-- within `[min, max]`, else `fixed` (a screen fraction ≤1 or an absolute count). Only the center scrolls.
 --
--- This file (Stage 1) renders a frame; sector navigation + provider key dispatch land in the next layer.
+-- Modes: `mode = "float"` (centred modal) · `mode = "split"` (docked-modal, e.g. the bottom peek — panels
+-- still FLOAT over a container) · `mode = "split", native = true` (a single block as a REAL split window,
+-- NOT a float — for a persistent NAVIGABLE side panel like the lsp outline, so `<C-w>` nav and buffer
+-- redraw behave natively; title = winbar, no bars).
 --
 ---@module "lvim-utils.ui.frame"
 
@@ -55,66 +64,130 @@ local DEFAULT_KEYS = {
 
 -- ─── config normalisation ─────────────────────────────────────────────────────
 
---- Map `{ key, name, run }` action defs to ui.button "action" specs for a footer bar band.
----@param actions table[]
+--- Default style for a footer action button: a blue key BADGE + a yellow name, padded 1 each side.
+local FOOTER_STYLE = {
+    icon = {
+        padding = { 1, 1 },
+        normal = "LvimUiFooterKey",
+        active = "LvimUiFooterKey",
+        hover = "LvimUiFooterKeyHover",
+    },
+    text = {
+        padding = { 1, 1 },
+        normal = "LvimUiFooterLabel",
+        active = "LvimUiFooterLabel",
+        hover = "LvimUiFooterLabelHover",
+    },
+}
+
+--- Normalise a bar's `items` into button/separator specs. A FOOTER action shorthand `{ key, name|text,
+--- run }` (no `type`) becomes a footer-styled key-badge button; everything else (full button / separator
+--- specs, e.g. header tab buttons that carry their own style) passes through unchanged.
+---@param items table[]|nil
+---@param footer boolean
 ---@return LvimUiButtonSpec[]
-local function action_buttons(actions)
-    local specs = {}
-    for i, a in ipairs(actions or {}) do
-        local set = { key = a.key_hl or "LvimUiFooterKey", name = a.label_hl or "LvimUiFooterLabel" }
-        -- Hover/selected: each part keeps its OWN bg tint, just stronger (+0.2) — no uniform overlay.
-        local hov = { key = a.key_hover or "LvimUiFooterKeyHover", name = a.label_hover or "LvimUiFooterLabelHover" }
-        specs[i] = {
-            type = "action",
-            key = a.key,
-            name = a.name or a.label or "",
-            run = a.run,
-            hl = { normal = set, active = set, hover = hov },
-        }
+local function bar_items(items, footer)
+    local out = {}
+    for i, it in ipairs(items or {}) do
+        if it.type or not footer then
+            out[i] = it
+        else
+            out[i] = {
+                type = "button",
+                key = it.key,
+                key_badge = true,
+                text = it.name or it.text or "",
+                run = it.run,
+                active = it.active,
+                style = it.style or FOOTER_STYLE,
+            }
+        end
     end
-    return specs
+    return out
 end
 
---- Build the header band stack: optional title/subtitle/info META lines, then any explicit bands.
---- A band is `{ meta = text, hl }` (a centred line) or `{ buttons = LvimUiButtonSpec[], align }` (a bar).
---- ALWAYS leads with a blank band — 1 row of "air" under the (border-)title, per the UI canon.
----@param h table|nil
+--- Build a band stack from `cfg.header` / `cfg.footer`. Each `bar` is a ui.bar `{ items, align, chevrons,
+--- on_change, on_select }` OR a meta line `{ text = "...", hl }`. Internally a bar band keeps its element
+--- list in `band.buttons` (the field name the machinery uses — it already holds buttons + separators).
+--- The header leads with 1 blank "air" row (under the border-title); the footer with 1 blank row above
+--- its content — per the UI canon.
+---@param spec table|nil
+---@param footer boolean
 ---@return table[]
-local function header_bands(h)
-    h = h or {}
-    local bands = { { meta = "" } } -- 1 blank row under the title
-    if h.title then
-        bands[#bands + 1] = { meta = h.title, hl = h.title_hl or "LvimUiPeekTitle" }
-    end
-    if h.subtitle then
-        bands[#bands + 1] = { meta = h.subtitle, hl = h.subtitle_hl or "LvimUiSubtitle" }
-    end
-    if h.info then
-        bands[#bands + 1] = { meta = h.info, hl = h.info_hl or "LvimUiInfo" }
-    end
-    for _, b in ipairs(h.bands or {}) do
-        bands[#bands + 1] = b
-    end
-    return bands
-end
-
---- Build the footer band stack: an `actions` shorthand becomes one bar band, then any explicit bands.
---- Leads with a blank band — 1 row of "air" above the footer, per the UI canon.
----@param f table|nil
----@return table[]
-local function footer_bands(f)
-    f = f or {}
+local function build_bands(spec, footer)
+    spec = spec or {}
     local bands = {}
-    if f.actions then
-        bands[#bands + 1] = { buttons = action_buttons(f.actions), align = f.align or "center" }
+    for _, bar in ipairs(spec.bars or {}) do
+        if bar.text ~= nil then
+            bands[#bands + 1] = { meta = bar.text, hl = bar.hl or (footer and "LvimUiSubtitle" or "LvimUiPeekTitle") }
+        else
+            -- Mutate the bar spec INTO its band (the machinery reads the element list as `band.buttons`),
+            -- so a consumer that keeps a reference to the bar can drive its `_sel` / button `active` flags
+            -- live (e.g. the project panel switching tabs from the content body).
+            bar.buttons = bar_items(bar.items, footer)
+            bar.align = bar.align or "center"
+            bands[#bands + 1] = bar
+        end
     end
-    for _, b in ipairs(f.bands or {}) do
-        bands[#bands + 1] = b
-    end
-    if #bands > 0 then
-        table.insert(bands, 1, { meta = "" }) -- 1 blank row above the footer content
+    if footer then
+        if #bands > 0 then
+            table.insert(bands, 1, { meta = "" })
+        end
+    else
+        table.insert(bands, 1, { meta = "" }) -- 1 air row under the (border-)title
     end
     return bands
+end
+
+--- Build the float border-title chunks (`{ { text, hl }, … }`) from the `title` box: an optional icon box
+--- + a text box, each with its own padding + colour (static — one hl per box). A plain string is accepted
+--- too (→ a single padded text chunk).
+---@param title table|string|nil
+---@return table[]|nil
+local function title_chunks(title)
+    local function box(content, bs, default_hl)
+        if not content or content == "" then
+            return nil
+        end
+        local f, b = 1, 1
+        local pad = bs.padding
+        if type(pad) == "number" then
+            f, b = pad, pad
+        elseif type(pad) == "table" then
+            f, b = pad[1] or 1, pad[2] or 1
+        end
+        return { string.rep(" ", f) .. content .. string.rep(" ", b), util.resolve_hl(bs.hl or default_hl) }
+    end
+    if type(title) == "string" then
+        return title ~= "" and { box(title, {}, "LvimUiPeekTitle") } or nil
+    end
+    if type(title) ~= "table" then
+        return nil
+    end
+    local st = title.style or {}
+    local chunks = {}
+    local ic = box(title.icon, st.icon or {}, "LvimUiPeekTitleIcon")
+    local tc = box(title.text, st.text or {}, "LvimUiPeekTitle")
+    if ic then
+        chunks[#chunks + 1] = ic
+    end
+    if tc then
+        chunks[#chunks + 1] = tc
+    end
+    return #chunks > 0 and chunks or nil
+end
+
+--- Flatten a `title` box (or string) to a plain string (icon + text) — for a winbar / split content row.
+---@param title table|string|nil
+---@return string
+local function title_text(title)
+    if type(title) == "string" then
+        return title
+    end
+    if type(title) ~= "table" then
+        return ""
+    end
+    return ((title.icon and title.icon .. " ") or "") .. (title.text or "")
 end
 
 -- ─── geometry ─────────────────────────────────────────────────────────────────
@@ -168,6 +241,10 @@ local function compute_geom(state, place)
     -- Container CONTENT width/height (W excludes the container's own border columns). A docked split
     -- passes its window's ACTUAL width in `place.W` (full width for a below/above dock).
     local W = place and place.W or util.axis_size(cfg.auto_width, cfg.width, cfg.max_width, content_w, vim.o.columns)
+    if not place and cfg.min_width then
+        local mw = cfg.min_width <= 1 and math.floor(vim.o.columns * cfg.min_width) or cfg.min_width
+        W = math.max(W, math.floor(mw))
+    end
     local header_h = #state.header_bands
     local footer_h = #state.footer_bands
     local content_h = header_h + footer_h + nat_h_max
@@ -309,10 +386,10 @@ local function render_chrome(state, L)
         local focused = not state._blurred and state.focus and state.focus.kind == "bar" and state.focus.band == band
         local sel = focused and band._sel or nil
         local res = uibar.render({
-            buttons = band.buttons or {},
+            items = band.buttons or {},
             width = W,
             align = band.align or "center",
-            chevrons = state.cfg.chevrons,
+            chevrons = band.chevrons or state.cfg.chevrons,
             sel = sel,
             hover = sel,
             off = band._off,
@@ -320,24 +397,16 @@ local function render_chrome(state, L)
         band._off = res.off
         lines[ln] = res.line
         local entry = { kind = where, row = ln, buttons = {}, band = band }
-        for i, b in ipairs(res.buttons) do
+        for i, b in ipairs(res.items) do
             entry.buttons[i] = { c0 = b.c0, c1 = b.c1, spec = b.spec, sep = b.sep }
         end
         state.bands[#state.bands + 1] = entry
-        -- Visible selection. HEADER bars: a bg overlay UNDER the fg spans (a tint of the button's own
-        -- accent, else LvimUiFrameSel) extended 1 col each side. FOOTER bars get NO overlay — their
-        -- selection is the per-segment `hover` hl (each part's own bg, stronger), so there is no left/
-        -- right bleed past the badges.
-        if where ~= "footer" and focused and sel and entry.buttons[sel] and entry.buttons[sel].c0 then
-            local bb = entry.buttons[sel]
-            local grp = util.tint_hl(bb.spec and bb.spec.accent, 0.18, "LvimUiFrameSelDyn") or "LvimUiFrameSel"
-            placements[#placements + 1] = { ln - 1, math.max(0, bb.c0 - 1), bb.c1 + 1, grp, 150 }
-        end
+        -- The visible selection is the button's OWN `hover` style (each box's bg, stronger) — NO extra
+        -- frame overlay (it bled a 1-col blue tint past the button on each side).
+        -- res.spans already carry the chevron boxes' OWN colours (the bar renders them as boxes), so the
+        -- frame no longer colourises chevron ranges separately.
         for _, sp in ipairs(res.spans) do
             placements[#placements + 1] = { ln - 1, sp[1], sp[2], sp[3], 200 }
-        end
-        for _, ch in ipairs(res.chevrons) do
-            placements[#placements + 1] = { ln - 1, ch[1], ch[2], "LvimUiFooterChevron", 200 }
         end
     end
 
@@ -514,14 +583,15 @@ local function current_sector(state)
 end
 
 --- At a vertical EDGE of a docked split, hand focus OUT to the neighbouring real window instead of
---- wrapping inside the frame: `<C-k>` from the top sector steps up (e.g. to the editor above a
---- bottom-docked peek), `<C-j>` from the bottom sector steps down. The frame stays open — in split mode
---- it is non-modal. Float frames are modal, so they never escape (they keep wrapping). Returns true when
---- focus actually moved out.
+--- wrapping inside the frame: step OUT toward the editor in the given wincmd direction. The caller picks
+--- the direction to MATCH the dock — currently only the VERTICAL sector escape uses it (`<C-k>` from the
+--- top sector steps up to the editor above a bottom-docked peek). The function stays direction-generic, so
+--- a future float side-dock could pass `h`/`l`. The frame stays open — in split mode it is non-modal;
+--- float frames are modal, so they never escape (they keep wrapping). Returns true when focus moved out.
 ---@param state table
----@param dir integer  -1 = up, 1 = down
+---@param nav string  "h"|"j"|"k"|"l" — the wincmd direction to the neighbouring editor window
 ---@return boolean
-local function escape_to_neighbor(state, dir)
+local function escape_to_neighbor(state, nav)
     if state.cfg.mode ~= "split" then
         return false
     end
@@ -529,8 +599,7 @@ local function escape_to_neighbor(state, dir)
         return false
     end
     -- The panels are floats (off the window layout), so resolve the neighbour from the container split.
-    -- `winnr(dir)` returns the container's OWN number when there is no window in that direction.
-    local nav = dir < 0 and "k" or "j"
+    -- `winnr(nav)` returns the container's OWN number when there is no window in that direction.
     local target = api.nvim_win_call(state.container_win, function()
         return vim.fn.win_getid(vim.fn.winnr(nav))
     end)
@@ -554,7 +623,8 @@ local function sector_cycle(state, dir)
     end
     local cur = current_sector(state)
     if (dir < 0 and cur == 1) or (dir > 0 and cur == n) then
-        if escape_to_neighbor(state, dir) then
+        -- Top/bottom edge of a docked split → step VERTICALLY out to the editor (matches a below/above dock).
+        if escape_to_neighbor(state, dir < 0 and "k" or "j") then
             return
         end
     end
@@ -577,7 +647,7 @@ local function menu_move(state, dir)
     local i = state.focus.band._sel or 1
     repeat
         i = i + (dir > 0 and 1 or -1)
-    until i < 1 or i > n or not btns[i].separator
+    until i < 1 or i > n or btns[i].type ~= "separator"
     if i >= 1 and i <= n then
         state.focus.band._sel = i
         render_chrome(state, state._geom)
@@ -597,7 +667,7 @@ local function menu_confirm(state)
     end
     local band = state.focus.band
     local spec = (band.buttons or {})[band._sel or 1]
-    if not spec or spec.separator then
+    if not spec or spec.type == "separator" then
         return
     end
     if spec.run then
@@ -787,11 +857,10 @@ local function open_windows(state)
         end
     else
         L = compute_geom(state)
-        -- The brand is the window's TOP-border title (needs a top border, ct > 0). `title_pos` must only
-        -- be set WITH a title — nvim errors otherwise.
-        local brand = (L.ct > 0 and state.cfg.title and state.cfg.title ~= "")
-                and { { " " .. state.cfg.title .. " ", state.cfg.title_hl or "LvimUiPeekTitle" } }
-            or nil
+        -- The brand is the window's TOP-border title (needs a top border, ct > 0), built from the `title`
+        -- box (icon box + text box, each its own padding + colour). `title_pos` must only be set WITH a
+        -- title — nvim errors otherwise.
+        local brand = L.ct > 0 and title_chunks(state.cfg.title) or nil
         state.container_win = api.nvim_open_win(state.container_buf, false, {
             relative = "editor",
             width = L.W,
@@ -848,7 +917,10 @@ local function open_windows(state)
             vim.w[pan.win].lvim_frame = true
         end
         if pan.provider and pan.provider.cursorline then
-            vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:LvimUiPeekCursorLine"
+            -- MULTI-panel frames (the list+preview peek) use the NEUTRAL cursorline in BOTH panels; only a
+            -- single-panel popup (a pick list) uses the yellow "list hover" cursorline (matches the row icon).
+            local cl = (#state.panels > 1) and "LvimUiCursorLine" or "LvimUiPeekCursorLine"
+            vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:" .. cl
             vim.wo[pan.win].cursorline = true
         else
             vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal"
@@ -863,6 +935,11 @@ local function open_windows(state)
     -- Wire interaction: the sector list, the keymaps, and the initial focus (the first center panel).
     state.refresh_chrome = function() -- re-render the header/footer bands (e.g. after a tab switch)
         render_chrome(state, state._geom)
+    end
+    -- Re-fit the frame to its providers' CURRENT content size (auto width/height) and re-centre — for an
+    -- auto-sized frame whose content changed at runtime (e.g. a tab switch swapping the form's row count).
+    state.relayout = function()
+        relayout(state)
     end
     state.sectors = build_sectors(state)
     state.center_panel = 1
@@ -880,6 +957,16 @@ local function open_windows(state)
         local ci = center_idx()
         if ci then
             focus_sector(state, ci)
+        end
+    end
+    --- Focus a center BLOCK by its `id` (`content.blocks[i].id`) — order-independent (no numeric index).
+    ---@param id any
+    state.focus_block = function(id)
+        for i, pan in ipairs(state.panels) do
+            if pan.id == id then
+                state.focus_panel(i)
+                return
+            end
         end
     end
     --- Move LEFT/RIGHT between the center panels (`dir` = +1 / -1). Only meaningful inside the center.
@@ -911,18 +998,20 @@ local function open_windows(state)
             api.nvim_set_current_win(state.origin)
         end
     end
-    --- Map every HEADER bar button's hotkey on `buf` (firing its `run`), so e.g. filter keys work from
-    --- anywhere. `reserved` lists keys to SKIP (the menu nav keys on the container, so `h`/`l` still move
-    --- the selection there). Called on each panel buffer, the container, and the preview's file buffer.
+    --- Map every BAR button's hotkey (header AND footer) on `buf` (firing its `run`), so filter keys and
+    --- footer actions (e.g. the per-server form's `a`/`A`/`b`) work from anywhere — not only by navigating
+    --- to the bar. `reserved` lists extra keys to SKIP (the container's menu nav, so `h`/`l` still move the
+    --- selection there); `<CR>`/`<Space>` are ALWAYS skipped — a content provider owns them (e.g. the list
+    --- `<CR>` jump). Called on each panel buffer, the container, and the preview's file buffer.
     state.map_hotkeys = function(buf, reserved)
-        local skip = {}
+        local skip = { ["<CR>"] = true, ["<Space>"] = true }
         for _, r in ipairs(reserved or {}) do
             skip[r] = true
         end
         for _, sec in ipairs(state.sectors) do
-            if sec.kind == "bar" and sec.where == "header" then
+            if sec.kind == "bar" then
                 for _, spec in ipairs(sec.band.buttons or {}) do
-                    if spec.key and spec.run and not spec.separator and not skip[spec.key] then
+                    if spec.key and spec.run and spec.type ~= "separator" and not skip[spec.key] then
                         vim.keymap.set("n", spec.key, function()
                             spec.run(state)
                         end, { buffer = buf, nowait = true, silent = true })
@@ -1082,6 +1171,150 @@ local function close(state)
     end
 end
 
+--- NATIVE split panel: a single block as a REAL split window (NOT a float over a container). For a
+--- persistent, navigable side tree (e.g. the lsp outline) this keeps the panel IN the native window
+--- layout, so `<C-w>h/j/k/l/w` moves in and out of it AND buffer changes redraw like any window (a float
+--- panel reflects neither reliably). 1 block only — the title is a centred winbar; there are no header/
+--- footer bars in this mode. The provider interface (render / update / keys / cursorline / filetype /
+--- on_close) is reused verbatim, only the WINDOW is real instead of a float.
+---@param state table
+local function open_native_split(state)
+    register_frame_ft()
+    local cfg = state.cfg
+    local pan = state.panels[1]
+    if not pan then
+        return
+    end
+    local dock = cfg.dock or "right"
+    local horiz = dock == "below" or dock == "above"
+
+    -- Size from the provider's natural size ⊕ the explicit cfg.width/height (fraction ≤1 or a count).
+    local sw, sh = 20, 1
+    if pan.provider and pan.provider.size then
+        local ok, w, h = pcall(pan.provider.size)
+        if ok then
+            sw, sh = w or sw, h or sh
+        end
+    end
+    local function dim(fixed, nat, total)
+        if not fixed then
+            return nat
+        end
+        return fixed <= 1 and math.floor(total * fixed) or math.floor(fixed)
+    end
+    local width = math.max(1, dim(cfg.width, sw, vim.o.columns))
+    local height = math.max(1, dim(cfg.height, sh, vim.o.lines))
+
+    pan.buf = api.nvim_create_buf(false, true)
+    vim.bo[pan.buf].bufhidden = "wipe"
+    -- The provider names its filetype (drives cursor hiding via the user's panel_ft + filetype detection);
+    -- else a hide_cursor provider gets FRAME_FT so the cursor module hides while it is current.
+    if pan.provider and pan.provider.filetype then
+        vim.bo[pan.buf].filetype = pan.provider.filetype
+    elseif pan.provider and pan.provider.hide_cursor then
+        vim.bo[pan.buf].filetype = FRAME_FT
+    end
+
+    pan.win = api.nvim_open_win(pan.buf, cfg.enter == true, {
+        split = dock,
+        win = -1, -- pin to the far edge of the tabpage
+        width = (not horiz) and width or nil,
+        height = horiz and height or nil,
+        style = "minimal",
+    })
+    if horiz then
+        vim.wo[pan.win].winfixheight = true
+    else
+        vim.wo[pan.win].winfixwidth = true
+    end
+    vim.wo[pan.win].wrap = false
+    if pan.provider and pan.provider.cursorline then
+        -- A native docked panel (the outline) uses the NEUTRAL cursorline, not the popup-list yellow.
+        vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:LvimUiCursorLine"
+        vim.wo[pan.win].cursorline = true
+    else
+        vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal"
+    end
+    -- Title → a centred winbar (the whole bar carries the blue peek-title tint).
+    local tt = title_text(cfg.title)
+    if tt ~= "" then
+        vim.wo[pan.win].winhighlight = vim.wo[pan.win].winhighlight
+            .. ",WinBar:LvimUiPeekTitle,WinBarNC:LvimUiPeekTitle"
+        vim.wo[pan.win].winbar = "%=" .. tt .. "%="
+    end
+
+    state._geom =
+        { panels = { { width = api.nvim_win_get_width(pan.win), height = api.nvim_win_get_height(pan.win) } } }
+    pan.refresh = function()
+        render_panel(state, 1)
+    end
+    pan.frame = state
+    render_panel(state, 1)
+
+    -- Focus / block accessors. Navigation is NATIVE (`<C-w>`) — no sectors, bars or chrome to drive.
+    state.center_panel = 1
+    state.focus_panel = function()
+        if pan.win and api.nvim_win_is_valid(pan.win) then
+            api.nvim_set_current_win(pan.win)
+            cursor.update()
+        end
+    end
+    state.focus_block = function()
+        state.focus_panel()
+    end
+    state.panel = function() end
+    state.sector = function() end
+    state.refresh_chrome = function() end
+    state.map_hotkeys = function() end
+    state.toggle_header = function()
+        return false
+    end
+    state.to_origin = function()
+        if state.origin and api.nvim_win_is_valid(state.origin) then
+            api.nvim_set_current_win(state.origin)
+        end
+    end
+
+    -- Keys: the provider's own keys + close_keys + consumer keymaps on the panel buffer. No sector/menu
+    -- nav keys — the panel is a real window, so `<C-w>` already moves in and out of it.
+    local function map(lhs, fn)
+        for _, l in ipairs(type(lhs) == "table" and lhs or { lhs }) do
+            vim.keymap.set("n", l, fn, { buffer = pan.buf, nowait = true, silent = true })
+        end
+    end
+    if pan.provider and pan.provider.keys then
+        pcall(pan.provider.keys, map, pan, state)
+    end
+    for _, ck in ipairs(cfg.close_keys or {}) do
+        map(ck, state.close)
+    end
+    for _, km in ipairs(cfg.keymaps or {}) do
+        map(km.key, function()
+            km.run(state)
+        end)
+    end
+
+    -- Tear down when the window closes; re-render content on resize (the window itself resizes natively).
+    state.augroup = api.nvim_create_augroup("LvimUiFrameNative_" .. pan.win, { clear = true })
+    api.nvim_create_autocmd("WinClosed", {
+        group = state.augroup,
+        pattern = tostring(pan.win),
+        callback = function()
+            state.close()
+        end,
+    })
+    api.nvim_create_autocmd({ "WinResized", "VimResized" }, {
+        group = state.augroup,
+        callback = function()
+            if not state._closed and pan.win and api.nvim_win_is_valid(pan.win) then
+                state._geom.panels[1] =
+                    { width = api.nvim_win_get_width(pan.win), height = api.nvim_win_get_height(pan.win) }
+                render_panel(state, 1)
+            end
+        end,
+    })
+end
+
 --- Open a frame.
 ---@param cfg table  the frame config (see the module header)
 ---@return table state
@@ -1093,23 +1326,51 @@ function M.open(cfg)
     if cfg.close_keys == nil and not cfg.persistent then
         cfg.close_keys = { "q", "<Esc>" }
     end
-    -- A FLOAT carries the brand as its border title (set in open_windows). A SPLIT has no border, so the
-    -- title becomes the top CONTENT row of the chrome instead.
-    local hbands = header_bands(cfg.header)
-    if cfg.mode == "split" and cfg.title and cfg.title ~= "" then
-        table.insert(hbands, 1, { meta = cfg.title, hl = cfg.title_hl or "LvimUiPeekTitle" })
+
+    -- Sizing: `cfg.size = { width/height = { auto, min, max, fixed } }` → the per-axis fields the geometry
+    -- uses. `auto` fits the content (within max); else `fixed`; each a screen fraction ≤1 or an absolute
+    -- count. `height.min` = minimum VISIBLE content rows; `width.min` clamps the float width.
+    local size = cfg.size or {}
+    local sw, sh = size.width or {}, size.height or {}
+    cfg.auto_width, cfg.width, cfg.max_width, cfg.min_width = sw.auto, sw.fixed, sw.max, sw.min
+    cfg.auto_height, cfg.height, cfg.max_height, cfg.min_content_height = sh.auto, sh.fixed, sh.max, sh.min
+
+    -- content.blocks → panels: each block carries an `id`, a `provider`, its own width (`size.width.fixed`
+    -- = a weight; absent = flex/auto), and an optional `border`.
+    local panels = {}
+    for i, blk in ipairs((cfg.content or {}).blocks or {}) do
+        local bw = (blk.size or {}).width or {}
+        panels[i] = { id = blk.id, provider = blk.provider, weight = bw.fixed, border = blk.border }
     end
+
+    -- A FLOAT carries the brand as its border title (built in open_windows). A SPLIT has no border, so the
+    -- title becomes the top CONTENT row of the chrome instead (the icon + text, flattened).
+    local hbands = build_bands(cfg.header, false)
+    if cfg.mode == "split" then
+        local t = cfg.title
+        local s = (type(t) == "table" and ((t.icon and t.icon .. " " or "") .. (t.text or ""))) or (t or "")
+        if s ~= "" then
+            table.insert(hbands, 1, { meta = s, hl = "LvimUiPeekTitle" })
+        end
+    end
+
     local state = {
         cfg = cfg,
         origin = api.nvim_get_current_win(),
-        panels = cfg.panels or {},
+        panels = panels,
         header_bands = hbands,
-        footer_bands = footer_bands(cfg.footer),
+        footer_bands = build_bands(cfg.footer, true),
     }
     state.close = function()
         close(state)
     end
-    open_windows(state)
+    -- A `native` split is a REAL window (not a float over a container) — for a navigable persistent side
+    -- panel; everything else (modal float, docked-modal peek) uses the float chassis.
+    if cfg.mode == "split" and cfg.native then
+        open_native_split(state)
+    else
+        open_windows(state)
+    end
     return state
 end
 

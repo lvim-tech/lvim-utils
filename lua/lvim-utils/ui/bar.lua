@@ -1,14 +1,20 @@
--- lvim-utils.ui.bar: a responsive horizontal bar of `ui.button`s.
+-- lvim-utils.ui.bar: a responsive horizontal bar of `ui.button` ELEMENTS (buttons + separators).
 --
--- Renders a list of button specs into a single width-bounded line: ALIGNED (left / center / right)
--- when it fits, else SCROLLED inside the width with ‹ › chevrons on the overflowing side(s) — keeping
--- the focused button `sel` visible. Each button's STATE is chosen here: hover (if `opts.hover == i`) >
--- active (the spec's `.active` flag) > normal. Returns the line plus, in BYTE columns of that line, the
--- hl spans, the chevron ranges, and per-button visible ranges ({ c0, c1, spec }; c0/c1 nil = scrolled
--- out) so the caller can place extmarks, hit-test the mouse and draw its own selection overlay.
+-- Lays out a list of `items` (each a `button` or `separator` spec — see ui.button) into a single
+-- width-bounded line: ALIGNED (left / center / right) when it fits, else SCROLLED inside the width with
+-- chevron BOXES on the overflowing side(s) — keeping the focused item `sel` visible. Inter-item spacing
+-- is NOT a bar setting: insert explicit `separator` items (a separator with no text = a pure gap).
 --
--- All glyphs are single display width, so a character column equals a display column; the renderer
--- works in char columns and converts to byte offsets against the final line.
+-- Chevrons are the bar's OWN job: it ships default chevron boxes (glyph + padding + hl), reserves their
+-- measured width on each side, draws them only on the side that actually overflows, and the caller may
+-- override the glyph / padding / colour per bar. Each item's STATE is chosen here:
+-- hover (opts.hover == i) > active (spec.active) > normal.
+--
+-- Returns the line plus, in BYTE columns of that line, the hl spans (incl. the chevrons' own colours),
+-- the chevron ranges, and per-item visible ranges ({ c0, c1, spec }; c0/c1 nil = scrolled out) so the
+-- caller can place extmarks, hit-test the mouse and draw its own selection overlay.
+--
+-- All glyphs are single display width, so a character column equals a display column.
 --
 ---@module "lvim-utils.ui.bar"
 
@@ -16,78 +22,59 @@ local button = require("lvim-utils.ui.button")
 
 local M = {}
 
-local CHEVRON_LEFT = "‹"
-local CHEVRON_RIGHT = "›"
+--- Default chevron boxes (a `separator`-shaped box each). The bar owns overflow, so these ship as
+--- defaults; a caller overrides `chevrons.left` / `chevrons.right` (glyph via `text`, spacing via
+--- `style.padding`, colour via `style.hl`) only when it wants something else.
+local DEFAULT_CHEVRONS = {
+    left = { type = "separator", text = "‹", style = { padding = { 0, 1 }, hl = "LvimUiBarChevron" } },
+    right = { type = "separator", text = "›", style = { padding = { 1, 0 }, hl = "LvimUiBarChevron" } },
+}
 
---- The natural display width of a bar = the sum of its rendered buttons plus the inter-button
---- separators (`sep`, default 2). Lets a caller size a window to fit the bar un-scrolled.
----@param buttons LvimUiButtonSpec[]
----@param sep? string
+---@param c table|nil
+---@return table left, table right
+local function resolve_chevrons(c)
+    c = c or {}
+    local left = vim.tbl_deep_extend("force", vim.deepcopy(DEFAULT_CHEVRONS.left), c.left or {})
+    local right = vim.tbl_deep_extend("force", vim.deepcopy(DEFAULT_CHEVRONS.right), c.right or {})
+    return left, right
+end
+
+--- The natural display width of a bar = the sum of its rendered items (no inter-item gap — spacing is
+--- expressed as explicit `separator` items). Lets a caller size a window to fit the bar un-scrolled.
+---@param items LvimUiButtonSpec[]
 ---@return integer
-function M.width(buttons, sep)
-    local gap = vim.fn.strdisplaywidth(sep or "  ")
-    local total, prev = 0, false
-    for _, spec in ipairs(buttons or {}) do
-        if spec.separator then
-            total = total + 2 * #(spec.pad or "") + vim.fn.strdisplaywidth(spec.separator)
-            prev = false
-        else
-            if prev then
-                total = total + gap
-            end
-            total = total + vim.fn.strdisplaywidth((button.render(spec, "normal")))
-            prev = true
-        end
+function M.width(items)
+    local total = 0
+    for _, spec in ipairs(items or {}) do
+        total = total + vim.fn.strdisplaywidth((button.render(spec, "normal")))
     end
     return total
 end
 
----@param opts { buttons: LvimUiButtonSpec[], width: integer, align?: "left"|"center"|"right", chevrons?: { left?: string, right?: string }, sep?: string, sel?: integer, hover?: integer, off?: integer }
----@return { line: string, spans: table[], chevrons: table[], buttons: table[], off: integer }
+---@param opts { items: LvimUiButtonSpec[], width: integer, align?: "left"|"center"|"right", chevrons?: table, sel?: integer, hover?: integer, off?: integer }
+---@return { line: string, spans: table[], chevrons: table[], items: table[], off: integer }
 function M.render(opts)
     local W = opts.width or 0
-    local sep = opts.sep or "  "
     local align = opts.align or "center"
-    local chev = opts.chevrons or {}
-    local cl, cr = chev.left or CHEVRON_LEFT, chev.right or CHEVRON_RIGHT
 
-    -- 1. Assemble the raw bar text, its hl spans and each button's raw byte range (with its spec).
-    -- Entries are either button specs (have `.type`) or non-interactive SEPARATORS (have `.separator`,
-    -- e.g. the `●` between filter groups) which carry their own padding and are not clickable. The
-    -- `buttons` index stays aligned with `opts.buttons`, so `sel`/`hover`/`active` indices match.
-    local t, raw_spans, raw_btns = "", {}, {}
-    local prev_button = false
-    for i, spec in ipairs(opts.buttons or {}) do
-        if spec.separator then
-            local pad = spec.pad or ""
-            local base = #t
-            t = t .. pad
-            if spec.hl then
-                raw_spans[#raw_spans + 1] = { #t, #t + #spec.separator, spec.hl }
-            end
-            t = t .. spec.separator .. pad
-            raw_btns[i] = { base, #t, spec, sep = true } -- placeholder so indices line up; not a button
-            prev_button = false
-        else
-            if prev_button then
-                t = t .. sep
-            end
-            local state = (opts.hover == i and "hover") or (spec.active and "active") or "normal"
-            local btxt, bspans = button.render(spec, state)
-            local base = #t
-            for _, s in ipairs(bspans) do
-                raw_spans[#raw_spans + 1] = { base + s[1], base + s[2], s[3] }
-            end
-            raw_btns[i] = { base, base + #btxt, spec }
-            t = t .. btxt
-            prev_button = true
+    -- 1. Assemble the raw bar text, its hl spans and each item's raw byte range (with its spec). No
+    -- inter-item gap: a `separator` item carries any spacing itself. Indices stay aligned with opts.items.
+    local t, raw_spans, raw_items = "", {}, {}
+    for i, spec in ipairs(opts.items or {}) do
+        local state = (opts.hover == i and "hover") or (spec.active and "active") or "normal"
+        local itxt, ispans = button.render(spec, state)
+        local base = #t
+        for _, s in ipairs(ispans) do
+            raw_spans[#raw_spans + 1] = { base + s[1], base + s[2], s[3] }
         end
+        raw_items[i] = { base, base + #itxt, spec, sep = spec.type == "separator" }
+        t = t .. itxt
     end
 
-    -- 2. Place it into width: aligned when it fits, else a scrolled window with chevrons.
+    -- 2. Place it into the width: aligned when it fits, else a scrolled window flanked by chevron boxes.
     local tw = vim.fn.strchars(t)
     local line, shift, lo, hi
-    local chevrons = {}
+    local chevrons, chev_spans = {}, {}
     if tw <= W then
         local pad = (align == "left" and 0) or (align == "right" and (W - tw)) or math.floor((W - tw) / 2)
         pad = math.max(0, pad)
@@ -95,16 +82,21 @@ function M.render(opts)
         line = line .. string.rep(" ", math.max(0, W - vim.fn.strchars(line)))
         shift, lo, hi = pad, 0, tw
     else
-        local inner = math.max(1, W - 4) -- a chevron + one space reserved on EACH side
-        -- Default anchor by alignment, then keep the focused button visible.
+        local lspec, rspec = resolve_chevrons(opts.chevrons)
+        local ltxt, lsp = button.render(lspec, "normal")
+        local rtxt, rsp = button.render(rspec, "normal")
+        local lw, rw = vim.fn.strdisplaywidth(ltxt), vim.fn.strdisplaywidth(rtxt)
+        local inner = math.max(1, W - lw - rw)
+
+        -- Default anchor by alignment, then keep the focused item visible.
         local off = opts.off
         if off == nil then
             off = (align == "right" and (tw - inner)) or (align == "center" and math.floor((tw - inner) / 2)) or 0
         end
-        local selbtn = opts.sel and raw_btns[opts.sel]
-        if selbtn then
-            local s0 = vim.fn.strchars(string.sub(t, 1, selbtn[1]))
-            local s1 = vim.fn.strchars(string.sub(t, 1, selbtn[2]))
+        local selitem = opts.sel and raw_items[opts.sel]
+        if selitem then
+            local s0 = vim.fn.strchars(string.sub(t, 1, selitem[1]))
+            local s1 = vim.fn.strchars(string.sub(t, 1, selitem[2]))
             if s0 < off then
                 off = s0
             elseif s1 > off + inner then
@@ -112,19 +104,30 @@ function M.render(opts)
             end
         end
         off = math.max(0, math.min(off, tw - inner))
-        local left = off > 0 and cl or " "
-        local right = (off + inner) < tw and cr or " "
+        opts.off = off
+
+        local show_left = off > 0
+        local show_right = (off + inner) < tw
+        local left_str = show_left and ltxt or string.rep(" ", lw)
+        local right_str = show_right and rtxt or string.rep(" ", rw)
         local vis = vim.fn.strcharpart(t, off, inner)
         vis = vis .. string.rep(" ", math.max(0, inner - vim.fn.strchars(vis)))
-        line = left .. " " .. vis .. " " .. right -- chevron + 1 space + content + 1 space + chevron
-        shift, lo, hi = 2 - off, off, off + inner
-        opts.off = off
-        if off > 0 then
-            chevrons[#chevrons + 1] = { 0, vim.fn.byteidx(line, 1) }
+        line = left_str .. vis .. right_str
+        shift, lo, hi = lw - off, off, off + inner
+
+        -- Chevron boxes carry their OWN colour: emit their spans (byte-based, no char shift) + ranges.
+        if show_left then
+            for _, s in ipairs(lsp) do
+                chev_spans[#chev_spans + 1] = { s[1], s[2], s[3] }
+            end
+            chevrons[#chevrons + 1] = { 0, #left_str }
         end
-        if (off + inner) < tw then
-            local rc = vim.fn.strchars(line) - 1
-            chevrons[#chevrons + 1] = { vim.fn.byteidx(line, rc), #line }
+        if show_right then
+            local rbase = #left_str + #vis
+            for _, s in ipairs(rsp) do
+                chev_spans[#chev_spans + 1] = { rbase + s[1], rbase + s[2], s[3] }
+            end
+            chevrons[#chevrons + 1] = { rbase, #line }
         end
     end
 
@@ -137,19 +140,22 @@ function M.render(opts)
         end
         return vim.fn.byteidx(line, c0 + shift), vim.fn.byteidx(line, c1 + shift)
     end
-    local spans, buttons = {}, {}
+    local spans, items = {}, {}
     for _, s in ipairs(raw_spans) do
         local b0, b1 = vis_bytes(s[1], s[2])
         if b0 then
             spans[#spans + 1] = { b0, b1, s[3] }
         end
     end
-    for i, b in ipairs(raw_btns) do
+    for _, s in ipairs(chev_spans) do
+        spans[#spans + 1] = s
+    end
+    for i, b in ipairs(raw_items) do
         local b0, b1 = vis_bytes(b[1], b[2])
-        buttons[i] = { c0 = b0, c1 = b1, spec = b[3], sep = b.sep } -- sep = a non-interactive separator
+        items[i] = { c0 = b0, c1 = b1, spec = b[3], sep = b.sep }
     end
 
-    return { line = line, spans = spans, chevrons = chevrons, buttons = buttons, off = opts.off or 0 }
+    return { line = line, spans = spans, chevrons = chevrons, items = items, off = opts.off or 0 }
 end
 
 return M
