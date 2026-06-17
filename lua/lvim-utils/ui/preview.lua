@@ -1,20 +1,29 @@
--- lvim-utils.ui.preview: a `frame` center-panel provider that shows a file LOCATION in its REAL buffer
--- (so it keeps the file's own syntax / treesitter), marks the match range, and gives the pane a file
--- winbar. Generic — any consumer that navigates file locations (an LSP locations navigator, a grep /
--- search view, a git diff list) wires it as a panel and feeds the current location via `opts.item()`.
+-- lvim-utils.ui.preview: a `frame` center-panel provider that shows a file LOCATION by displaying the
+-- file's REAL buffer in the panel window. Because it IS the buffer (not a copy), the preview is fully
+-- EDITABLE and stays in two-way sync with the file for free: an edit made here lands in the file, and an
+-- edit made in another window shows here. It swaps the buffer in, positions the cursor, and gives the
+-- pane a file winbar. The diagnostic SIGNS are hidden here (`signcolumn = "no"`) — they belong to the
+-- list panel; the preview stays a clean editable view.
 --
--- The pane's window hosts the EXTERNAL file buffer, so the frame's own panel keymaps (which live on the
--- scratch `pan.buf`) do not apply here; this provider maps the back-focus / close / sector keys onto the
--- file buffer itself, routing them through the frame (`pan.frame`).
+-- Navigation out of the preview: the frame's panel/sector keys (`<C-h>`/`<C-l>` move panels, `<C-j>`/
+-- `<C-k>` move header·center·footer) are bound on the file buffer ONLY while the preview window is
+-- focused (added on WinEnter, removed on WinLeave) — a real buffer is shared, so a persistent map would
+-- leak into every other window showing the file. They are normal-mode only, so text editing (and
+-- insert-mode `<C-h>` = backspace) is untouched.
 --
 ---@module "lvim-utils.ui.preview"
 
-local util = require("lvim-utils.ui.util")
-
 local api = vim.api
-local NS = api.nvim_create_namespace("lvim_utils_ui_preview")
 
 local M = {}
+
+-- The frame nav keys bound on the focused preview buffer → the method/dir they drive on the frame.
+local NAV = {
+    { "<C-h>", "panel", -1 },
+    { "<C-l>", "panel", 1 },
+    { "<C-j>", "sector", 1 },
+    { "<C-k>", "sector", -1 },
+}
 
 --- A filetype icon for `filename` from nvim-web-devicons when installed (colour discarded — the winbar
 --- paints it), else a generic document glyph.
@@ -38,95 +47,125 @@ end
 ---@class LvimUiPreviewOpts
 ---@field item fun(): table|nil   returns the current location { filename, lnum, col, end_lnum?, end_col? }
 ---@field number? string          preview gutter: "none" | "normal" | "relative"
----@field back_panel? integer     panel index to focus on back/sector key (default 1)
----@field back_key? string        key that returns focus to `back_panel` (default "<C-h>")
----@field match_hl? string        highlight group for the match range (default "LvimUiPeekMatch")
 
 --- Create a preview provider.
 ---@param opts LvimUiPreviewOpts
 ---@return table provider
 function M.new(opts)
     opts = opts or {}
-    local mapped -- the file buffer the back/close keys are currently bound to
+    local cur_file -- the file currently shown (set the winbar only when it changes)
+    local frame -- the owning frame state (captured from pan.frame), so the nav keys can reach it
+    local nav_buf -- the buffer the nav keys are currently bound on (nil = none)
+    local augroup -- the WinEnter/WinLeave group that adds/removes the nav keys
+
+    local function remove_nav()
+        if nav_buf and api.nvim_buf_is_valid(nav_buf) then
+            for _, m in ipairs(NAV) do
+                pcall(vim.keymap.del, "n", m[1], { buffer = nav_buf })
+            end
+        end
+        nav_buf = nil
+    end
+
+    local function add_nav(buf)
+        if nav_buf == buf then
+            return
+        end
+        remove_nav()
+        for _, m in ipairs(NAV) do
+            local method, dir = m[2], m[3]
+            vim.keymap.set("n", m[1], function()
+                if frame then
+                    frame[method](dir)
+                end
+            end, { buffer = buf, nowait = true, silent = true })
+        end
+        nav_buf = buf
+    end
+
+    --- One-time: while the preview window is focused, bind the frame nav keys on its (real) buffer; drop
+    --- them again the moment focus leaves, so the shared file buffer is never left mapped elsewhere.
+    ---@param pan table
+    local function ensure_autocmds(pan)
+        if augroup then
+            return
+        end
+        augroup = api.nvim_create_augroup("LvimUiPreviewNav_" .. tostring(pan.win), { clear = true })
+        api.nvim_create_autocmd("WinEnter", {
+            group = augroup,
+            callback = function()
+                if api.nvim_win_is_valid(pan.win) and api.nvim_get_current_win() == pan.win then
+                    add_nav(api.nvim_win_get_buf(pan.win))
+                end
+            end,
+        })
+        api.nvim_create_autocmd("WinLeave", {
+            group = augroup,
+            callback = function()
+                if api.nvim_get_current_win() == pan.win then
+                    remove_nav()
+                end
+            end,
+        })
+    end
 
     return {
+        on_close = function()
+            remove_nav()
+            if augroup then
+                pcall(api.nvim_del_augroup_by_id, augroup)
+                augroup = nil
+            end
+        end,
         update = function(pan, _geom)
             local it = opts.item and opts.item()
             if not (it and it.filename and pan.win and api.nvim_win_is_valid(pan.win)) then
                 return
             end
+            frame = pan.frame
+            ensure_autocmds(pan)
+            -- If the user is IN the preview (editing it), don't swap its buffer or move its cursor out from
+            -- under them on a list-navigation / live-reload refresh — leave the edit alone.
+            if api.nvim_get_current_win() == pan.win then
+                return
+            end
+            -- Show the REAL file buffer — editable, and bidirectionally in sync with the file (it is the
+            -- buffer). Only swap when it actually changes (navigating rows of the same file just moves the
+            -- cursor). `nvim_win_set_buf` (not `:edit`) avoids E37 on a modified buffer.
             local pbuf = vim.fn.bufadd(it.filename)
             vim.fn.bufload(pbuf)
-            api.nvim_win_set_buf(pan.win, pbuf)
-            local ft = vim.filetype.match({ filename = it.filename, buf = pbuf })
-            if ft and vim.bo[pbuf].filetype ~= ft then
-                vim.bo[pbuf].filetype = ft
+            if api.nvim_win_get_buf(pan.win) ~= pbuf then
+                api.nvim_win_set_buf(pan.win, pbuf)
             end
 
-            -- Full-width file winbar: filetype icon · name · directory.
-            local rel = vim.fn.fnamemodify(it.filename, ":~:.")
-            local tail = vim.fn.fnamemodify(it.filename, ":t")
-            local dir = vim.fn.fnamemodify(rel, ":h")
-            local wb = "%#LvimUiPeekFileIcon# " .. file_icon(it.filename) .. " %#LvimUiPeekFile#" .. tail .. " "
-            if dir ~= "." and dir ~= "" then
-                wb = wb .. "%#LvimUiPeekFileBar# " .. dir
+            if cur_file ~= it.filename then
+                cur_file = it.filename
+                -- Full-width file winbar: filetype icon · name · directory.
+                local rel = vim.fn.fnamemodify(it.filename, ":~:.")
+                local tail = vim.fn.fnamemodify(it.filename, ":t")
+                local dir = vim.fn.fnamemodify(rel, ":h")
+                local wb = "%#LvimUiPeekFileIcon# " .. file_icon(it.filename) .. " %#LvimUiPeekFile#" .. tail .. " "
+                if dir ~= "." and dir ~= "" then
+                    wb = wb .. "%#LvimUiPeekFileBar# " .. dir
+                end
+                vim.wo[pan.win].winbar = wb .. "%#LvimUiPeekFileBar#%="
             end
-            vim.wo[pan.win].winbar = wb .. "%#LvimUiPeekFileBar#%="
 
             local pn = opts.number or "normal"
             vim.wo[pan.win].number = pn == "normal" or pn == "relative"
             vim.wo[pan.win].relativenumber = pn == "relative"
-            vim.wo[pan.win].signcolumn = "no"
+            vim.wo[pan.win].signcolumn = "no" -- diagnostic signs live in the list panel, not here
             vim.wo[pan.win].foldcolumn = "0"
             vim.wo[pan.win].cursorline = true
             vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:LvimUiPeekCursorLine"
 
-            -- Back-focus / close / sector keys on the REAL file buffer (the frame's panel keys are on the
-            -- scratch pan.buf, which this window no longer shows). Routed through the frame.
-            if mapped ~= pbuf then
-                -- This window shows the FILE buffer, so the frame's own panel/sector maps (on the scratch
-                -- pan.buf) don't apply — bind them here, routed through the frame: `<C-l>`/`<C-h>` move
-                -- between center panels, `<C-j>`/`<C-k>` step the vertical sectors.
-                local function fr(method, dir)
-                    return function()
-                        if pan.frame then
-                            pan.frame[method](dir)
-                        end
-                    end
-                end
-                vim.keymap.set("n", "<C-h>", fr("panel", -1), { buffer = pbuf, nowait = true, silent = true })
-                vim.keymap.set("n", "<C-l>", fr("panel", 1), { buffer = pbuf, nowait = true, silent = true })
-                vim.keymap.set("n", "<C-j>", fr("sector", 1), { buffer = pbuf, nowait = true, silent = true })
-                vim.keymap.set("n", "<C-k>", fr("sector", -1), { buffer = pbuf, nowait = true, silent = true })
-                -- Header button hotkeys (e.g. filters) work from the preview too.
-                if pan.frame and pan.frame.map_hotkeys then
-                    pan.frame.map_hotkeys(pbuf, {})
-                end
-                for _, ck in ipairs((pan.frame and pan.frame.cfg.close_keys) or { "q" }) do
-                    vim.keymap.set("n", ck, function()
-                        if pan.frame then
-                            pan.frame.close()
-                        end
-                    end, { buffer = pbuf, nowait = true, silent = true })
-                end
-                mapped = pbuf
-            end
-
-            -- Cursor + the match-range highlight.
+            -- Place the cursor on the location (no extmark — a highlight on the real buffer would bleed
+            -- into every other window showing this file).
             local lnum = math.min(it.lnum or 1, math.max(1, api.nvim_buf_line_count(pbuf)))
             pcall(api.nvim_win_set_cursor, pan.win, { lnum, math.max(0, (it.col or 1) - 1) })
             api.nvim_win_call(pan.win, function()
                 vim.cmd("normal! zz")
             end)
-            api.nvim_buf_clear_namespace(pbuf, NS, 0, -1)
-            local l1 = (it.end_lnum or it.lnum or 1) - 1
-            local c0 = math.max(0, (it.col or 1) - 1)
-            local c1 = it.end_col and (it.end_col - 1) or (c0 + 1)
-            pcall(api.nvim_buf_set_extmark, pbuf, NS, (it.lnum or 1) - 1, c0, {
-                end_row = l1,
-                end_col = c1,
-                hl_group = opts.match_hl or "LvimUiPeekMatch",
-            })
         end,
     }
 end

@@ -145,7 +145,7 @@ local function compute_geom(state, place)
 
     -- Per-panel border insets + natural content size (provider.size()).
     local pin = {}
-    local nat_w_sum, nat_h_max, border_cols = 0, 1, 0
+    local nat_w_sum, nat_h_max, border_cols, max_vborder = 0, 1, 0, 0
     for i, pan in ipairs(panels) do
         local b = util.resolve_border(pan.border or cfg.panel_border)
         local pt, pr, pbm, pl = util.insets(b)
@@ -160,6 +160,7 @@ local function compute_geom(state, place)
         nat_w_sum = nat_w_sum + pl + sw + pr
         nat_h_max = math.max(nat_h_max, sh)
         border_cols = border_cols + pl + pr
+        max_vborder = math.max(max_vborder, pt + pbm) -- so min_content counts VISIBLE rows, not the border
     end
 
     -- Widest content drives auto_width: the widest bar band vs the panels' natural footprints.
@@ -178,9 +179,14 @@ local function compute_geom(state, place)
     local header_h = #state.header_bands
     local footer_h = #state.footer_bands
     local content_h = header_h + footer_h + nat_h_max
-    -- A split takes the full height nvim gives it (place.H); a float sizes per auto/explicit height.
+    -- A split takes the full height nvim gives it (place.H); a float sizes per auto/explicit height. The
+    -- center never shrinks below `min_content_height` VISIBLE rows — counted on the panel content, so the
+    -- panel borders are added on top (the header/footer bands are fixed-height). `min_h` is the resulting
+    -- minimum container height, exported for the resize clamp.
+    local min_center = math.max(1, cfg.min_content_height or 1) + max_vborder
+    local min_h = header_h + footer_h + min_center
     local H = place and place.H or util.axis_size(cfg.auto_height, cfg.height, cfg.max_height, content_h, vim.o.lines)
-    H = math.max(H, header_h + footer_h + 1)
+    H = math.max(H, min_h)
 
     -- Float: centre on screen. Split: the container window's actual screen position (passed in `place`).
     local row = place and place.row or math.max(1, math.floor((vim.o.lines - H) / 2 - 1))
@@ -194,7 +200,7 @@ local function compute_geom(state, place)
     end
     local cc_row, cc_col = row + ct, col + cl
     local center_top = cc_row + header_h
-    local center_h = math.max(1, H - header_h - footer_h)
+    local center_h = math.max(min_center, H - header_h - footer_h)
 
     -- Distribute the center width across panels: weighted panels take their share, weightless ones
     -- split the remainder (auto_width ⇒ each takes its natural width).
@@ -245,6 +251,7 @@ local function compute_geom(state, place)
     return {
         W = W,
         H = H,
+        min_h = min_h,
         row = row,
         col = col,
         cbord = cbord,
@@ -305,8 +312,9 @@ local function render_chrome(state, L)
         end
         -- When this bar is the focused sector, its `_sel` button drives BOTH the scroll-follow (`sel`,
         -- keeps it visible on a narrow frame) and the visible selection (`hover`, the button's hover
-        -- styling).
-        local focused = state.focus and state.focus.kind == "bar" and state.focus.band == band
+        -- styling). `_blurred` (focus left the whole frame) drops the selection so no button looks hovered
+        -- while the user is back in a normal buffer.
+        local focused = not state._blurred and state.focus and state.focus.kind == "bar" and state.focus.band == band
         local sel = focused and band._sel or nil
         local res = uibar.render({
             buttons = band.buttons or {},
@@ -485,7 +493,12 @@ local function focus_sector(state, i)
         sec.band._sel = sec.band._sel or 1
         state.focus = { kind = "bar", band = sec.band, where = sec.where }
         if state.container_win and api.nvim_win_is_valid(state.container_win) then
+            -- Mark this as a frame-driven focus so the container's WinEnter hook does NOT bounce us into
+            -- the center (that bounce is only for a NATIVE `<C-w>j` entry). WinEnter fires synchronously
+            -- inside nvim_set_current_win, so the flag is up while it runs.
+            state._focusing_bar = true
             api.nvim_set_current_win(state.container_win)
+            state._focusing_bar = false
         end
         hide_cursor(state)
     end
@@ -511,7 +524,38 @@ local function current_sector(state)
     return state.focus_idx or 1
 end
 
---- Move focus to the next/prev sector (wraps), starting from the actually-focused window.
+--- At a vertical EDGE of a docked split, hand focus OUT to the neighbouring real window instead of
+--- wrapping inside the frame: `<C-k>` from the top sector steps up (e.g. to the editor above a
+--- bottom-docked peek), `<C-j>` from the bottom sector steps down. The frame stays open — in split mode
+--- it is non-modal. Float frames are modal, so they never escape (they keep wrapping). Returns true when
+--- focus actually moved out.
+---@param state table
+---@param dir integer  -1 = up, 1 = down
+---@return boolean
+local function escape_to_neighbor(state, dir)
+    if state.cfg.mode ~= "split" then
+        return false
+    end
+    if not (state.container_win and api.nvim_win_is_valid(state.container_win)) then
+        return false
+    end
+    -- The panels are floats (off the window layout), so resolve the neighbour from the container split.
+    -- `winnr(dir)` returns the container's OWN number when there is no window in that direction.
+    local nav = dir < 0 and "k" or "j"
+    local target = api.nvim_win_call(state.container_win, function()
+        return vim.fn.win_getid(vim.fn.winnr(nav))
+    end)
+    if target == 0 or target == state.container_win or not api.nvim_win_is_valid(target) then
+        return false
+    end
+    show_cursor(state) -- the frame hid the hardware cursor for its list/bar; the editor needs it back
+    api.nvim_set_current_win(target)
+    return true
+end
+
+--- Move focus to the next/prev sector, starting from the actually-focused window. At the top/bottom edge
+--- of a docked split it steps OUT to the neighbouring editor window (see `escape_to_neighbor`); otherwise
+--- it wraps around the frame.
 ---@param state table
 ---@param dir integer
 local function sector_cycle(state, dir)
@@ -519,7 +563,13 @@ local function sector_cycle(state, dir)
     if n == 0 then
         return
     end
-    focus_sector(state, ((current_sector(state) - 1 + dir) % n) + 1)
+    local cur = current_sector(state)
+    if (dir < 0 and cur == 1) or (dir > 0 and cur == n) then
+        if escape_to_neighbor(state, dir) then
+            return
+        end
+    end
+    focus_sector(state, ((cur - 1 + dir) % n) + 1)
 end
 
 --- Move the focused bar's selection by `dir`, skipping non-interactive separators; redraw (which
@@ -636,6 +686,61 @@ local function set_keys(state)
     state.map_hotkeys(state.container_buf, reserved)
 end
 
+--- Re-fit the floating panels to the container's CURRENT size and re-render the chrome. Called when the
+--- docked split is resized (or the editor on `VimResized`): the header/footer bands keep their fixed
+--- heights, so the CENTER absorbs the change, and the panel floats follow instead of staying put.
+---@param state table
+local function relayout(state)
+    if state._closed or not (state.container_win and api.nvim_win_is_valid(state.container_win)) then
+        return
+    end
+    local L
+    if state.cfg.mode == "split" then
+        -- The split was resized by the user. `compute_geom` floors the center at `min_content_height`
+        -- VISIBLE rows and reports the matching minimum container height — if the user shrank below it,
+        -- snap the split back up so the center keeps its rows, then re-fit.
+        local function geom()
+            local pos = api.nvim_win_get_position(state.container_win)
+            return compute_geom(state, {
+                row = pos[1],
+                col = pos[2],
+                W = api.nvim_win_get_width(state.container_win),
+                H = api.nvim_win_get_height(state.container_win),
+            })
+        end
+        L = geom()
+        if api.nvim_win_get_height(state.container_win) < L.min_h then
+            pcall(api.nvim_win_set_height, state.container_win, L.min_h)
+            L = geom()
+        end
+    else
+        -- A float reflows to the (possibly resized) screen; move the container float too.
+        L = compute_geom(state)
+        pcall(api.nvim_win_set_config, state.container_win, {
+            relative = "editor",
+            width = L.W,
+            height = L.H,
+            row = L.row,
+            col = L.col,
+        })
+    end
+    state._geom = L
+    for i, pan in ipairs(state.panels) do
+        local pl = L.panels[i]
+        if pan.win and api.nvim_win_is_valid(pan.win) then
+            pcall(api.nvim_win_set_config, pan.win, {
+                relative = "editor",
+                width = pl.width,
+                height = pl.height,
+                row = pl.row,
+                col = pl.col,
+                border = pl.border,
+            })
+        end
+    end
+    render_chrome(state, L)
+end
+
 -- ─── open / close ─────────────────────────────────────────────────────────────
 
 --- Build the container + the N panel windows from a computed layout.
@@ -658,7 +763,11 @@ local function open_windows(state)
             width = (not horiz) and g0.W or nil,
             height = horiz and g0.H or nil,
             style = "minimal",
-            focusable = false, -- the chrome split is never directly focused; only the panels over it
+            -- Focusable so native window nav can ENTER the docked peek: the panels are floats off the
+            -- layout, but this chrome split IS in the layout, so `<C-w>j`/`<C-w>k` from the surrounding
+            -- editor land here — a WinEnter hook then bounces focus into the content panel. (Horizontal
+            -- `<C-w>l`/`<C-w>h` between the editor splits is unaffected: the split is below them, not beside.)
+            focusable = true,
         })
         local pos = api.nvim_win_get_position(state.container_win)
         L = compute_geom(state, {
@@ -694,6 +803,10 @@ local function open_windows(state)
         })
     end
     state._geom = L
+    -- Mark every frame window so generic "close all floating windows" utilities can skip them — the panels
+    -- are floats (and so is the container in float mode), but the frame is a managed UI that tears itself
+    -- down as a unit, not a stray popup to be swept away.
+    vim.w[state.container_win].lvim_frame = true
     vim.wo[state.container_win].winhighlight = "Normal:LvimUiPeekNormal,FloatBorder:LvimUiPeekBorder"
 
     render_chrome(state, L)
@@ -701,9 +814,15 @@ local function open_windows(state)
     for i, pan in ipairs(state.panels) do
         local pl = L.panels[i]
         pan.buf = api.nvim_create_buf(false, true)
-        -- "hide" not "wipe": an external-buffer panel (preview) swaps its window to a real file buffer,
-        -- which would WIPE a `wipe` scratch buf out from under the still-pending keymaps. Deleted in close.
-        vim.bo[pan.buf].bufhidden = "hide"
+        vim.bo[pan.buf].bufhidden = "hide" -- keep the scratch buffer alive while hidden; deleted in close()
+        -- `focusable = false`: the panels are NOT part of the user's native window navigation — `<C-w>`/
+        -- `<C-l>` must reach the surrounding editor splits, not land inside the peek. The frame focuses a
+        -- panel programmatically (`nvim_set_current_win`, which ignores `focusable`); the user enters via
+        -- the frame's own keys (`<C-o>` / focus_panel) and moves between panels with `<C-l>`/`<C-h>`.
+        -- In SPLIT mode the container is a REAL window, so the panel floats sit above it with NO elevated
+        -- zindex (default) — otherwise they'd also stack above unrelated floats (e.g. lvim-space) that open
+        -- over the docked area and hide them. In FLOAT mode the container IS a float, so the panels need
+        -- `zindex + 1` to stay above it.
         pan.win = api.nvim_open_win(pan.buf, i == 1, {
             relative = "editor",
             width = pl.width,
@@ -712,8 +831,10 @@ local function open_windows(state)
             col = pl.col,
             border = pl.border,
             style = "minimal",
-            zindex = state.zindex + 1,
+            focusable = false,
+            zindex = state.cfg.mode ~= "split" and (state.zindex + 1) or nil,
         })
+        vim.w[pan.win].lvim_frame = true -- managed UI window; "close all floats" helpers skip it (see container)
         if pan.provider and pan.provider.cursorline then
             vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:LvimUiPeekCursorLine"
             vim.wo[pan.win].cursorline = true
@@ -750,9 +871,19 @@ local function open_windows(state)
         end
     end
     --- Move LEFT/RIGHT between the center panels (`dir` = +1 / -1). Only meaningful inside the center.
+    --- Reads the REAL focused window (not just the tracked `center_panel`), so it works even when the
+    --- preview was focused without going through `focus_panel` (e.g. its own buffer keymaps).
     state.panel = function(dir)
-        local i = math.max(1, math.min((state.center_panel or 1) + dir, #state.panels))
-        if i ~= state.center_panel then
+        local w = api.nvim_get_current_win()
+        local base = state.center_panel or 1
+        for i, pan in ipairs(state.panels) do
+            if pan.win == w then
+                base = i
+                break
+            end
+        end
+        local i = math.max(1, math.min(base + dir, #state.panels))
+        if i ~= base then
             focus_panel_win(state, i)
         end
     end
@@ -827,6 +958,39 @@ local function open_windows(state)
             end
         end,
     })
+    -- Re-fit on resize. Only relayout when the CONTAINER itself was resized (the user dragging the split):
+    -- relayout then resizes the floats, whose own WinResized events DON'T include the container, so there
+    -- is no feedback loop. VimResized (terminal size change) always reflows.
+    api.nvim_create_autocmd("WinResized", {
+        group = state.augroup,
+        callback = function()
+            if state._closed then
+                return
+            end
+            for _, w in ipairs(vim.v.event.windows or {}) do
+                if w == state.container_win then
+                    relayout(state)
+                    return
+                end
+            end
+        end,
+    })
+    api.nvim_create_autocmd("VimResized", {
+        group = state.augroup,
+        callback = function()
+            if not state._closed then
+                relayout(state)
+            end
+        end,
+    })
+    -- Drop / restore the focused-bar selection highlight as focus leaves / re-enters the frame, so a
+    -- header button never looks hovered while the user is back in a normal buffer.
+    local function set_blur(b)
+        if state._blurred ~= b then
+            state._blurred = b
+            render_chrome(state, state._geom)
+        end
+    end
     -- Cursor hygiene: the frame hides the hardware cursor while a list panel is focused, so when focus
     -- moves OUT of the frame (e.g. `<C-w>w` to the editor above a docked split) the cursor must come
     -- back, and re-hide on return. A list-style panel hides it; any other window shows it; the bar-menu
@@ -839,10 +1003,23 @@ local function open_windows(state)
             end
             local w = api.nvim_get_current_win()
             if w == state.container_win then
+                set_blur(false)
+                -- Native window nav landed on the chrome split (e.g. `<C-w>j` from the editor above) — the
+                -- user means "step into the panel". Land on the FIRST sector (the top header bar) so entry
+                -- is step-by-step (header → center → footer via `<C-j>`), not a jump straight to the center.
+                -- A frame-driven bar focus sets `_focusing_bar`, so it stays on the chrome as intended.
+                if not state._focusing_bar then
+                    vim.schedule(function()
+                        if not state._closed and api.nvim_get_current_win() == state.container_win then
+                            focus_sector(state, 1)
+                        end
+                    end)
+                end
                 return
             end
             for _, pan in ipairs(state.panels) do
                 if pan.win == w then
+                    set_blur(false)
                     if pan.provider and pan.provider.hide_cursor then
                         hide_cursor(state)
                     else
@@ -851,6 +1028,8 @@ local function open_windows(state)
                     return
                 end
             end
+            -- Focus left the frame entirely → clear the selection highlight and restore the cursor.
+            set_blur(true)
             show_cursor(state)
         end,
     })
@@ -867,6 +1046,14 @@ local function close(state)
         pcall(api.nvim_del_augroup_by_id, state.augroup)
     end
     show_cursor(state)
+    -- Let providers release any external state before we drop the windows (the frame's own scratch panel
+    -- buffers are deleted below, taking their keymaps/extmarks with them, but a provider may hold things
+    -- outside them — e.g. autocommands, or keymaps on a real buffer).
+    for _, pan in ipairs(state.panels or {}) do
+        if pan.provider and pan.provider.on_close then
+            pcall(pan.provider.on_close, pan)
+        end
+    end
     for _, pan in ipairs(state.panels or {}) do
         if pan.win and api.nvim_win_is_valid(pan.win) then
             pcall(api.nvim_win_close, pan.win, true)
