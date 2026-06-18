@@ -199,7 +199,12 @@ function M.open(opts)
 
     ui.tabs({
         title = "Quit",
-        subtitle = #unsaved .. " file(s) with unsaved changes",
+        subtitle = {
+            text = #unsaved .. " file(s) with unsaved changes",
+            type = "error", -- red fg, no bg
+            icon = "", -- nf-cod-warning (U+EA6C): outline warning triangle with exclamation
+            blank_below = true, -- one empty row under the warning
+        },
         -- `<Enter>` toggles the focused file row (handled by the form); `q` quits WITHOUT saving; `<Esc>`
         -- just dismisses the dialog (stays in neovim).
         close_keys = { "<Esc>" },

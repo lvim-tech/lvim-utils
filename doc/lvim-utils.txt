@@ -140,6 +140,10 @@ Modes: `select`, `multiselect`, `input`, `confirm`, `tabs`, `info`.
 <
 `ui.confirm{ prompt, yes?, no?, default_no?, callback = fun(yes) }` is a yes/no dialog;
 cancelling resolves to `false`.
+`subtitle` is a message line under the title — a string, ONE table
+`{ text, type?, hl?, icon?, blank_below? }`, or a LIST of them (multi-line). `type` ∈
+"info" (blue) | "warn" (orange) | "error" (red), all fg-only; `hl` overrides; `icon`
+is fronted when given; `blank_below` adds an empty row beneath.
 The tabs header bar and the footer hint bar scroll / wrap to fit a narrow popup: the tab
 bar windows around the active tab (with `  ` chevrons for hidden tabs) and the footer
 hints wrap into an aligned column grid. See the README for the full per-mode option
@@ -237,6 +241,9 @@ engine delegates its cursor hiding here. Two lists:
   ft        hide whenever such a buffer is visible in ANY window (transient popups)
   panel_ft  hide ONLY while that buffer is the CURRENT window (persistent side panels)
 `mark_input_buffer(buf, true)` keeps the cursor VISIBLE in an input field.
+`mark_hide_buffer(buf, true)` HIDES the cursor while that buffer is the current
+window — by handle, for floats whose filetype is shared (e.g. a markdown hover)
+and so cannot be registered via `panel_ft`.
 >lua
   require("lvim-utils.cursor").setup({
       ft = { "lvim-ui-frame", "neo-tree" },

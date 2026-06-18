@@ -42,14 +42,18 @@ return function(c)
         LvimUiNormal = { bg = panel_bg, fg = c.fg },
         LvimUiBorder = { bg = panel_bg, fg = c.blue },
         LvimUiSeparator = { fg = c.red }, -- the ────── divider row between groups in a list/form
-        LvimUiCursorLine = { bg = c.bg }, -- active list row (neutral, no tint)
+        LvimUiCursorLine = { bg = mtint(c.blue, 0.1) }, -- active list row (blue tint)
         LvimUiInput = { bg = c.bg_input, fg = c.fg },
 
         -- Title block (title = STRONG; subtitle / info = BODY). The optional title icon is its
         -- own box: same blue as the title text, with a 0.5 tint (matching the active tab icon).
         LvimUiTitle = { fg = c.blue, bg = mtint(c.blue, STRONG), bold = true },
         LvimUiTitleIcon = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
-        LvimUiSubtitle = { fg = c.orange, bg = mtint(c.orange, BODY) },
+        LvimUiSubtitle = { fg = c.yellow, bg = mtint(c.yellow, BODY) },
+        -- Semantic subtitle variants — fg only (NO bg), one per `type`: info=blue, warn=orange, error=red.
+        LvimUiSubtitleInfo = { fg = c.blue },
+        LvimUiSubtitleWarn = { fg = c.orange },
+        LvimUiSubtitleError = { fg = c.red },
         LvimUiInfo = { fg = c.yellow, bg = mtint(c.yellow, BODY) },
 
         -- Tab bar. The ICON box is the BLUE key-badge accent (follows the footer `q close` key style);
@@ -177,7 +181,7 @@ return function(c)
         -- CursorLineNr (see ui/peek.lua dress()), so the preview reads like a normal buffer.
         LvimUiPeekText = { fg = c.fg },
         LvimUiPeekGuide = { fg = c.comment },
-        LvimUiPeekCursorLine = { fg = c.yellow, bg = c.bg }, -- list hover row: yellow TEXT (matches the row icon), default bg
+        LvimUiPeekCursorLine = { fg = c.yellow, bg = mtint(c.blue, 0.1) }, -- list hover row: yellow TEXT + blue tint bg
         LvimUiPeekMatch = { fg = c.blue, bg = mtint(c.blue, 0.25), bold = true },
         -- Footer key hints on the container's bottom border: each key is a blue 0.3-tint badge,
         -- its label a yellow 0.2-tint box — matching the LvimUiFooter* convention.

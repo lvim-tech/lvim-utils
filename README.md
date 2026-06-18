@@ -130,6 +130,7 @@ require("lvim-utils.cursor").setup({
 | --------------------------------- | ----------------------------------------------------------- |
 | `setup(opts)`                     | Register `ft` / `panel_ft` filetypes and install autocmds   |
 | `mark_input_buffer(bufnr, value)` | Keep the cursor VISIBLE in a buffer (e.g. a text-input field) even if its filetype is registered |
+| `mark_hide_buffer(bufnr, value)`  | HIDE the cursor while a buffer is the current window — by handle, for floats whose filetype is shared (e.g. a markdown hover) and so cannot be registered via `panel_ft` |
 | `update()`                        | Force-refresh cursor state                                  |
 
 ---
@@ -366,6 +367,20 @@ require("lvim-utils.ui").tabs({
         -- snapshot = table<name, value> for all named rows
     end,
 })
+```
+
+**Subtitle** — an optional message line (or lines) under the title. A plain string uses the
+default style; a table picks a semantic colour via `type` (`"info"` blue · `"warn"` orange ·
+`"error"` red, all fg-only) or a custom `hl`, may be fronted by an `icon`, and can add a blank
+row beneath with `blank_below`. Pass a list of such tables for a multi-line subtitle:
+
+```lua
+subtitle = { text = "3 file(s) with unsaved changes", type = "error", icon = "", blank_below = true }
+-- or multi-line:
+subtitle = {
+    { text = "Review the changes below", type = "info" },
+    { text = "Unsaved work will be lost", type = "warn" },
+}
 ```
 
 **Row fields**
@@ -868,7 +883,10 @@ separators). Adjust both via `setup({ ui = { tint = { strong = 0.2, light = 0.1 
 | `LvimUiBorder`              | Popup border                                |
 | `LvimUiSeparator`           | Header / footer separator lines             |
 | `LvimUiTitle`               | Popup title                                 |
-| `LvimUiSubtitle`            | Popup subtitle                              |
+| `LvimUiSubtitle`            | Popup subtitle (default, yellow)            |
+| `LvimUiSubtitleInfo`        | Subtitle `type = "info"` (blue, fg only)    |
+| `LvimUiSubtitleWarn`        | Subtitle `type = "warn"` (orange, fg only)  |
+| `LvimUiSubtitleError`       | Subtitle `type = "error"` (red, fg only)    |
 | `LvimUiInfo`                | Info line below subtitle                    |
 | `LvimUiCursorLine`          | Selected row background                     |
 | `LvimUiInput`               | Input field row                             |

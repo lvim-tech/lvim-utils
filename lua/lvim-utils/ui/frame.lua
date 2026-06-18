@@ -257,15 +257,22 @@ local function compute_geom(state, place)
     local H = place and place.H or util.axis_size(cfg.auto_height, cfg.height, cfg.max_height, content_h, vim.o.lines)
     H = math.max(H, min_h)
 
-    -- Float: centre on screen. Split: the container window's actual screen position (passed in `place`).
-    local row = place and place.row or math.max(1, math.floor((vim.o.lines - H) / 2 - 1))
-    local col = place and place.col or math.max(1, math.floor((vim.o.columns - W) / 2))
-    -- A bottom/top-docked FLOAT spans the full width and anchors to that edge — a docked panel WITHOUT a
-    -- real window split, so there is NO native separator / statusline boundary above it.
-    if not place and (cfg.position == "bottom" or cfg.position == "top") then
+    -- Float placement. Split: the container's actual screen position (passed in `place`). Otherwise by
+    -- `cfg.position`: "cursor"/"win" via util.calc_pos (cursor = below the cursor when it fits, else above;
+    -- win = centred in the current window), "bottom"/"top" docked to that edge (full width), else centred
+    -- on the whole editor. calc_pos takes the TOTAL footprint (content + the container's border insets).
+    local row, col
+    if place then
+        row, col = place.row, place.col
+    elseif cfg.position == "cursor" or cfg.position == "win" then
+        row, col = util.calc_pos(H + ct + cb, W + cl + cr, cfg.position)
+    elseif cfg.position == "bottom" or cfg.position == "top" then
         W = vim.o.columns - cl - cr
         col = 0
         row = cfg.position == "bottom" and math.max(0, vim.o.lines - H - ct - cb - 1) or 0
+    else
+        row = math.max(1, math.floor((vim.o.lines - H) / 2 - 1))
+        col = math.max(1, math.floor((vim.o.columns - W) / 2))
     end
     local cc_row, cc_col = row + ct, col + cl
     local center_top = cc_row + header_h
@@ -900,7 +907,9 @@ local function open_windows(state)
         -- can reach the content panel. zindex: in SPLIT the container is a REAL window, so the floats sit
         -- above it at the default (else they'd stack over unrelated floats like lvim-space); in FLOAT the
         -- container IS a float, so the panels need `zindex + 1` to stay above it.
-        pan.win = api.nvim_open_win(pan.buf, i == 1, {
+        -- Enter the first panel on open — UNLESS `cfg.enter == false` (a non-focusing float like a hover:
+        -- it appears but the cursor stays in the editor; a later `st.focus_block()` enters it).
+        pan.win = api.nvim_open_win(pan.buf, i == 1 and state.cfg.enter ~= false, {
             relative = "editor",
             width = pl.width,
             height = pl.height,
@@ -1039,7 +1048,13 @@ local function open_windows(state)
         return false
     end
     set_keys(state)
-    focus_sector(state, center_idx() or 1)
+    -- A non-focusing float (`enter == false`) leaves the cursor in the editor — record the center panel but
+    -- do NOT focus it; the consumer focuses later (e.g. a hover entered on the 2nd keypress).
+    if state.cfg.enter == false then
+        state.center_panel = center_idx() or 1
+    else
+        focus_sector(state, center_idx() or 1)
+    end
 
     -- Closing any frame window externally (`:q`, a programmatic close) tears the whole frame down once.
     state.augroup = api.nvim_create_augroup("LvimUiFrame_" .. tostring(state.container_win), { clear = true })

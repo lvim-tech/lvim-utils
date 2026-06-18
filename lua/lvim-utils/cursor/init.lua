@@ -17,6 +17,8 @@ local api = vim.api
 ---@class CursorState
 ---@field fts            table<string, boolean>   Popup filetypes: hide whenever visible in ANY window
 ---@field panel_fts      table<string, boolean>   Panel filetypes: hide only while one is the CURRENT window
+---@field hide_buffers   table<integer, boolean>  Buffers that hide the cursor while CURRENT (by handle, not
+---                                                filetype — e.g. a hover/diagnostic float whose ft is shared)
 ---@field input_buffers  table<integer, boolean>  Buffers explicitly marked as input (never hidden)
 ---@field augroup        integer|nil              Autocmd group handle
 ---@field saved_guicursor string|nil             Original guicursor value saved before hiding
@@ -27,6 +29,7 @@ local state = {
     fts = {},
     panel_fts = {}, -- "current-only" filetypes: hide the cursor ONLY while one is the CURRENT window (a
     -- persistent side panel like the outline), NOT globally whenever it is visible somewhere
+    hide_buffers = {}, -- "current-only" by BUFFER HANDLE (for floats whose filetype can't be dedicated)
     input_buffers = {},
     augroup = nil,
     saved_guicursor = nil,
@@ -80,6 +83,9 @@ local function is_hidden_buffer(buf)
     end
     if not api.nvim_buf_is_valid(buf) then
         return false
+    end
+    if state.hide_buffers[buf] == true then
+        return true
     end
     local ft = vim.bo[buf].filetype
     return ft ~= nil and (state.fts[ft] == true or state.panel_fts[ft] == true)
@@ -152,6 +158,15 @@ function M.mark_input_buffer(bufnr, value)
     vim.schedule(update)
 end
 
+--- Mark or unmark a buffer to HIDE the cursor while it is the current window — by buffer handle, for floats
+--- (hover / diagnostic) whose filetype is shared (e.g. markdown) and so cannot be registered via `panel_ft`.
+---@param bufnr integer
+---@param value boolean|nil  true to hide while current, nil/false to stop
+function M.mark_hide_buffer(bufnr, value)
+    state.hide_buffers[bufnr] = value or nil
+    vim.schedule(update)
+end
+
 --- Force-refresh cursor visibility. Exported so the UI module can call it
 --- immediately after nvim_open_win to prevent the one-frame cursor flash.
 M.update = update
@@ -187,6 +202,7 @@ local function refresh_autocmds()
         group = state.augroup,
         callback = function(ev)
             state.input_buffers[ev.buf] = nil
+            state.hide_buffers[ev.buf] = nil
             vim.schedule(update)
         end,
     })

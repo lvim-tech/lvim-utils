@@ -31,12 +31,16 @@ local M = {}
 ---@field tabs? table[]              -- tabs: { { label, icon?, rows } , … }
 ---@field callback? fun(...): any    -- result callback (signature varies per presenter)
 ---@field on_change? fun(row: table) -- tabs: fired on every typed-row edit
----@field subtitle? string           -- tabs: a message line under the title
+---@field subtitle? string|table|table[]  -- tabs: message line(s) under the title. A string, ONE line `{ text, type?, hl?, icon?, blank_below? }`, or a LIST of such lines. `type` ∈ "info"|"warn"|"error" (predefined fg colour); `hl` overrides; `icon` is fronted when given.
 ---@field default? any               -- input: initial value
 ---@field value? any                 -- input: alias for default
 ---@field prompt? string             -- input: prompt → title fallback
----@field width? number              -- max width (fraction ≤1 or count)
----@field height? number             -- max height
+---@field width? number              -- info: FIXED width (fraction ≤1 or count)
+---@field height? number             -- info: FIXED height (fraction ≤1 or count)
+---@field max_width? number          -- auto-fit cap (fraction ≤1 or count)
+---@field max_height? number         -- auto-fit cap (fraction ≤1 or count)
+---@field position? string           -- "cursor" (anchor at the cursor) | "win" | "bottom" | "top" | nil (centred)
+---@field enter? boolean             -- false → open without focusing (cursor stays in the editor, e.g. hover)
 ---@field border? any                -- frame border override
 ---@field close_keys? string[]       -- keys that close the frame
 ---@field keymaps? table[]           -- extra frame-wide keymaps { { key, run } }
@@ -45,6 +49,9 @@ local M = {}
 ---@field footer? boolean            -- info: false → no footer
 ---@field footer_items? table[]      -- info: extra footer action buttons { { key, name, run } } before `q close`
 ---@field hide_cursor? boolean       -- info: hide the hardware cursor (read-only viewer)
+---@field wrap? boolean              -- info: enable line wrap in the window (default off)
+---@field filetype? string           -- info: set the buffer filetype (e.g. "markdown" → treesitter colours)
+---@field markview? boolean          -- info: render the content as markdown via markview.nvim
 
 -- The canonical popup border: a top " " edge (for the native border-title / brand) plus a " " gutter on
 -- the LEFT and RIGHT (no bottom, no ring) so the content breathes off the window edges. Titles are always
@@ -118,10 +125,14 @@ function M.select(opts)
 
     return frame.open({
         mode = "float",
+        position = opts.position, -- nil = centred; "cursor" anchors at the cursor (e.g. the code-action picker)
         border = FRAME_BORDER,
         title = opts.title or "Select", -- a plain string → a single blue-tinted border-title text box
         panel_border = "none",
-        size = { width = { auto = true, max = 0.6 }, height = { auto = true, max = 0.6 } },
+        size = {
+            width = { auto = true, max = opts.max_width or 0.6 },
+            height = { auto = true, max = opts.max_height or 0.6 },
+        },
         content = { blocks = { { id = "list", provider = provider } } },
         footer = {
             bars = {
@@ -367,6 +378,46 @@ function M.confirm(opts)
     })
 end
 
+--- Semantic subtitle `type` → its (fg-only) highlight group. A line may instead carry an explicit `hl`.
+---@type table<string, string>
+local SUBTITLE_TYPES = {
+    info = "LvimUiSubtitleInfo", -- blue
+    warn = "LvimUiSubtitleWarn", -- orange
+    error = "LvimUiSubtitleError", -- red
+}
+
+--- Normalise `opts.subtitle` into header meta bars. Accepts a plain string, a single line table
+--- `{ text, type?, hl?, icon?, blank_below? }`, or a LIST of such lines (a multi-line subtitle). Each line's
+--- colour is its explicit `hl`, else its `type`'s predefined group, else the default `LvimUiSubtitle`; an
+--- `icon` (optional, never implied by a type) is fronted; `blank_below` adds an empty row beneath the line.
+---@param subtitle string|table|nil
+---@return table[]
+local function subtitle_bars(subtitle)
+    if not subtitle then
+        return {}
+    end
+    ---@type table
+    local list
+    if type(subtitle) ~= "table" or subtitle.text then
+        list = { subtitle } -- a single line (string or `{ text = … }`) → a one-element list
+    else
+        list = subtitle -- already a LIST of line specs
+    end
+    local out = {}
+    for _, ln in ipairs(list) do
+        if type(ln) == "string" then
+            out[#out + 1] = { text = ln, hl = "LvimUiSubtitle" }
+        else
+            local hl = ln.hl or (ln.type and SUBTITLE_TYPES[ln.type]) or "LvimUiSubtitle"
+            out[#out + 1] = { text = (ln.icon and (ln.icon .. "  ") or "") .. (ln.text or ""), hl = hl }
+            if ln.blank_below then
+                out[#out + 1] = { text = "" } -- one empty meta band = a blank row under this line
+            end
+        end
+    end
+    return out
+end
+
 --- Tabbed / form view on a `frame`: the center is a `form` provider of the active tab's typed rows;
 --- the tab's ACTION rows become the navigable FOOTER (so `<C-j>` reaches them, scrolling on a narrow
 --- popup); a tab bar in the header (when more than one tab) switches the row set live with `h`/`l`.
@@ -443,8 +494,8 @@ function M.tabs(opts)
     -- TITLE is the frame's border-title, not a header bar.
     local bars = {}
     local set_active_tab -- (multi-tab) switch to a tab; shared by the tab bar and the body l/h keymaps
-    if opts.subtitle then
-        bars[#bars + 1] = { text = opts.subtitle, hl = "LvimUiSubtitle" }
+    for _, b in ipairs(subtitle_bars(opts.subtitle)) do
+        bars[#bars + 1] = b
     end
     if #tabset > 1 then
         local tab_btns = {}
@@ -577,6 +628,40 @@ function M.info(content, opts)
         end,
         keys = function(_, p)
             buf_ref, win_ref = p.buf, p.win
+            -- Line wrap is window-local — off by default (a viewer); a consumer may enable it (e.g. hover).
+            if p.win and vim.api.nvim_win_is_valid(p.win) then
+                vim.wo[p.win].wrap = opts.wrap == true
+            end
+            if opts.markview then
+                -- Optional, explicit opt-in: render the WHOLE content buffer with markview.nvim (the frame
+                -- keeps header/footer in separate buffers, so there is no row offset). Its decorations add
+                -- virtual lines, so the rendered content can be taller than the raw line count.
+                local pr_ok, mv_parser = pcall(require, "markview.parser")
+                local rn_ok, mv_renderer = pcall(require, "markview.renderer")
+                if pr_ok and rn_ok then
+                    vim.bo[p.buf].filetype = "markdown"
+                    local ac_ok, mv_actions = pcall(require, "markview.actions")
+                    if ac_ok then
+                        pcall(mv_actions.clear, p.buf)
+                    end
+                    local ok2, content = pcall(mv_parser.parse, p.buf, 0, -1, true)
+                    if ok2 and content then
+                        pcall(mv_renderer.render, p.buf, content)
+                    end
+                end
+            elseif opts.filetype then
+                -- Colour via the treesitter highlighter DIRECTLY — NEVER `:set filetype`. Setting the
+                -- filetype would fire markview's auto-attach (it gates on `filetype`), which boxes code
+                -- blocks with virtual lines + cursor-aware conceal. treesitter gives the same colours
+                -- (headers, emphasis, fenced-code injections) with none of that. `conceallevel = 2` lets the
+                -- markdown query hide the ``` fence delimiters (whole lines, via `conceal_lines`) and inline
+                -- backticks; `concealcursor` keeps them hidden STABLY — never revealed on the cursor line.
+                pcall(vim.treesitter.start, p.buf, opts.filetype)
+                if p.win and vim.api.nvim_win_is_valid(p.win) then
+                    vim.wo[p.win].conceallevel = 2
+                    vim.wo[p.win].concealcursor = "nvic"
+                end
+            end
             if opts.on_open then
                 opts.on_open(p.buf, p.win)
             end
@@ -597,16 +682,19 @@ function M.info(content, opts)
     }
     frame.open({
         mode = "float",
+        enter = opts.enter, -- false → open WITHOUT focusing (cursor stays in the editor, e.g. hover)
+        position = opts.position, -- nil = centred; "cursor" anchors at the cursor (e.g. hover), "win", …
         border = opts.border or FRAME_BORDER,
         title = opts.title ~= false and (opts.title or "Info") or nil, -- border-title, blue-tinted
         close_keys = opts.close_keys,
         keymaps = opts.keymaps,
         panel_border = "none",
         -- A given `width` / `height` is FIXED (a clean rectangle — e.g. the LSP info viewer, whose folded
-        -- height the consumer computes); else auto-fit (capped 0.7 / 0.85).
+        -- height the consumer computes); else auto-fit to content, capped by `max_width` / `max_height`
+        -- (fraction ≤ 1 or absolute count; default 0.7 / 0.85). A cursor-anchored hover passes a tight cap.
         size = {
-            width = opts.width and { fixed = opts.width } or { auto = true, max = 0.7 },
-            height = opts.height and { fixed = opts.height } or { auto = true, max = 0.85 },
+            width = opts.width and { fixed = opts.width } or { auto = true, max = opts.max_width or 0.7 },
+            height = opts.height and { fixed = opts.height } or { auto = true, max = opts.max_height or 0.85 },
         },
         content = { blocks = { { id = "info", provider = provider } } },
         footer = opts.footer == false and nil or { bars = { { items = footer_items } } },
