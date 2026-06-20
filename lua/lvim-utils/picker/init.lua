@@ -780,6 +780,7 @@ end
 --- jumps to the matched line; confirming opens the file at that line. `opts` forwarded to open.
 ---@param opts? table
 function M.grep(opts)
+    opts = opts or {}
     if not has("rg") then
         vim.notify("lvim-utils.picker.grep needs ripgrep (rg)", vim.log.levels.WARN)
         return
@@ -791,27 +792,31 @@ function M.grep(opts)
                 cb({})
                 return
             end
-            vim.system(
-                { "rg", "--vimgrep", "--smart-case", "--color=never", "--", query },
-                { text = true },
-                function(res)
-                    vim.schedule(function()
-                        local out = {}
-                        for line in (res.stdout or ""):gmatch("[^\n]+") do
-                            local file, lnum, col, text = line:match("^(.-):(%d+):(%d+):(.*)$")
-                            if file then
-                                out[#out + 1] = {
-                                    text = ("%s:%s  %s"):format(file, lnum, text),
-                                    path = file,
-                                    lnum = tonumber(lnum),
-                                    col = tonumber(col),
-                                }
-                            end
+            -- `--fixed-strings`: match the query LITERALLY (so `vim.notify("x")` finds that exact text — its
+            -- `.` `(` `)` `"` are not regex metacharacters). Set `opts.regex = true` for a regex search.
+            local rg = { "rg", "--vimgrep", "--smart-case", "--color=never" }
+            if not opts.regex then
+                rg[#rg + 1] = "--fixed-strings"
+            end
+            rg[#rg + 1] = "--"
+            rg[#rg + 1] = query
+            vim.system(rg, { text = true }, function(res)
+                vim.schedule(function()
+                    local out = {}
+                    for line in (res.stdout or ""):gmatch("[^\n]+") do
+                        local file, lnum, col, text = line:match("^(.-):(%d+):(%d+):(.*)$")
+                        if file then
+                            out[#out + 1] = {
+                                text = ("%s:%s  %s"):format(file, lnum, text),
+                                path = file,
+                                lnum = tonumber(lnum),
+                                col = tonumber(col),
+                            }
                         end
-                        cb(out)
-                    end)
-                end
-            )
+                    end
+                    cb(out)
+                end)
+            end)
         end,
         preview = function(it)
             local lines, ft = read_preview(it.path)
