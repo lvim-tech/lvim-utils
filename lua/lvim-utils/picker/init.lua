@@ -126,15 +126,14 @@ function M.open(opts)
 
     -- Kill the "↳" continuation marker on wrapped rows WITHOUT touching the user's global `showbreak`: the
     -- special window-local value "NONE" disables showbreak for THIS window only (an empty "" would just
-    -- revert to the global) — no marker, no leading space, no global mutation. `breakindent` then aligns
-    -- each wrapped row under its first line's text (the row's 1-space lead), so continuations don't fall
-    -- back to column 0.
+    -- revert to the global) — no marker, no global mutation. (No `breakindent`: its virtual indent draws no
+    -- text and so cannot carry the row tint — it would leave an un-tinted notch; instead continuations sit
+    -- at column 0 as REAL wrapped text, fully covered by the row's `hl_eol` stripe.)
     local function tame_win(win, wrap)
         if win and api.nvim_win_is_valid(win) then
             vim.wo[win].wrap = wrap or false
             vim.wo[win].list = false
             vim.wo[win].showbreak = "NONE"
-            vim.wo[win].breakindent = wrap or false
         end
     end
 
