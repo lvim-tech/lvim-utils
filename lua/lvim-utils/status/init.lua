@@ -32,7 +32,8 @@ local function build()
     pair("LvimUiStatusTitle", c.blue) -- the action title (+ its icon badge)
     pair("LvimUiStatusCount", c.green) -- the match counter
     pair("LvimUiStatusAction", c.yellow) -- the free-form action / query
-    pair("LvimUiStatusSubtitle", c.cyan) -- a per-selection subtitle (e.g. the focused file name)
+    -- a per-selection subtitle (e.g. the focused file name) — BOLD so the file stands out next to the title
+    g.LvimUiStatusSubtitle = { fg = c.cyan, bg = b(c.cyan, bg, 0.1), bold = true }
     return g
 end
 
