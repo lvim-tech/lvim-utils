@@ -129,10 +129,45 @@ function M.open(opts)
     local function list_h()
         return math.max(1, math.min(#state.filtered, maxr))
     end
+
+    -- Each panel carries a WINBAR title, the lvim-lsp peek look: the list shows the title + result count,
+    -- the preview shows the selected file (tail + dir). `%%` escapes a literal `%` in a name.
+    local function esc(s)
+        return (tostring(s or ""):gsub("%%", "%%%%"))
+    end
+    local function set_list_winbar()
+        local p = state.list_pan
+        if p and p.win and api.nvim_win_is_valid(p.win) then
+            vim.wo[p.win].winbar = ("%%#LvimUiPeekTitle# %s %%#LvimUiPeekCount# %d %%#LvimUiPeekFileBar#%%="):format(
+                esc(opts.title or "Pick"),
+                #state.filtered
+            )
+        end
+    end
+    local function set_preview_winbar(pan, it)
+        if not (pan and pan.win and api.nvim_win_is_valid(pan.win)) then
+            return
+        end
+        if it and it.path and it.path ~= "" then
+            local rel = vim.fn.fnamemodify(it.path, ":~:.")
+            local tail = vim.fn.fnamemodify(rel, ":t")
+            local dir = vim.fn.fnamemodify(rel, ":h")
+            dir = (dir == "." or dir == "") and "" or (dir .. "/")
+            vim.wo[pan.win].winbar = ("%%#LvimUiPeekFile# %s %%#LvimUiPeekDir#%s%%#LvimUiPeekFileBar#%%="):format(
+                esc(tail),
+                esc(dir)
+            )
+        else
+            vim.wo[pan.win].winbar = ("%%#LvimUiPeekFile# %s %%#LvimUiPeekFileBar#%%="):format(
+                esc(it and it.text or "")
+            )
+        end
+    end
+
     local list_provider = {
         cursorline = false,
         size = function()
-            return math.max(30, math.floor(vim.o.columns * 0.32)), list_h()
+            return math.max(30, math.floor(vim.o.columns * 0.32)), list_h() + 1 -- +1 for the winbar row
         end,
         render = function()
             local lines, hls = {}, {}
@@ -155,6 +190,7 @@ function M.open(opts)
         end,
         keys = function(_, pan, st)
             state.list_pan, state.st = pan, st
+            set_list_winbar()
         end,
     }
 
@@ -164,11 +200,12 @@ function M.open(opts)
     local preview_provider = opts.preview
             and {
                 size = function()
-                    -- match the list height so the panels stay level and the finder fits the results
-                    return math.max(40, math.floor(vim.o.columns * 0.5)), list_h()
+                    -- match the list height so the panels stay level (+1 winbar row, like the list)
+                    return math.max(40, math.floor(vim.o.columns * 0.5)), list_h() + 1
                 end,
                 update = function(pan)
                     local it = state.filtered[state.sel]
+                    set_preview_winbar(pan, it and it._src or nil)
                     local lines, ft, focus = nil, nil, nil
                     if it then
                         lines, ft, focus = opts.preview(it._src)
@@ -235,6 +272,7 @@ function M.open(opts)
         if state.list_pan and state.list_pan.refresh then
             state.list_pan.refresh()
         end
+        set_list_winbar() -- the result count in the winbar follows the new list
         set_list_cursor()
         update_preview()
         publish_status() -- new total + reset counter + query as the action
