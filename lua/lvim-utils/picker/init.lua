@@ -313,6 +313,11 @@ function M.open(opts)
                         and (odd and hl("sel_odd", "LvimUiMsgAreaSelOdd") or hl("sel_even", "LvimUiMsgAreaSelEven"))
                     or (odd and hl("row_odd", "LvimUiMsgAreaRowOdd") or hl("row_even", "LvimUiMsgAreaRowEven"))
                 hls[#hls + 1] = { i - 1, 0, -1, stripe, sel and 200 or 100 } -- full-row tint (eol)
+                -- the leading glyph keeps its OWN colour (e.g. diagnostic severity signs) — above the row
+                -- stripe (incl. the selected row's strong tint) so it shows through; the row is ` <icon> …`.
+                if it.icon and it.icon ~= "" and it.icon_hl then
+                    hls[#hls + 1] = { i - 1, 1, 1 + #it.icon, it.icon_hl, 210 }
+                end
                 for _, ms in ipairs(spans) do
                     hls[#hls + 1] = { i - 1, ms.c0, ms.c1, hl("match", "LvimUiMsgAreaMatch"), 250 }
                 end
