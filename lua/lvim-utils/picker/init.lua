@@ -89,6 +89,7 @@ end
 ---@field on_cancel? fun()  called when the finder is dismissed without a choice
 ---@field format? fun(item: any): string  display text for a table item (default: `item.text`)
 ---@field preview? fun(item: any): string[], string?, integer?  preview lines (+ a filetype, + a 1-based focus line) per selection
+---@field preview_file? boolean  preview the item's REAL file buffer (EDITABLE, 2-way synced) instead of `preview` lines; items need `path` (+ lnum/col)
 ---@field preview_side? "right"|"left"|"below"|"above"  where the preview sits (default "right"); below/above stack + grow height
 ---@field preview_numbers? boolean  show line numbers in the preview (default true)
 ---@field preview_wrap? boolean  soft-wrap the preview (default false)
@@ -211,6 +212,10 @@ function M.open(opts)
         return math.min(#state.filtered, maxr) -- 0 when empty (no [no matches] body row)
     end
     local function preview_h()
+        -- the editable real-file preview wants the FULL height (room to edit), not the file's line count
+        if opts.preview_file then
+            return maxr
+        end
         return math.min(#state.preview_lines, maxr)
     end
     local function has_results()
@@ -379,10 +384,35 @@ function M.open(opts)
         end,
     }
 
-    -- preview panel (optional): the selected item's content, scrollable + syntax-highlighted. An `update`
-    -- provider OWNS its buffer, so it writes the lines AND sets the filetype — which fires FileType, so
-    -- treesitter / syntax colour the preview. `opts.preview(src)` returns `lines, filetype?`.
-    local preview_provider = opts.preview
+    -- preview panel (optional). Two flavours:
+    --   • `opts.preview_file` — the REAL file buffer (lvim-utils.ui.preview): fully EDITABLE, two-way in
+    --     sync with the file, its own `<C-h>`/`<C-l>` nav when focused. Items must carry `path` (+ lnum/col).
+    --   • `opts.preview(src)` — a read-only scratch buffer of the returned `lines` (+ filetype, focus line).
+    local preview_provider
+    if opts.preview_file then
+        local up = require("lvim-utils.ui.preview").new({
+            item = function()
+                local it = state.filtered[state.sel]
+                local s = it and it._src
+                return (s and s.path and s.path ~= "") and { filename = s.path, lnum = s.lnum, col = s.col } or nil
+            end,
+            number = (opts.preview_numbers == false) and "none" or "normal",
+        })
+        preview_provider = {
+            size = function()
+                return math.max(40, math.floor(vim.o.columns * 0.5)), panel_height()
+            end,
+            update = up.update,
+            on_close = up.on_close,
+            -- only capture the panel (for C-d/C-u scroll); the file buffer is editable, so we add NO keys
+            -- that would shadow `i`/`a` — ui.preview binds the panel-nav keys itself on focus.
+            keys = function(_, pan)
+                state.preview_pan = pan
+            end,
+        }
+    end
+    preview_provider = preview_provider
+        or opts.preview
             and {
                 size = function()
                     -- Both panels share the CONTENT height (the taller of list/preview, capped) so the
@@ -463,7 +493,8 @@ function M.open(opts)
     -- Fetch the CURRENT selection's preview content into the cache (so `content_h`/`size` know its line
     -- count before relayout, and `update` writes it). No preview, or no selection ⇒ empty.
     local function fetch_preview()
-        if not opts.preview then
+        if opts.preview_file or not opts.preview then
+            -- the editable file preview owns its buffer (ui.preview); no scratch lines to cache
             state.preview_lines, state.preview_ft, state.preview_focus = {}, nil, nil
             return
         end
