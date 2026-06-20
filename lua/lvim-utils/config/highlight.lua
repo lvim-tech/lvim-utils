@@ -66,6 +66,11 @@ return function(c)
         -- (+ bold) of its row's accent, one solid block. fg and bg share the colour ("fg = the tint").
         LvimUiMsgAreaItem = { fg = c.fg, bg = c.bg_dark }, -- a completion item row (the label)
         LvimUiMsgAreaItemKind = { fg = c.cyan, bg = c.bg_dark }, -- its kind icon (fallback when no source hl)
+        -- The finder PROMPT row: a leading icon/text badge (STRONG blue tint 0.3) then the typed area (light
+        -- blue tint 0.1) — the same "тинт, тинт" canon as the cmdline mode badge.
+        LvimUiPickerPrompt = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true }, -- the icon + label badge
+        LvimUiPickerInput = { fg = c.fg, bg = mtint(c.blue, 0.1) }, -- the typed-text area
+        LvimUiPickerSeparator = { fg = c.bg_light }, -- the panel divider — a muted grey, NOT the blue border
         LvimUiMsgAreaItemSource = { fg = c.comment, bg = c.bg_dark }, -- the right-aligned [source] tag, dim
         LvimUiMsgAreaRowOdd = { fg = c.blue, bg = mtint(c.blue, 0.1) }, -- odd grid row stripe (blue)
         LvimUiMsgAreaRowEven = { fg = c.yellow, bg = mtint(c.yellow, 0.1) }, -- even grid row stripe (yellow)

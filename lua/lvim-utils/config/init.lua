@@ -18,9 +18,10 @@ M.input = vim.deepcopy(require("lvim-utils.config.input"))
 M.msgarea = vim.deepcopy(require("lvim-utils.config.msgarea"))
 M.status = vim.deepcopy(require("lvim-utils.config.status"))
 M.fuzzy = vim.deepcopy(require("lvim-utils.config.fuzzy"))
+M.picker = vim.deepcopy(require("lvim-utils.config.picker"))
 
 ---Merge user-provided options into each module's config.
----@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, status?: table, fuzzy?: table }
+---@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, status?: table, fuzzy?: table, picker?: table }
 function M.setup(opts)
     opts = opts or {}
     if opts.ui then
@@ -54,6 +55,9 @@ function M.setup(opts)
         if opts.fuzzy.sort ~= nil then
             M.fuzzy.sort = opts.fuzzy.sort
         end
+    end
+    if opts.picker then
+        M.picker = vim.tbl_deep_extend("force", M.picker, opts.picker)
     end
 end
 

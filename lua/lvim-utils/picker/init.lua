@@ -12,6 +12,7 @@
 
 local api = vim.api
 local fuzzy = require("lvim-utils.fuzzy")
+local utils = require("lvim-utils.utils")
 local status = require("lvim-utils.status")
 
 local M = {}
@@ -82,6 +83,8 @@ end
 ---@field format? fun(item: any): string  display text for a table item (default: `item.text`)
 ---@field preview? fun(item: any): string[], string?, integer?  preview lines (+ a filetype, + a 1-based focus line) per selection
 ---@field preview_side? "right"|"left"|"below"|"above"  where the preview sits (default "right"); below/above stack + grow height
+---@field preview_numbers? boolean  show line numbers in the preview (default true)
+---@field preview_wrap? boolean  soft-wrap the preview (default false)
 ---@field title? string  the float title / the statusline action title
 ---@field icon? string  an optional leading glyph for the title (statusline)
 ---@field statusline? boolean  (docked layouts) publish title/counter/query to the bottom statusline (default true); false = draw them in the navigator
@@ -100,6 +103,23 @@ function M.open(opts)
     local items = normalize(opts.items, opts.format)
     local maxr = opts.max_rows or 15
     local state = { filtered = items, sel = 1, list_pan = nil, preview_pan = nil, st = nil, closed = false, query = "" }
+
+    -- Every highlight group is configurable + shared via `config.picker.hl` (fall back to the built-in
+    -- tint-canon / peek groups).
+    local phl = (require("lvim-utils.config").picker or {}).hl or {}
+    local function hl(key, default)
+        return phl[key] or default
+    end
+
+    -- The global `showbreak`/`wrap` would draw a "↳" continuation marker on a wrapped long row — kill it on
+    -- our windows (the list/input never wrap; the preview wraps but shows no marker).
+    local function tame_win(win, wrap)
+        if win and api.nvim_win_is_valid(win) then
+            vim.wo[win].wrap = wrap or false
+            vim.wo[win].list = false
+            vim.wo[win].showbreak = ""
+        end
+    end
 
     -- statusline integration (default ON): publish the title + match counter + query to the bottom
     -- statusline (lvim-utils.status) so it shows the current action, instead of the navigator drawing its
@@ -144,11 +164,14 @@ function M.open(opts)
         -- so the first list item isn't hidden under the prompt); the title/count live in the statusline.
         -- Without a preview the list owns its title bar.
         if opts.preview then
-            vim.wo[p.win].winbar = "%#LvimUiPeekFileBar# %="
+            vim.wo[p.win].winbar = ("%%#%s# %%="):format(hl("bar", "LvimUiPeekFileBar"))
         else
-            vim.wo[p.win].winbar = ("%%#LvimUiPeekTitle# %s %%#LvimUiPeekCount# %d %%#LvimUiPeekFileBar#%%="):format(
+            vim.wo[p.win].winbar = ("%%#%s# %s %%#%s# %d %%#%s#%%="):format(
+                hl("list_title", "LvimUiPeekTitle"),
                 esc(opts.title or "Pick"),
-                #state.filtered
+                hl("list_count", "LvimUiPeekCount"),
+                #state.filtered,
+                hl("bar", "LvimUiPeekFileBar")
             )
         end
     end
@@ -161,13 +184,18 @@ function M.open(opts)
             local tail = vim.fn.fnamemodify(rel, ":t")
             local dir = vim.fn.fnamemodify(rel, ":h")
             dir = (dir == "." or dir == "") and "" or (dir .. "/")
-            vim.wo[pan.win].winbar = ("%%#LvimUiPeekFile# %s %%#LvimUiPeekDir#%s%%#LvimUiPeekFileBar#%%="):format(
+            vim.wo[pan.win].winbar = ("%%#%s# %s %%#%s#%s%%#%s#%%="):format(
+                hl("preview_file", "LvimUiPeekFile"),
                 esc(tail),
-                esc(dir)
+                hl("preview_dir", "LvimUiPeekDir"),
+                esc(dir),
+                hl("bar", "LvimUiPeekFileBar")
             )
         else
-            vim.wo[pan.win].winbar = ("%%#LvimUiPeekFile# %s %%#LvimUiPeekFileBar#%%="):format(
-                esc(it and it.text or "")
+            vim.wo[pan.win].winbar = ("%%#%s# %s %%#%s#%%="):format(
+                hl("preview_file", "LvimUiPeekFile"),
+                esc(it and it.text or ""),
+                hl("bar", "LvimUiPeekFileBar")
             )
         end
     end
@@ -184,11 +212,12 @@ function M.open(opts)
                 lines[i] = row
                 local odd = (i % 2) == 1
                 local sel = i == state.sel
-                local stripe = sel and (odd and "LvimUiMsgAreaSelOdd" or "LvimUiMsgAreaSelEven")
-                    or (odd and "LvimUiMsgAreaRowOdd" or "LvimUiMsgAreaRowEven")
+                local stripe = sel
+                        and (odd and hl("sel_odd", "LvimUiMsgAreaSelOdd") or hl("sel_even", "LvimUiMsgAreaSelEven"))
+                    or (odd and hl("row_odd", "LvimUiMsgAreaRowOdd") or hl("row_even", "LvimUiMsgAreaRowEven"))
                 hls[#hls + 1] = { i - 1, 0, -1, stripe, sel and 200 or 100 } -- full-row tint (eol)
                 for _, ms in ipairs(spans) do
-                    hls[#hls + 1] = { i - 1, ms.c0, ms.c1, "LvimUiMsgAreaMatch", 250 }
+                    hls[#hls + 1] = { i - 1, ms.c0, ms.c1, hl("match", "LvimUiMsgAreaMatch"), 250 }
                 end
             end
             if #lines == 0 then
@@ -198,6 +227,7 @@ function M.open(opts)
         end,
         keys = function(_, pan, st)
             state.list_pan, state.st = pan, st
+            tame_win(pan.win, false) -- no wrap / no "↳" continuation marker on long rows
             set_list_winbar()
         end,
     }
@@ -236,6 +266,10 @@ function M.open(opts)
                 end,
                 keys = function(_, pan)
                     state.preview_pan = pan
+                    tame_win(pan.win, opts.preview_wrap == true) -- no "↳" marker; wrap off unless opted in
+                    if pan.win and api.nvim_win_is_valid(pan.win) then
+                        vim.wo[pan.win].number = opts.preview_numbers ~= false -- line numbers in the preview
+                    end
                 end,
             }
         or nil
@@ -293,7 +327,15 @@ function M.open(opts)
         local mygen = refilter_gen
         local function guarded(list)
             if mygen == refilter_gen then
-                apply(normalize(list, opts.format))
+                -- A live source returns raw items (no fuzzy step), so highlight the query in each result text
+                -- ourselves (the matched chars light up like the static path).
+                local norm = normalize(list, opts.format)
+                if state.query ~= "" then
+                    for _, it in ipairs(norm) do
+                        it.match = utils.match_indices(state.query, it.text)
+                    end
+                end
+                apply(norm)
             end
         end
         if opts.source then
@@ -374,6 +416,20 @@ function M.open(opts)
     else
         size = { width = { fixed = 0.85 }, height = { fixed = 0.7 } }
     end
+    -- Prompt badge (shared `config.picker.prompt`): an icon and/or label on a strong tint, then the typed
+    -- area on a light tint. A per-call `opts.prompt` string overrides the built badge.
+    local pcfg = (require("lvim-utils.config").picker or {}).prompt or {}
+    local badge = " "
+    if (pcfg.icon or "") ~= "" then
+        badge = badge .. pcfg.icon .. " "
+    end
+    if (pcfg.label or "") ~= "" then
+        badge = badge .. pcfg.label .. " "
+    end
+    local prompt_text = opts.prompt or (badge ~= " " and badge) or "➤ "
+    local prompt_hl = hl("prompt", "LvimUiPickerPrompt")
+    local input_hl = hl("input", "LvimUiPickerInput")
+
     surface.open({
         mode = "float",
         -- "area" sits IN the cmdline region (grows cmdheight, heirline above) like the msgarea zone; the
@@ -388,12 +444,15 @@ function M.open(opts)
         -- 1 air row under it), else NO border. A float keeps the rounded ring.
         border = docked and (titled and { "", " ", "", "", "", "", "", "" } or "none") or "rounded",
         separator = vertical and "─" or "│",
+        separator_hl = hl("separator", "LvimUiPickerSeparator"),
         size = size,
         header = {
             bars = {
                 {
                     input = true,
-                    prompt = opts.prompt or "➤ ",
+                    prompt = prompt_text,
+                    prompt_hl = prompt_hl,
+                    input_hl = input_hl,
                     filetype = "lvim-picker-prompt",
                     -- narrow the prompt to the LIST panel (the left one) when a preview is shown, so it does
                     -- not span the preview — its title winbar owns that side.

@@ -127,6 +127,8 @@ local function build_bands(spec, footer, add_air)
             bands[#bands + 1] = {
                 input = true,
                 prompt = bar.prompt,
+                prompt_hl = bar.prompt_hl, -- the prompt badge highlight (else a neutral default)
+                input_hl = bar.input_hl, -- the typed-area Normal highlight (else the peek normal)
                 on_change = bar.on_change,
                 keys = bar.keys,
                 filetype = bar.filetype,
@@ -525,11 +527,12 @@ local function render_chrome(state, L)
         })
     end
     if sep_char then
+        local sep_hl = util.resolve_hl(state.cfg.separator_hl or "LvimUiPeekBorder")
         for ln = L.header_h, H - L.footer_h - 1 do
             for _, d in ipairs(L.dividers) do
                 pcall(api.nvim_buf_set_extmark, state.container_buf, NS, ln, d, {
                     end_col = d + #sep_char,
-                    hl_group = util.resolve_hl("LvimUiPeekBorder"),
+                    hl_group = sep_hl,
                 })
             end
         end
@@ -1113,10 +1116,16 @@ local function open_windows(state)
                     focusable = true,
                     zindex = state.zindex + 2, -- above the container (z) and the panels (z+1)
                 })
-                vim.wo[band.win].winhighlight = "Normal:LvimUiPeekNormal"
+                -- The typed area uses `input_hl` (the row's Normal bg); the prompt badge uses `prompt_hl`.
+                vim.wo[band.win].winhighlight = "Normal:" .. (band.input_hl or "LvimUiPeekNormal")
+                -- No wrap/continuation chrome on the 1-row prompt (a long query scrolls horizontally; a
+                -- 'showbreak' / wrap continuation marker must never leak into the field).
+                vim.wo[band.win].wrap = false
+                vim.wo[band.win].list = false
+                vim.wo[band.win].showbreak = ""
                 if band.prompt and band.prompt ~= "" then
                     pcall(api.nvim_buf_set_extmark, band.buf, NS, 0, 0, {
-                        virt_text = { { band.prompt, "LvimUiMsgAreaItemKind" } },
+                        virt_text = { { band.prompt, band.prompt_hl or "LvimUiMsgAreaItemKind" } },
                         virt_text_pos = "inline",
                         right_gravity = false,
                     })
