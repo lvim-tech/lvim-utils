@@ -34,6 +34,11 @@ local state = {
     augroup = nil,
     saved_guicursor = nil,
     hidden = false,
+    -- When true, HIDE the hardware cursor while the command-line is active (a self-rendered cmdline draws
+    -- its own cursor in the float, so the buffer cursor is redundant — like the native cmdline, where the
+    -- cursor lives in the cmdline, not the buffer). Default false: with the native cmdline keep it shown.
+    hide_on_cmdline = false,
+    in_cmdline = false, -- true between CmdlineEnter/CmdlineLeave (so update() keeps the cursor hidden then)
 }
 
 -- ─── highlight control ────────────────────────────────────────────────────────
@@ -122,6 +127,14 @@ end
 ---   3. Current buf is hidden, OR any hidden window is open → hide
 ---   4. Otherwise               → show
 local function update()
+    -- While the command-line is active with hide_on_cmdline, KEEP the cursor hidden no matter which buffer
+    -- is current — the cmdline FLOAT opening fires WinEnter/BufWinEnter (→ this update), and the current
+    -- buffer is the editor (not a hidden ft), so without this guard update() would re-show the cursor.
+    if state.in_cmdline and state.hide_on_cmdline then
+        hide_cursor()
+        return
+    end
+
     local ok, win = pcall(api.nvim_get_current_win)
     if not ok or not api.nvim_win_is_valid(win) then
         show_cursor()
@@ -170,6 +183,16 @@ end
 --- Force-refresh cursor visibility. Exported so the UI module can call it
 --- immediately after nvim_open_win to prevent the one-frame cursor flash.
 M.update = update
+
+--- Hide (or stop hiding) the hardware cursor while the command-line is active — lvim-utils.cmdline turns
+--- this on, because it draws its own cursor in the cmdline float. Read live by the CmdlineEnter autocmd.
+---@param value boolean|nil
+function M.set_cmdline_hide(value)
+    state.hide_on_cmdline = value and true or false
+    if not value then
+        vim.schedule(update)
+    end
+end
 
 -- ─── autocmds ─────────────────────────────────────────────────────────────────
 
@@ -224,14 +247,24 @@ local function refresh_autocmds()
         callback = reapply_hidden_cursor,
     })
 
-    -- Always show the cursor while the command-line is active.
+    -- Command-line: a self-rendered cmdline draws its own cursor in the float, so the hardware cursor in
+    -- the buffer is redundant — hide it (`hide_on_cmdline`, set by lvim-utils.cmdline). With the native
+    -- cmdline the cursor lives there, so default to showing it.
     api.nvim_create_autocmd("CmdlineEnter", {
         group = state.augroup,
-        callback = show_cursor,
+        callback = function()
+            state.in_cmdline = true
+            if state.hide_on_cmdline then
+                hide_cursor()
+            else
+                show_cursor()
+            end
+        end,
     })
     api.nvim_create_autocmd("CmdlineLeave", {
         group = state.augroup,
         callback = function()
+            state.in_cmdline = false
             vim.schedule(update)
         end,
     })
@@ -243,9 +276,12 @@ end
 
 --- Initialise the cursor module.
 --- Registers filetypes that should trigger cursor hiding and installs autocmds.
----@param opts? { filetypes?: string[], ft?: string[], panel_filetypes?: string[], panel_ft?: string[] }
+---@param opts? { filetypes?: string[], ft?: string[], panel_filetypes?: string[], panel_ft?: string[], hide_on_cmdline?: boolean }
 function M.setup(opts)
     opts = opts or {}
+    if opts.hide_on_cmdline ~= nil then
+        state.hide_on_cmdline = opts.hide_on_cmdline and true or false
+    end
     for _, ft in ipairs(opts.filetypes or opts.ft or {}) do
         state.fts[ft] = true
     end

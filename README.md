@@ -110,7 +110,7 @@ require("lvim-utils").setup({
 
 ### `cursor`
 
-Hides the hardware cursor based on the current/visible buffers' filetypes. Uses a dedicated highlight group (`LvimUtilsHiddenCursor`) with `blend=100` and a 1-cell vertical bar shape — works in both GUI and TUI with `termguicolors`. This is the ONE cursor system; the `ui` frame engine delegates all its cursor hiding here.
+Hides the hardware cursor based on the current/visible buffers' filetypes. Uses a dedicated highlight group (`LvimUtilsHiddenCursor`) with `blend=100` and a 1-cell vertical bar shape — works in both GUI and TUI with `termguicolors`. This is the ONE cursor system; the `ui` surface engine delegates all its cursor hiding here.
 
 Two filetype lists:
 
@@ -762,6 +762,8 @@ notify.has_printer("my_printer") -- → boolean
 
 A persistent, toggleable zone docked at the screen bottom (over the `cmdheight` region, below the global statusline). It is a vertical stack of named **segments** — every owner puts content in through one, and the core composes them. Three are built in: **messages** (routed notifications), the **completion grid** (blink's list, rendered here), and the unified **cmdline** (reserved rows an external float overlays). Any plugin adds its own.
 
+The zone renders through a single [`ui.surface`](#ui) (`position = "cmdline"`) — the one layout chassis shared with the float finders / docks — which grows `cmdheight` so the global statusline stays above it. There is no separate render path.
+
 ```lua
 require("lvim-utils").setup({
     msgarea = {
@@ -827,7 +829,7 @@ When the focused segment is NOT a grid (e.g. messages), `h`/`j`/`k`/`l` and `<C-
 
 ### `picker`
 
-A native fuzzy finder built on the [ui.frame](#ui) chassis — a centred float with a typed query INPUT on top, a results LIST on the left and a scrollable PREVIEW on the right (the diagnostics-peek layout, but fuzzy). The **matching engine is the `fzf` binary** in `--filter` mode (no TUI): candidates are piped in, fzf returns them matched + ranked by score, and the frame renders the result (engine vs view, like the blink integration). Without `fzf` it falls back to a Lua subsequence matcher. Matched characters are highlighted.
+A native fuzzy finder built on the [ui.surface](#ui) chassis — a centred float with a typed query INPUT on top, a results LIST on the left and a scrollable PREVIEW on the right (the diagnostics-peek layout, but fuzzy). The **matching engine is the `fzf` binary** in `--filter` mode (no TUI): candidates are piped in, fzf returns them matched + ranked by score, and the surface renders the result (engine vs view, like the blink integration). Without `fzf` it falls back to a Lua subsequence matcher. Matched characters are highlighted.
 
 ```lua
 require("lvim-utils.picker").open({

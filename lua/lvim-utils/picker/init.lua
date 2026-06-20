@@ -1,9 +1,9 @@
 -- lua/lvim-utils/picker/init.lua
--- A native fuzzy finder built on the lvim-utils.ui.frame chassis: a centred float with a typed query
--- INPUT band on top (a frame header input), a results LIST panel on the left and a scrollable PREVIEW
+-- A native fuzzy finder built on the lvim-utils.ui.surface chassis: a centred float with a typed query
+-- INPUT band on top (a surface header input), a results LIST panel on the left and a scrollable PREVIEW
 -- panel on the right — the diagnostics-peek layout, but fuzzy. The MATCHING ENGINE is the native `fzf`
 -- binary in --filter mode (no TUI): candidates go in on stdin, fzf returns them matched + ranked by score,
--- and the frame renders the result. So ranking is fzf's exactly while WE own the view (engine vs view,
+-- and the surface renders the result. So ranking is fzf's exactly while WE own the view (engine vs view,
 -- like the blink integration). Without fzf it falls back to a Lua subsequence matcher
 -- (lvim-utils.utils.match_indices). Highlight positions are always computed locally (fzf's --filter does
 -- not emit them), so the matched characters light up in the list.
@@ -161,7 +161,7 @@ end
 ---@param opts LvimPickerOpts
 function M.open(opts)
     opts = opts or {}
-    local frame = require("lvim-utils.ui.frame")
+    local surface = require("lvim-utils.ui.surface")
     local items = normalize(opts.items, opts.format)
     local maxr = opts.max_rows or 15
     local state = { filtered = items, sel = 1, list_pan = nil, preview_pan = nil, st = nil, closed = false }
@@ -286,7 +286,7 @@ function M.open(opts)
 
     -- layout: a centred float (default), or an Emacs-style dock at the bottom of the screen (full width).
     local bottom = opts.layout == "bottom"
-    frame.open({
+    surface.open({
         mode = "float",
         position = bottom and "bottom" or nil,
         title = opts.title or "Pick",

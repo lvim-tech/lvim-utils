@@ -295,6 +295,10 @@ notifications), the completion grid (blink's list, rendered here), and the unifi
 command line. Enable via `setup({ msgarea = { enable = true } })`; toggle with
 `:LvimMsgArea`. The zone is hidden whenever the stack is empty.
 
+The zone renders through a single ui.surface (|lvim-utils-ui|, `position = "cmdline"`) — the
+one layout chassis shared with the float finders / docks — which grows `cmdheight` so a
+global statusline stays above it. Focused interaction (M.focus) drives that same panel.
+
 PUBLIC SEGMENT API                                   *lvim-utils-msgarea-api*
 
 `require("lvim-utils.msgarea").segment(name, opts?)` returns a HANDLE (get-or-create by

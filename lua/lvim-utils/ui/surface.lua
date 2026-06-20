@@ -1,4 +1,4 @@
--- lvim-utils.ui.frame: the ONE windowed-UI chassis. A vertical stack of sectors —
+-- lvim-utils.ui.surface: the ONE windowed-UI chassis. A vertical stack of sectors —
 --
 --     header  (a STACK of bands: meta lines + ui.bar bars; PINNED, never scrolls)
 --     center  (a horizontal row of 1..N panels, each a content provider; the ONLY scroll region)
@@ -24,7 +24,7 @@
 -- NOT a float — for a persistent NAVIGABLE side panel like the lsp outline, so `<C-w>` nav and buffer
 -- redraw behave natively; title = winbar, no bars).
 --
----@module "lvim-utils.ui.frame"
+---@module "lvim-utils.ui.surface"
 
 local uibar = require("lvim-utils.ui.bar")
 local util = require("lvim-utils.ui.util")
@@ -114,7 +114,7 @@ end
 ---@param spec table|nil
 ---@param footer boolean
 ---@return table[]
-local function build_bands(spec, footer)
+local function build_bands(spec, footer, add_air)
     spec = spec or {}
     local bands = {}
     for _, bar in ipairs(spec.bars or {}) do
@@ -144,8 +144,8 @@ local function build_bands(spec, footer)
         if #bands > 0 then
             table.insert(bands, 1, { meta = "" })
         end
-    else
-        table.insert(bands, 1, { meta = "" }) -- 1 air row under the (border-)title
+    elseif add_air ~= false then
+        table.insert(bands, 1, { meta = "" }) -- 1 air row under the (border-)title (skip when add_air=false)
     end
     return bands
 end
@@ -286,6 +286,13 @@ local function compute_geom(state, place)
         H = math.max(min_h, vim.o.lines - ct - cb - 1)
         row = 0
         col = cfg.position == "right" and math.max(0, vim.o.columns - W - cl - cr) or 0
+    elseif cfg.position == "cmdline" then
+        -- The CMDHEIGHT region: full width, docked over the bottom `cmdheight` rows (grown to H in
+        -- open_windows). Unlike "bottom" (which leaves the cmdline row free), the surface IS the cmdline
+        -- area, so a global statusline / heirline stays above it — hence no `- 1`.
+        W = vim.o.columns - cl - cr
+        col = 0
+        row = math.max(0, vim.o.lines - H - ct - cb)
     else
         row = math.max(1, math.floor((vim.o.lines - H) / 2 - 1))
         col = math.max(1, math.floor((vim.o.columns - W) / 2))
@@ -822,6 +829,9 @@ local function relayout(state)
     else
         -- A float reflows to the (possibly resized) screen; move the container float too.
         L = compute_geom(state)
+        if state.cfg.position == "cmdline" then
+            vim.o.cmdheight = L.H -- keep the grown cmdline region in step with the (changed) content height
+        end
         pcall(api.nvim_win_set_config, state.container_win, {
             relative = "editor",
             width = L.W,
@@ -892,6 +902,13 @@ local function open_windows(state)
         end
     else
         L = compute_geom(state)
+        -- A `cmdline` surface OWNS the command-line region: grow `cmdheight` to its height so the editor
+        -- (and heirline / a global statusline) reflow ABOVE it, then float over those rows. Save the user's
+        -- cmdheight to restore on close.
+        if state.cfg.position == "cmdline" then
+            state.base_cmdheight = vim.o.cmdheight
+            vim.o.cmdheight = L.H
+        end
         -- The brand is the window's TOP-border title (needs a top border, ct > 0), built from the `title`
         -- box (icon box + text box, each its own padding + colour). `title_pos` must only be set WITH a
         -- title — nvim errors otherwise.
@@ -1181,7 +1198,10 @@ local function open_windows(state)
     api.nvim_create_autocmd("WinResized", {
         group = state.augroup,
         callback = function()
-            if state._closed then
+            -- A `cmdline` surface grows `cmdheight` itself, which RESIZES the container float and so fires
+            -- WinResized on it — but it already re-fits via its own content refresh (refresh_surface →
+            -- relayout), so this WinResized relayout is redundant; skip it.
+            if state._closed or state.cfg.position == "cmdline" then
                 return
             end
             for _, w in ipairs(vim.v.event.windows or {}) do
@@ -1287,6 +1307,9 @@ local function close(state)
     end
     if state.container_win and api.nvim_win_is_valid(state.container_win) then
         pcall(api.nvim_win_close, state.container_win, true)
+    end
+    if state.base_cmdheight ~= nil then -- a `cmdline` surface grew cmdheight; restore the user's value
+        vim.o.cmdheight = state.base_cmdheight
     end
     if state.origin and api.nvim_win_is_valid(state.origin) then
         pcall(api.nvim_set_current_win, state.origin)
@@ -1489,7 +1512,7 @@ function M.open(cfg)
 
     -- A FLOAT carries the brand as its border title (built in open_windows). A SPLIT has no border, so the
     -- title becomes the top CONTENT row of the chrome instead (the icon + text, flattened).
-    local hbands = build_bands(cfg.header, false)
+    local hbands = build_bands(cfg.header, false, cfg.header_air)
     if cfg.mode == "split" then
         local t = cfg.title
         local s = (type(t) == "table" and ((t.icon and t.icon .. " " or "") .. (t.text or ""))) or (t or "")

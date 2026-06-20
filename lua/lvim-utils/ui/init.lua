@@ -18,7 +18,7 @@
 --   M.info(content, opts) – read-only markdown/text info window
 --   M.close_info(win)     – programmatically close an info window
 
-local frame = require("lvim-utils.ui.frame")
+local frame = require("lvim-utils.ui.surface")
 local form = require("lvim-utils.ui.form")
 local rows = require("lvim-utils.ui.rows")
 local util = require("lvim-utils.ui.util")

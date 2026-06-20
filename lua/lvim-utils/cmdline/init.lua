@@ -409,6 +409,12 @@ function M.setup(cfg)
             schedule(render)
         end
     end)
+
+    -- We draw our OWN cursor in the cmdline float, so hide the redundant hardware cursor in the buffer
+    -- while the command-line is active (like the native cmdline). Driven by lvim-utils.cursor.
+    pcall(function()
+        require("lvim-utils.cursor").set_cmdline_hide(true)
+    end)
 end
 
 --- vim.ui.input-style prompt rendered in the command-line (via native input(), which

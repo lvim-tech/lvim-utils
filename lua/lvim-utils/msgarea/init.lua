@@ -18,9 +18,6 @@ local levels = vim.log.levels
 
 local M = {}
 
-local FT = "lvim-msgarea"
-local ns = api.nvim_create_namespace("lvim_utils_msgarea")
-
 ---@class LvimMsgAreaMsg
 ---@field text string
 ---@field level integer
@@ -31,13 +28,9 @@ local ns = api.nvim_create_namespace("lvim_utils_msgarea")
 local cfg = {}
 ---@type LvimMsgAreaMsg[]  the scrollback ring buffer
 local ring = {}
----@type integer? the panel window
-local win = nil
----@type integer? the panel buffer
-local buf = nil
 ---@type integer? autocmd group
 local augroup = nil
----@type integer  non-reserve line count of the last render (drives the auto-resize clamp)
+---@type integer  non-reserve line count of the last render (exported to cmdline_host)
 local content_lines = 0
 
 -- ─── segment stack ──────────────────────────────────────────────────────────────
@@ -71,15 +64,8 @@ local by_name = {}
 local active_name = nil
 ---@type integer?  the window focus returns to on blur
 local prev_win = nil
----@type string[]  buffer keymap lhs's installed for focused interaction (cleared on blur)
+---@type string[]  surface-panel keymap lhs's installed for focused interaction (cleared on blur)
 local interaction_keys = {}
-
--- The user's `cmdheight` before we grew it for the zone (restored when the zone hides).
----@type integer?
-local base_cmdheight = nil
--- Last applied float geometry — to skip a redundant nvim_win_set_config on every render (navigation).
----@type { row: integer, height: integer, width: integer }?
-local last_geom = nil
 
 -- level → { LvimUiMsg<Name> highlight suffix, notify icon key }.
 ---@type table<integer, { name: string, icon: string }>
@@ -241,18 +227,6 @@ local function seg_has_content(s)
     return s.lines ~= nil and #s.lines > 0
 end
 
---- Sum of all reserve-segment heights (rows held for external floats, e.g. the unified cmdline).
----@return integer
-local function total_reserved()
-    local r = 0
-    for _, s in ipairs(segments) do
-        if s.kind == "reserve" then
-            r = r + (s.height or 0)
-        end
-    end
-    return r
-end
-
 --- Render a GRID segment into lines + per-row highlight spans (the tint-canon completion grid). Returns
 --- the lines, the parallel hls, and the LOCAL (1-based within these lines) selected row, or nil.
 ---@param seg LvimMsgAreaSegment
@@ -324,58 +298,13 @@ local function refresh_messages()
     s.hls = hls
 end
 
--- ─── render / sizing ──────────────────────────────────────────────────────────
+-- ─── compose / sizing ─────────────────────────────────────────────────────────
 
---- The zone's height: the MESSAGE area clamped to `[min, max]` (auto_resize) or pinned to `max` (incl.
---- the winbar row, never exceeding `max_height` — the one hard rule), plus the unified cmdline's
---- `reserved` rows ON TOP, so the input is always fully visible.
----@return integer
-local function compute_height()
-    local maxh = resolve(cfg.max_height) or 10
-    local wb = cfg.winbar and 1 or 0
-    if cfg.auto_resize ~= false then
-        local minh = resolve(cfg.min_height) or 1
-        local cmax = math.max(1, maxh - wb)
-        -- The min-height floor applies ONLY when there is message/completion content; with NONE (e.g. just
-        -- the cmdline), the message area is 0 rows — else an empty dark row would sit under the cmdline.
-        local shown = content_lines > 0 and math.max(minh, math.min(content_lines, cmax)) or 0
-        return math.max(1, wb + shown + total_reserved()) -- never 0 (a fresh open before the first render)
-    end
-    return math.max(1, maxh + total_reserved())
-end
-
---- Lay the float over the bottom `h` rows — the `cmdheight` region BELOW the global statusline (so
---- heirline stays permanently above the zone). `cmdheight` is grown to reserve those rows.
-local function resize()
-    if not (win and api.nvim_win_is_valid(win)) then
-        return
-    end
-    local h = compute_height()
-    if vim.o.cmdheight ~= h then
-        vim.o.cmdheight = h
-    end
-    local row = math.max(0, vim.o.lines - h)
-    local width = vim.o.columns
-    -- Only reconfigure when the geometry actually changed — set_config forces a redraw, and during
-    -- grid NAVIGATION the height/position are stable, so this skips it on every selection move.
-    if last_geom and last_geom.row == row and last_geom.height == h and last_geom.width == width then
-        return
-    end
-    pcall(api.nvim_win_set_config, win, {
-        relative = "editor",
-        row = row,
-        col = 0,
-        width = width,
-        height = h,
-    })
-    last_geom = { row = row, height = h, width = width }
-end
-
---- Compose the segment stack top-to-bottom into the buffer, apply highlights, resize, and tail.
-local function render()
-    if not (buf and api.nvim_buf_is_valid(buf)) then
-        return
-    end
+--- Build the composed segment stack: the lines + a parallel `hls` (a whole-row hl name, a span list, or
+--- `false`), the non-reserve line count, and the selected buffer row. NO buffer writes — consumed by the
+--- ui.surface zone provider (`open_surface`), which renders lines + converts the hls.
+---@return string[] lines, table hls, integer content_lines, integer? sel_row
+local function compose()
     -- Walk the stack in priority order (messages → completion grid → … → cmdline reserve). Each segment
     -- contributes lines + a parallel `hls` entry per line (a whole-row hl name, a span list, or `false`
     -- for no highlight). Reserve segments contribute blank rows for an external float to overlay.
@@ -421,135 +350,26 @@ local function render()
             sel_row = base + sel_local
         end
     end
+    return lines, hls, #lines - reserved_total, sel_row
+end
 
-    content_lines = #lines - reserved_total -- everything except the reserved cmdline padding
-    if #lines == 0 then
-        lines = { "" }
-    end
-    vim.bo[buf].modifiable = true
-    api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
-    api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+--- Convert the composed per-line `hls` (a whole-row hl name, a span list, or `false`) to the ui.surface
+--- provider hls format `{ row0, c0, end_col, hl, prio }` (end_col -1 = a full-row eol span). For the
+--- surface backend (Stage B of the cmdline+surface unify), where the zone renders through a surface panel.
+---@param hls table
+---@return table
+local function to_surface_hls(hls)
+    local out = {}
     for i, g in ipairs(hls) do
-        if type(g) == "string" then -- a whole-row highlight (a message line)
-            pcall(api.nvim_buf_set_extmark, buf, ns, i - 1, 0, { end_row = i, hl_group = g, hl_eol = true })
-        elseif type(g) == "table" then -- per-cell highlight spans (a grid row)
+        if type(g) == "string" then
+            out[#out + 1] = { i - 1, 0, -1, g, 200 }
+        elseif type(g) == "table" then
             for _, sp in ipairs(g) do
-                if sp.eol then -- a full-row stripe (bg to the right edge)
-                    pcall(api.nvim_buf_set_extmark, buf, ns, i - 1, 0, {
-                        end_row = i,
-                        hl_group = sp.hl,
-                        hl_eol = true,
-                        priority = sp.priority,
-                    })
-                else
-                    pcall(api.nvim_buf_set_extmark, buf, ns, i - 1, sp.c0, {
-                        end_col = sp.c1,
-                        hl_group = sp.hl,
-                        priority = sp.priority,
-                    })
-                end
+                out[#out + 1] = { i - 1, sp.eol and 0 or sp.c0, sp.eol and -1 or sp.c1, sp.hl, sp.priority or 200 }
             end
         end
     end
-    resize()
-    -- Keep the selected completion (or the newest message) in view, just above the reserved cmdline rows.
-    if cfg.follow ~= false and win and api.nvim_win_is_valid(win) then
-        pcall(api.nvim_win_set_cursor, win, { math.max(1, sel_row or content_lines), 0 })
-    end
-    -- In COMMAND-LINE mode the screen does not repaint on its own between events, so a render done from a
-    -- blink autocmd would otherwise only become visible on the next cmdline redraw (the 500ms cursor blink)
-    -- — i.e. the completion would appear ~¼s late. Flush now so the grid shows the instant the list lands.
-    if vim.fn.mode():sub(1, 1) == "c" then
-        pcall(api.nvim__redraw, { flush = true })
-    end
-end
-
--- ─── window ───────────────────────────────────────────────────────────────────
-
---- Apply the panel's window-local options + a themed winbar. Does not move focus.
-local function dress_win()
-    vim.wo[win].number = false
-    vim.wo[win].relativenumber = false
-    vim.wo[win].signcolumn = "no"
-    vim.wo[win].foldcolumn = "0"
-    vim.wo[win].cursorline = false
-    vim.wo[win].list = false
-    vim.wo[win].wrap = cfg.wrap ~= false
-    vim.wo[win].winhighlight = "Normal:LvimUiMsgAreaNormal,EndOfBuffer:LvimUiMsgAreaNormal"
-    if cfg.winbar then
-        vim.wo[win].winbar = "%#LvimUiMsgAreaTitle# " .. (cfg.title or "Messages") .. " %#LvimUiMsgAreaTitleFill#%="
-    else
-        vim.wo[win].winbar = nil
-    end
-end
-
---- Buffer-local keymaps, active only while the panel is the current window.
-local function map_keys()
-    local k = cfg.keys or {}
-    local function nmap(lhs, fn)
-        if lhs then
-            pcall(vim.keymap.set, "n", lhs, fn, { buffer = buf, nowait = true, silent = true })
-        end
-    end
-    nmap(k.close, function()
-        M.hide()
-    end)
-    nmap(k.clear, function()
-        M.clear()
-    end)
-    nmap(k.scroll_up, "<C-u>")
-    nmap(k.scroll_down, "<C-d>")
-    nmap(k.top, "gg")
-    nmap(k.bottom, "G")
-end
-
---- Open the zone as a FLOAT over the `cmdheight` region (the bottom of the screen, BELOW the global
---- statusline). Idempotent; never steals focus.
-local function open()
-    if win and api.nvim_win_is_valid(win) then
-        return
-    end
-    if not (buf and api.nvim_buf_is_valid(buf)) then
-        buf = api.nvim_create_buf(false, true)
-        vim.bo[buf].buftype = "nofile" -- so lvim-colorscheme `dim` treats it as non-real (never dimmed)
-        vim.bo[buf].bufhidden = "hide"
-        vim.bo[buf].swapfile = false
-        vim.bo[buf].modifiable = false
-        vim.bo[buf].filetype = FT
-    end
-    local h = compute_height()
-    if base_cmdheight == nil then
-        base_cmdheight = vim.o.cmdheight -- remember the user's cmdheight to restore on hide
-    end
-    vim.o.cmdheight = h
-    win = api.nvim_open_win(buf, false, {
-        relative = "editor",
-        row = math.max(0, vim.o.lines - h),
-        col = 0,
-        width = vim.o.columns,
-        height = h,
-        style = "minimal",
-        focusable = cfg.focusable ~= false,
-        zindex = 200, -- below the unified cmdline float (zindex 300)
-        border = "none",
-    })
-    dress_win()
-    map_keys()
-    render()
-end
-
---- Close the float and RELEASE the reserved `cmdheight` rows (the scrollback model is kept).
-local function close()
-    if win and api.nvim_win_is_valid(win) then
-        pcall(api.nvim_win_close, win, true)
-    end
-    win = nil
-    last_geom = nil -- geometry is recomputed on the next open
-    active_name = nil -- focus state drops with the window (interaction keymaps are re-set on next focus)
-    prev_win = nil
-    vim.o.cmdheight = base_cmdheight or 0
-    base_cmdheight = nil -- re-capture on the next open
+    return out
 end
 
 --- True when ANY segment has content (messages, a completion grid, an active cmdline reserve, …).
@@ -563,19 +383,91 @@ local function has_content()
     return false
 end
 
---- Show the zone when it has content, hide it (and release `cmdheight`) when empty — so it is invisible
---- whenever there is nothing to display.
+-- ─── surface (the zone's single rendering chassis) ─────────────────────────────
+-- The zone renders through ONE ui.surface (position="cmdline"): the surface owns the window + grows
+-- `cmdheight` so a global statusline stays above it; its single panel renders the composed segment stack
+-- (messages + completion grid + the cmdline reserve). The cmdline float anchors at the absolute screen
+-- bottom over the reserve rows. Focused interaction (M.focus) drives this same panel.
+---@type table?  the backing surface handle
+local surf = nil
+---@type table?  its single content panel (captured via the provider's keys), for content re-renders + focus
+local surf_panel = nil
+
+--- Open the backing surface (cmdheight-bottom; one panel rendering compose()).
+local function open_surface()
+    local surface = require("lvim-utils.ui.surface")
+    surf = surface.open({
+        mode = "float",
+        position = "cmdline",
+        border = "none",
+        header_air = false, -- no title here, so drop the header "air" row (it would cover the statusline row)
+        zindex = 200, -- sit in the cmdline layer; a low-zindex editor float gets re-anchored BELOW the
+        -- cmdline region during cmdline mode, which would cover the statusline row
+        enter = false, -- never steal focus on open — the cmdline / editor owns it (M.focus enters explicitly)
+        persistent = true, -- no auto-close keys; msgarea closes it when the stack empties
+        size = { height = { auto = true, max = resolve(cfg.max_height) or 10 } },
+        content = {
+            blocks = {
+                {
+                    id = "zone",
+                    border = "none", -- the zone fills the cmdline region edge-to-edge (a default block is rounded)
+                    provider = {
+                        hide_cursor = true, -- hide the hardware cursor while the zone is the focused window
+                        size = function()
+                            local lines = compose()
+                            return vim.o.columns, math.max(1, #lines)
+                        end,
+                        render = function()
+                            local lines, hls, cl = compose()
+                            content_lines = cl -- exported for cmdline_host
+                            return lines, to_surface_hls(hls)
+                        end,
+                        keys = function(_, pan)
+                            surf_panel = pan -- capture the panel for refresh() + focused interaction
+                        end,
+                    },
+                },
+            },
+        },
+    })
+end
+
+--- Close the backing surface.
+local function close_surface()
+    if surf and surf.close then
+        pcall(surf.close)
+    end
+    surf, surf_panel = nil, nil
+end
+
+--- Re-fit + repaint the surface to the current segments. The content height changes with the segments, so
+--- relayout re-fits the geometry + cmdheight AND the panel re-renders its content (relayout only moves
+--- windows, it does not repaint a panel).
+local function refresh_surface()
+    if surf and surf.relayout then
+        surf.relayout()
+    end
+    if surf_panel and surf_panel.refresh then
+        surf_panel.refresh()
+    end
+    -- In COMMAND-LINE mode the screen does not repaint between events, so flush now (else completion lands
+    -- a cursor-blink late) — the same fix the bespoke render uses.
+    if vim.fn.mode():sub(1, 1) == "c" then
+        pcall(api.nvim__redraw, { flush = true })
+    end
+end
+
 local function update_visibility()
     -- The `enable` master switch gates the AUTOMATIC open (so a segment pushed while the area is toggled
-    -- off never reopens it); closing always works, and M.show() bypasses this for an explicit reveal.
+    -- off never reopens it); closing always works. The zone renders through a ui.surface (cmdheight-bottom).
     if has_content() and cfg.enable then
-        if win and api.nvim_win_is_valid(win) then
-            render()
+        if surf then
+            refresh_surface()
         else
-            open()
+            open_surface()
         end
-    elseif win and api.nvim_win_is_valid(win) then
-        close()
+    elseif surf then
+        close_surface()
     end
 end
 
@@ -620,8 +512,8 @@ function M.enable()
     api.nvim_create_autocmd("VimResized", {
         group = augroup,
         callback = function()
-            if win and api.nvim_win_is_valid(win) then
-                vim.schedule(render)
+            if surf then
+                vim.schedule(update_visibility) -- reflow the surface to the new screen size
             end
         end,
     })
@@ -642,7 +534,7 @@ function M.disable()
         pcall(api.nvim_del_augroup_by_id, augroup)
         augroup = nil
     end
-    close()
+    close_surface()
 end
 
 --- Flip enable/disable (the command / a keymap calls this).
@@ -654,14 +546,15 @@ function M.toggle()
     end
 end
 
---- Open / reveal the panel without changing `enable`.
+--- Open / reveal the zone without changing `enable` (a no-op when the stack is empty — there is nothing
+--- to show; the surface zone only exists while it has content).
 function M.show()
-    open()
+    update_visibility()
 end
 
---- Hide the panel (the scrollback model is retained).
+--- Hide the zone (the scrollback model is retained).
 function M.hide()
-    close()
+    close_surface()
 end
 
 --- (Unified) Reserve `height` rows at the BOTTOM of the zone for the command-line, ensure the panel
@@ -675,11 +568,10 @@ function M.cmdline_host(height)
     end
     local s = seg_get("cmdline", { kind = "reserve", priority = 1000 })
     s.height = math.max(0, height or 0)
-    update_visibility() -- opens the float (reserve > 0 ⇒ has content) and renders
-    if not (win and api.nvim_win_is_valid(win)) then
-        return nil
-    end
-    return { win = win, line = content_lines, width = api.nvim_win_get_width(win) }
+    update_visibility() -- opens the zone (reserve > 0 ⇒ has content) and renders
+    -- The surface owns the window; the cmdline float anchors at the absolute screen bottom (relative
+    -- "editor"), so it only needs the width.
+    return surf and { win = surf.container_win, line = content_lines, width = vim.o.columns } or nil
 end
 
 --- (Unified) Release the command-line's reserved rows and reflow (hides the zone if nothing remains).
@@ -814,11 +706,18 @@ function Handle:reserve(height)
     s.kind = "reserve"
     s.height = math.max(0, height or 0)
     update_visibility()
-    if not (win and api.nvim_win_is_valid(win)) then
+    if not (surf and surf.container_win and api.nvim_win_is_valid(surf.container_win)) then
         return nil
     end
     local h = s.height
-    return { win = win, row = math.max(0, vim.o.lines - h), col = 0, width = api.nvim_win_get_width(win), height = h }
+    -- The reserved rows sit flush with the screen bottom (the surface owns the cmdheight region).
+    return {
+        win = surf.container_win,
+        row = math.max(0, vim.o.lines - h),
+        col = 0,
+        width = vim.o.columns,
+        height = h,
+    }
 end
 
 --- Empty the segment's content (keep it registered) and reflow.
@@ -955,32 +854,30 @@ local function focused_confirm()
     end
 end
 
---- Remove the buffer keymaps installed for focused interaction, then re-establish the panel keys — a
---- custom segment key may have shadowed a panel key (e.g. `q`), and deleting it would otherwise leave
---- that key unmapped; map_keys is idempotent, so this restores the panel bindings.
+--- Remove the surface-panel keymaps installed for focused interaction (the surface's own panel keys stay —
+--- they were set once on open, never touched here).
 local function remove_interaction()
-    if buf and api.nvim_buf_is_valid(buf) then
+    if surf_panel and surf_panel.buf and api.nvim_buf_is_valid(surf_panel.buf) then
         for _, lhs in ipairs(interaction_keys) do
-            pcall(vim.keymap.del, "n", lhs, { buffer = buf })
+            pcall(vim.keymap.del, "n", lhs, { buffer = surf_panel.buf })
         end
-        map_keys()
     end
     interaction_keys = {}
 end
 
---- Install the buffer keymaps for interacting with the active segment (nav, confirm, blur, custom keys).
+--- Install the surface-panel keymaps for interacting with the active segment (nav, confirm, blur, custom).
 local function install_interaction()
-    if not (buf and api.nvim_buf_is_valid(buf)) then
+    if not (surf_panel and surf_panel.buf and api.nvim_buf_is_valid(surf_panel.buf)) then
         return
     end
     remove_interaction()
     local function map(lhs, fn)
-        pcall(vim.keymap.set, "n", lhs, fn, { buffer = buf, nowait = true, silent = true })
+        pcall(vim.keymap.set, "n", lhs, fn, { buffer = surf_panel.buf, nowait = true, silent = true })
         interaction_keys[#interaction_keys + 1] = lhs
     end
     local s = active_seg()
-    -- Grid navigation is bound ONLY when the active segment is a grid; otherwise h/j/k/l (and <C-d>/<C-u>
-    -- from map_keys) stay native, so a focused MESSAGE/lines zone scrolls its scrollback normally.
+    -- Grid navigation is bound ONLY when the active segment is a grid; otherwise h/j/k/l stay native, so a
+    -- focused MESSAGE/lines zone scrolls its scrollback normally.
     if s and s.kind == "grid" then
         -- vertical step = the grid's column count (down/up move by a whole row); horizontal = ± 1 cell.
         local function vstep()
@@ -1026,17 +923,17 @@ local function install_interaction()
 end
 
 --- Focus the zone for keyboard interaction with `name` (or the first interactive segment). Opens the zone
---- if needed; the hardware cursor stays hidden (the panel filetype is registered with lvim-utils.cursor).
+--- if needed; the hardware cursor stays hidden (the surface panel sets `hide_cursor`).
 ---@param name? string
 ---@return boolean focused
 function M.focus(name)
     update_visibility() -- ensure it is open when there is anything to show
-    if not (win and api.nvim_win_is_valid(win)) then
+    if not (surf_panel and surf_panel.win and api.nvim_win_is_valid(surf_panel.win)) then
         return false
     end
     active_name = name or first_interactive()
     prev_win = api.nvim_get_current_win()
-    pcall(api.nvim_set_current_win, win)
+    pcall(api.nvim_set_current_win, surf_panel.win)
     install_interaction()
     update_visibility() -- repaint with the selection highlight
     return true

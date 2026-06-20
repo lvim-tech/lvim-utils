@@ -63,6 +63,7 @@ function M.check()
     -- message area (the segment zone)
     if cfg_ok and cfg.msgarea and cfg.msgarea.enable then
         ok("message area enabled (unified cmdline: " .. tostring(cfg.msgarea.unified == true) .. ")")
+        info("msgarea renders via ui.surface (position = cmdline)")
         local ints = {}
         for name, on in pairs(cfg.msgarea.integrations or {}) do
             if on then
