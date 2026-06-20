@@ -30,7 +30,12 @@ local function normalize(items, format)
         if type(it) == "string" then
             out[i] = { text = it, _src = it }
         else
-            out[i] = { text = (format and format(it)) or it.text or tostring(it), icon = it.icon, _src = it }
+            out[i] = {
+                text = (format and format(it)) or it.text or tostring(it),
+                icon = it.icon,
+                icon_hl = it.icon_hl,
+                _src = it,
+            }
         end
     end
     return out
