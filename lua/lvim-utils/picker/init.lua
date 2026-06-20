@@ -356,7 +356,9 @@ function M.open(opts)
                 map("<CR>", function()
                     confirm()
                 end)
-                map({ "i", "a", "/" }, focus_input) -- back to typing
+                -- back to typing: `/` + <Tab> (NOT i/a — a consumer filter may own those hotkeys, e.g.
+                -- diagnostics' [A]ll / [I]nfo; the filter button keys activate directly from the list).
+                map({ "/", "<Tab>" }, focus_input)
                 map({ "q", "<Esc>" }, cancel)
                 if filters then
                     map("m", function()
@@ -539,13 +541,16 @@ function M.open(opts)
             end)
         end
     end
-    -- Activate filter button `id` in group `gi`: re-narrow + re-render, and re-paint the header bar (active
-    -- flags + counts).
+    -- Activate filter button `id` in group `gi`: re-narrow + re-render, then re-sync the button specs' live
+    -- `active` flags (so the header re-paints the NEW active button, not the build-time one) + counts.
     set_filter = function(gi, id)
         if not (filters and filters[gi]) then
             return
         end
         filters[gi].active = id
+        if state.sync_filter then
+            state.sync_filter()
+        end
         refilter(state.query)
         if state.st and state.st.refresh_chrome then
             state.st.refresh_chrome()
@@ -727,6 +732,8 @@ function M.open(opts)
                     text = b.label,
                     key = b.key, -- brackets the key letter; the bracket takes the accent colour
                     accent = accent,
+                    _gi = gi, -- so sync_filter can re-evaluate `active` after a toggle
+                    _id = b.id,
                     count = function()
                         local n = 0
                         for _, it in ipairs(items) do
@@ -745,6 +752,14 @@ function M.open(opts)
                         text = { padding = { 1, 1 }, normal = dim, active = accent, hover = accent },
                     },
                 }
+            end
+        end
+        -- keep the specs' `active` flags in step with the groups when a filter toggles (set_filter calls it)
+        state.sync_filter = function()
+            for _, s in ipairs(specs) do
+                if s._gi and filters and filters[s._gi] then
+                    s.active = filters[s._gi].active == s._id
+                end
             end
         end
         return { items = specs, align = "center" }
