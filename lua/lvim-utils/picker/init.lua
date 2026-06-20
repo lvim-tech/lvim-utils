@@ -706,4 +706,138 @@ function M.commands(opts)
     }, opts or {}))
 end
 
+--- Jump to a `[file] lnum:col  text` location item: open its file (if any) and place the cursor. Shared by
+--- the marks / quickfix / jumplist finders, which all produce `{ path?, bufnr?, lnum, col, text }`.
+---@param it table
+local function jump_to(it)
+    if not it then
+        return
+    end
+    if it.path and it.path ~= "" then
+        vim.cmd.edit(vim.fn.fnameescape(it.path))
+    elseif it.bufnr and api.nvim_buf_is_valid(it.bufnr) then
+        api.nvim_set_current_buf(it.bufnr)
+    end
+    pcall(api.nvim_win_set_cursor, 0, { it.lnum or 1, math.max(0, (it.col or 1) - 1) })
+    vim.cmd("normal! zz")
+end
+
+--- Preview a location item: the file/buffer content with a focus on the target line.
+---@param it table
+---@return string[] lines, string filetype, integer? focus
+local function preview_location(it)
+    if it.path and it.path ~= "" then
+        local lines, ft = read_preview(it.path)
+        return lines, ft, it.lnum
+    end
+    if it.bufnr and api.nvim_buf_is_loaded(it.bufnr) then
+        return api.nvim_buf_get_lines(it.bufnr, 0, 500, false), vim.bo[it.bufnr].filetype, it.lnum
+    end
+    return { "[no preview]" }, "", nil
+end
+
+--- Fuzzy finder over MARKS (`:marks`); confirming jumps to the mark, with a preview at its line.
+---@param opts? table
+function M.marks(opts)
+    local items = {}
+    for _, m in ipairs(vim.fn.getmarklist()) do -- global marks (A–Z, 0–9, …)
+        local p = vim.fn.fnamemodify(m.file or "", ":~:.")
+        items[#items + 1] = {
+            text = ("%s  %s:%d"):format(m.mark, p, m.pos[2]),
+            path = m.file,
+            lnum = m.pos[2],
+            col = m.pos[3],
+        }
+    end
+    for _, m in ipairs(vim.fn.getmarklist(api.nvim_get_current_buf())) do -- buffer-local marks (a–z)
+        items[#items + 1] = {
+            text = ("%s  :%d"):format(m.mark, m.pos[2]),
+            bufnr = api.nvim_get_current_buf(),
+            lnum = m.pos[2],
+            col = m.pos[3],
+        }
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Marks",
+        items = items,
+        on_confirm = jump_to,
+        preview = preview_location,
+    }, opts or {}))
+end
+
+--- Fuzzy finder over KEYMAPS (all modes); confirming feeds the mapping's lhs. The preview shows its rhs /
+--- description.
+---@param opts? table
+function M.keymaps(opts)
+    local items = {}
+    for _, mode in ipairs({ "n", "i", "v", "x", "o", "c", "t" }) do
+        for _, k in ipairs(vim.api.nvim_get_keymap(mode)) do
+            items[#items + 1] = {
+                text = ("%s  %s  %s"):format(mode, k.lhs, (k.desc or k.rhs or ""):gsub("%s+", " ")),
+                mode = mode,
+                lhs = k.lhs,
+                detail = k.desc or k.rhs or "",
+            }
+        end
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Keymaps",
+        items = items,
+        on_confirm = function(it)
+            if it and it.lhs and it.mode == "n" then
+                api.nvim_feedkeys(api.nvim_replace_termcodes(it.lhs, true, false, true), "m", false)
+            end
+        end,
+        preview = function(it)
+            return { it.mode .. "  " .. it.lhs, "", it.detail }, ""
+        end,
+    }, opts or {}))
+end
+
+--- Fuzzy finder over the QUICKFIX list; confirming jumps to the entry, with a preview at its line.
+---@param opts? table
+function M.quickfix(opts)
+    local items = {}
+    for _, e in ipairs(vim.fn.getqflist()) do
+        local p = e.bufnr ~= 0 and vim.fn.fnamemodify(api.nvim_buf_get_name(e.bufnr), ":~:.") or ""
+        items[#items + 1] = {
+            text = ("%s:%d  %s"):format(p, e.lnum, (e.text or ""):gsub("^%s+", "")),
+            bufnr = e.bufnr ~= 0 and e.bufnr or nil,
+            lnum = e.lnum,
+            col = e.col,
+        }
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Quickfix",
+        items = items,
+        on_confirm = jump_to,
+        preview = preview_location,
+    }, opts or {}))
+end
+
+--- Fuzzy finder over the JUMPLIST (newest first); confirming jumps to the location, with a preview.
+---@param opts? table
+function M.jumplist(opts)
+    local jumps = vim.fn.getjumplist()[1] or {}
+    local items = {}
+    for i = #jumps, 1, -1 do -- newest first
+        local j = jumps[i]
+        if api.nvim_buf_is_valid(j.bufnr) then
+            local p = vim.fn.fnamemodify(api.nvim_buf_get_name(j.bufnr), ":~:.")
+            items[#items + 1] = {
+                text = ("%s:%d"):format(p ~= "" and p or "[No Name]", j.lnum),
+                bufnr = j.bufnr,
+                lnum = j.lnum,
+                col = (j.col or 0) + 1,
+            }
+        end
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Jumplist",
+        items = items,
+        on_confirm = jump_to,
+        preview = preview_location,
+    }, opts or {}))
+end
+
 return M

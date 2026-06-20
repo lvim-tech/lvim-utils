@@ -883,6 +883,10 @@ picker.help_tags() -- help tags (<CR> :help's the topic)
 picker.git_files() -- git-tracked files (git ls-files; <CR> edits)
 picker.colorschemes() -- colorschemes (apply on confirm, restore on cancel)
 picker.commands() -- ex commands (<CR> drops ":<cmd> " in the cmdline for args)
+picker.marks() -- marks (jump on confirm, preview at the line)
+picker.keymaps() -- keymaps (all modes; preview the rhs/desc)
+picker.quickfix() -- quickfix entries (jump on confirm, preview)
+picker.jumplist() -- jumplist, newest first (jump on confirm, preview)
 ```
 
 `files`/`directories` are STATIC lists fuzzy-filtered as you type; `grep` is a **LIVE `source`** — each keystroke re-runs the command and the matches ARE the results (pass your own `source = function(query, cb) … end` to `open` for any live source).
