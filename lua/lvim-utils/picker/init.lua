@@ -85,6 +85,7 @@ end
 ---@field preview_side? "right"|"left"|"below"|"above"  where the preview sits (default "right"); below/above stack + grow height
 ---@field preview_numbers? boolean  show line numbers in the preview (default true)
 ---@field preview_wrap? boolean  soft-wrap the preview (default false)
+---@field empty_text? string  shown when there are no results (list body + preview winbar)
 ---@field title? string  the float title / the statusline action title
 ---@field icon? string  an optional leading glyph for the title (statusline)
 ---@field statusline? boolean  (docked layouts) publish title/counter/query to the bottom statusline (default true); false = draw them in the navigator
@@ -106,10 +107,12 @@ function M.open(opts)
 
     -- Every highlight group is configurable + shared via `config.picker.hl` (fall back to the built-in
     -- tint-canon / peek groups).
-    local phl = (require("lvim-utils.config").picker or {}).hl or {}
+    local pkcfg = require("lvim-utils.config").picker or {}
+    local phl = pkcfg.hl or {}
     local function hl(key, default)
         return phl[key] or default
     end
+    local empty_text = opts.empty_text or pkcfg.empty_text or "[no matches]"
 
     -- The global `showbreak`/`wrap` would draw a "↳" continuation marker on a wrapped long row — kill it on
     -- our windows (the list/input never wrap; the preview wraps but shows no marker).
@@ -192,9 +195,10 @@ function M.open(opts)
                 hl("bar", "LvimUiPeekFileBar")
             )
         else
+            -- A selected item with no path → its text; NO results → the empty label in the file-name spot.
             vim.wo[pan.win].winbar = ("%%#%s# %s %%#%s#%%="):format(
                 hl("preview_file", "LvimUiPeekFile"),
-                esc(it and it.text or ""),
+                esc((it and it.text) or empty_text),
                 hl("bar", "LvimUiPeekFileBar")
             )
         end
@@ -221,7 +225,7 @@ function M.open(opts)
                 end
             end
             if #lines == 0 then
-                lines = { "  (no matches)" }
+                lines = { "  " .. empty_text }
             end
             return lines, hls
         end,
@@ -238,8 +242,10 @@ function M.open(opts)
     local preview_provider = opts.preview
             and {
                 size = function()
-                    -- match the list height so the panels stay level (+1 winbar row, like the list)
-                    return math.max(40, math.floor(vim.o.columns * 0.5)), list_h() + 1
+                    -- The preview wants a USEFUL height even when the list is tiny (1 match): ask for the
+                    -- full `max_rows` so the surface (whose container is the MAX of the panel heights, capped)
+                    -- doesn't collapse to the list's 1 row. (+1 winbar row.) The cap keeps it within bounds.
+                    return math.max(40, math.floor(vim.o.columns * 0.5)), maxr + 1
                 end,
                 update = function(pan)
                     local it = state.filtered[state.sel]

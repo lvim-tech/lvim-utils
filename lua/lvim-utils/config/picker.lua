@@ -40,4 +40,8 @@ return {
         preview_dir = "LvimUiPeekDir", -- its directory
         bar = "LvimUiPeekFileBar", -- the winbar fill / blank prompt row
     },
+
+    -- Shown when there are NO results — in the list body AND in the preview's winbar (where the file name
+    -- would be). A per-call `opts.empty_text` overrides it.
+    empty_text = "[no matches]",
 }
