@@ -124,13 +124,15 @@ function M.open(opts)
         list_wrap = pkcfg.list_wrap == true
     end
 
-    -- The global `showbreak`/`wrap` would draw a "↳" continuation marker on a wrapped long row — kill it on
-    -- our windows (the list/input never wrap; the preview wraps but shows no marker).
+    -- Kill the "↳" continuation marker on wrapped rows. `showbreak` is GLOBAL-LOCAL with no per-window
+    -- EMPTY value (an empty local reverts to the user's global "↳", and Neovim rejects a zero-width glyph),
+    -- so the cleanest per-window override that draws no marker is a single SPACE (width-1, no glyph) — set
+    -- it window-local, no global mutation.
     local function tame_win(win, wrap)
         if win and api.nvim_win_is_valid(win) then
             vim.wo[win].wrap = wrap or false
             vim.wo[win].list = false
-            vim.wo[win].showbreak = ""
+            vim.wo[win].showbreak = " "
         end
     end
 
