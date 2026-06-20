@@ -1124,8 +1124,12 @@ local function open_windows(state)
                 vim.wo[band.win].list = false
                 vim.wo[band.win].showbreak = ""
                 if band.prompt and band.prompt ~= "" then
+                    -- `prompt` is a STRING (one badge chunk) or a LIST of `{ text, hl }` chunks (e.g. a badge
+                    -- + a gap on a different tint).
+                    local vt = type(band.prompt) == "table" and band.prompt
+                        or { { band.prompt, band.prompt_hl or "LvimUiMsgAreaItemKind" } }
                     pcall(api.nvim_buf_set_extmark, band.buf, NS, 0, 0, {
-                        virt_text = { { band.prompt, band.prompt_hl or "LvimUiMsgAreaItemKind" } },
+                        virt_text = vt,
                         virt_text_pos = "inline",
                         right_gravity = false,
                     })

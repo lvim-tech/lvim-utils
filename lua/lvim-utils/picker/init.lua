@@ -416,19 +416,28 @@ function M.open(opts)
     else
         size = { width = { fixed = 0.85 }, height = { fixed = 0.7 } }
     end
-    -- Prompt badge (shared `config.picker.prompt`): an icon and/or label on a strong tint, then the typed
-    -- area on a light tint. A per-call `opts.prompt` string overrides the built badge.
+    -- Prompt badge (shared `config.picker.prompt`): an icon and/or label on the STRONG tint, then a gap on
+    -- the LIGHT input tint before the typed text. Two virt_text chunks so the badge and the gap carry their
+    -- own backgrounds. A per-call `opts.prompt` STRING overrides it (a single badge-tint chunk).
     local pcfg = (require("lvim-utils.config").picker or {}).prompt or {}
-    local badge = " "
-    if (pcfg.icon or "") ~= "" then
-        badge = badge .. pcfg.icon .. " "
-    end
-    if (pcfg.label or "") ~= "" then
-        badge = badge .. pcfg.label .. " "
-    end
-    local prompt_text = opts.prompt or (badge ~= " " and badge) or "➤ "
     local prompt_hl = hl("prompt", "LvimUiPickerPrompt")
     local input_hl = hl("input", "LvimUiPickerInput")
+    local prompt_text
+    if opts.prompt then
+        prompt_text = opts.prompt -- a literal override
+    else
+        local sp = string.rep
+        local badge = sp(" ", pcfg.pad_left or 1)
+        if (pcfg.icon or "") ~= "" then
+            badge = badge .. pcfg.icon
+        end
+        if (pcfg.label or "") ~= "" then
+            badge = badge .. (badge:sub(-1) ~= " " and " " or "") .. pcfg.label
+        end
+        badge = badge .. sp(" ", pcfg.pad_right or 1)
+        -- chunk list: badge (strong tint) + a gap on the input tint before the typed text
+        prompt_text = { { badge, prompt_hl }, { sp(" ", pcfg.input_gap or 1), input_hl } }
+    end
 
     surface.open({
         mode = "float",
