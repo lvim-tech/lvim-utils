@@ -633,4 +633,77 @@ function M.help_tags(opts)
     }, opts or {}))
 end
 
+--- Fuzzy finder over GIT-tracked files (`git ls-files`); confirming edits the file, with a content preview.
+--- No-op outside a git work tree.
+---@param opts? table
+function M.git_files(opts)
+    local inside = run_lines({ "git", "rev-parse", "--is-inside-work-tree" })[1]
+    if inside ~= "true" then
+        vim.notify("lvim-utils.picker.git_files: not inside a git work tree", vim.log.levels.WARN)
+        return
+    end
+    local items = {}
+    for _, p in ipairs(run_lines({ "git", "ls-files" })) do
+        if p ~= "" then
+            items[#items + 1] = { text = p, path = p }
+        end
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Git files",
+        items = items,
+        on_confirm = function(it)
+            if it and it.path then
+                vim.cmd.edit(vim.fn.fnameescape(it.path))
+            end
+        end,
+        preview = function(it)
+            return read_preview(it.path)
+        end,
+    }, opts or {}))
+end
+
+--- Fuzzy finder over installed COLORSCHEMES; confirming applies it (`:colorscheme`). Restores the current
+--- scheme on cancel so browsing is non-destructive.
+---@param opts? table
+function M.colorschemes(opts)
+    local current = vim.g.colors_name
+    local items = {}
+    for _, c in ipairs(vim.fn.getcompletion("", "color")) do
+        items[#items + 1] = { text = c, name = c }
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Colorschemes",
+        items = items,
+        on_confirm = function(it)
+            if it and it.name then
+                pcall(vim.cmd.colorscheme, it.name)
+            end
+        end,
+        on_cancel = function()
+            if current then
+                pcall(vim.cmd.colorscheme, current)
+            end
+        end,
+    }, opts or {}))
+end
+
+--- Fuzzy finder over EX commands; confirming drops `:<cmd> ` into the command line (so args can be added)
+--- rather than running it blindly.
+---@param opts? table
+function M.commands(opts)
+    local items = {}
+    for _, c in ipairs(vim.fn.getcompletion("", "command")) do
+        items[#items + 1] = { text = c, cmd = c }
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Commands",
+        items = items,
+        on_confirm = function(it)
+            if it and it.cmd then
+                vim.api.nvim_feedkeys(":" .. it.cmd .. " ", "n", false)
+            end
+        end,
+    }, opts or {}))
+end
+
 return M
