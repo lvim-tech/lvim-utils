@@ -99,7 +99,7 @@ end
 ---@field statusline? boolean  (docked layouts) publish title/counter/query to the bottom statusline (default true); false = draw them in the navigator
 ---@field prompt? string  the query prompt prefix (default "➤ ")
 ---@field keys? { key: string, name?: string, run: fun(item: any, close: fun()) }[]  extra row actions (split, code action…); `name` adds a footer hint
----@field filters? table[]  header filter button GROUPS — each `{ active = id, buttons = { { id, label, key?, predicate?(src), hl?, hl_active? }, … } }`; `<C-f>` focuses the bar
+---@field filters? table[]  header filter button GROUPS — each `{ active = id, buttons = { { id, label, key?, predicate?(src), hl?, hl_active? }, … } }`; activate a filter by its key in NORMAL mode
 ---@field refresh? fun(): any[]  re-fetch the static items live (e.g. on DiagnosticChanged) — see refresh_events
 ---@field refresh_events? string[]  autocmd events that trigger a refresh
 ---@field close_on_empty? boolean  dismiss the finder when a refresh leaves no items (e.g. all diagnostics fixed)
@@ -108,8 +108,9 @@ end
 ---@field height? integer  rows for the bottom layout (default 16)
 
 --- Open a fuzzy finder: a centred float with a query input on top, a results list and (with `preview`) a
---- scrollable preview beside it. Type to filter (fzf), `<C-j>/<C-k>` move, `<C-d>/<C-u>` scroll the
---- preview, `<CR>` confirms, `<Esc>` cancels.
+--- scrollable preview beside it. INSERT prompt: type to filter (fzf), `<C-j>/<C-k>` move, `<C-d>/<C-u>`
+--- scroll the preview, `<CR>` confirms, `<C-c>` cancels, `<Esc>`/`<C-f>` → NORMAL. NORMAL list: `j`/`k`
+--- move, `<C-d>/<C-u>` scroll preview, `<C-l>`/`<C-h>` panel nav, filter hotkeys, `q` close, `/` → typing.
 ---@param opts LvimPickerOpts
 function M.open(opts)
     opts = opts or {}
@@ -165,7 +166,7 @@ function M.open(opts)
 
     -- Forward declarations — the list panel's NORMAL-mode keys (defined with the panel, early) call these,
     -- but they are assigned further down (after the providers/state are wired).
-    local move, confirm, cancel, focus_input, act
+    local move, confirm, cancel, focus_input, act, scroll_preview
 
     -- Kill the "↳" continuation marker on wrapped rows WITHOUT touching the user's global `showbreak`: the
     -- special window-local value "NONE" disables showbreak for THIS window only (an empty "" would just
@@ -358,6 +359,12 @@ function M.open(opts)
                 end)
                 map("<CR>", function()
                     confirm()
+                end)
+                map("<C-d>", function()
+                    scroll_preview(1)
+                end)
+                map("<C-u>", function()
+                    scroll_preview(-1)
                 end)
                 -- back to typing: `/` + <Tab> + <C-f> (NOT i/a — a consumer filter may own those hotkeys,
                 -- e.g. diagnostics' [A]ll / [I]nfo; the filter button keys activate directly from the list).
@@ -554,7 +561,7 @@ function M.open(opts)
             state.st.refresh_chrome()
         end
     end
-    local function scroll_preview(dir)
+    scroll_preview = function(dir)
         local p = state.preview_pan
         if p and p.win and api.nvim_win_is_valid(p.win) then
             api.nvim_win_call(p.win, function()
