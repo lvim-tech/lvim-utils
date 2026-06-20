@@ -292,8 +292,16 @@ function M.open(opts)
         keys = function(_, pan, st)
             state.list_pan, state.st = pan, st
             -- `list_wrap` soft-wraps long rows (so a match far to the right stays visible) — never with the
-            -- "↳" continuation marker (tame_win clears showbreak); default off = truncate.
+            -- "↳" continuation marker (tame_win uses a single-space showbreak); default off = truncate.
             tame_win(pan.win, list_wrap)
+            -- The wrapped-row showbreak space sits OUTSIDE the row tint, so it would render in the dim
+            -- NonText colour — map NonText to the panel bg so it just reads as background.
+            if pan.win and api.nvim_win_is_valid(pan.win) then
+                local wh = vim.wo[pan.win].winhighlight
+                if not wh:find("NonText:") then
+                    vim.wo[pan.win].winhighlight = (wh ~= "" and wh .. "," or "") .. "NonText:LvimUiPeekNormal"
+                end
+            end
             set_list_winbar()
         end,
     }
