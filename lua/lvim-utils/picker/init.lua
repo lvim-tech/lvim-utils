@@ -434,11 +434,21 @@ function M.open(opts)
                         end)
                     end
                 end,
-                keys = function(_, pan)
+                keys = function(map, pan)
                     state.preview_pan = pan
                     tame_win(pan.win, opts.preview_wrap == true) -- no "↳" marker; wrap off unless opted in
                     if pan.win and api.nvim_win_is_valid(pan.win) then
                         vim.wo[pan.win].number = opts.preview_numbers ~= false -- line numbers in the preview
+                    end
+                    -- NORMAL-mode keys on the preview (focused via <C-l>): the buffer is read-only, so a stray
+                    -- `i`/`a` would error E21 — map them (and `/`/<Tab>) back to typing; `q`/<Esc> close,
+                    -- `<CR>` opens the focused item. (`j`/`k` scroll the file; `<C-h>` → list via the chassis.)
+                    if map then
+                        map({ "i", "a", "/", "<Tab>", "<C-f>" }, focus_input)
+                        map({ "q", "<Esc>" }, cancel)
+                        map("<CR>", function()
+                            confirm()
+                        end)
                     end
                 end,
             }
