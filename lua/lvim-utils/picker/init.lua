@@ -15,6 +15,8 @@ local fuzzy = require("lvim-utils.fuzzy")
 local utils = require("lvim-utils.utils")
 local status = require("lvim-utils.status")
 
+local NS = api.nvim_create_namespace("lvim-utils-picker")
+
 local M = {}
 
 --- Normalise the caller's items into `{ text, icon?, _src }`. A string item is its own text; a table item
@@ -157,11 +159,17 @@ function M.open(opts)
     local function preview_h()
         return math.min(#state.preview_lines, maxr)
     end
-    -- The CONTENT height shared by both panels (each panel adds its own +1 winbar row on top). Floored at 1:
-    -- a panel that carries a WINBAR needs at least 2 rows (winbar + 1 content) or `winbar` raises "E36: Not
-    -- enough room" — so even with 0 results the panels keep one (blank) content row under the winbar.
+    local function has_results()
+        return #state.filtered > 0
+    end
+    -- The CONTENT height shared by both panels. WITH results each panel is `content_h + 1` (the winbar row).
+    -- With NO results there is no winbar — each panel is a SINGLE row (the prompt on the left, the
+    -- `[no matches]` label on the right) — so the finder collapses to one tinted line.
     local function content_h()
         return math.max(1, list_h(), preview_h())
+    end
+    local function panel_height()
+        return has_results() and (content_h() + 1) or 1
     end
 
     -- Each panel carries a WINBAR title, the lvim-lsp peek look: the list shows the title + result count,
@@ -172,6 +180,11 @@ function M.open(opts)
     local function set_list_winbar()
         local p = state.list_pan
         if not (p and p.win and api.nvim_win_is_valid(p.win)) then
+            return
+        end
+        -- No results ⇒ NO winbar (the panel is a single row — see panel_height); the prompt overlay owns it.
+        if not has_results() then
+            vim.wo[p.win].winbar = ""
             return
         end
         -- With a preview the scoped INPUT prompt overlays this row, so keep it blank (just reserve the row,
@@ -191,6 +204,12 @@ function M.open(opts)
     end
     local function set_preview_winbar(pan, it)
         if not (pan and pan.win and api.nvim_win_is_valid(pan.win)) then
+            return
+        end
+        -- No results ⇒ NO winbar; the `[no matches]` label is drawn as the panel's single tinted row instead
+        -- (see the preview provider `update`).
+        if not has_results() then
+            vim.wo[pan.win].winbar = ""
             return
         end
         if it and it.path and it.path ~= "" then
@@ -232,7 +251,7 @@ function M.open(opts)
     local list_provider = {
         cursorline = false,
         size = function()
-            return math.max(30, math.floor(vim.o.columns * 0.32)), content_h() + 1 -- +1 for the winbar row
+            return math.max(30, math.floor(vim.o.columns * 0.32)), panel_height() -- +winbar with results; 1 when empty
         end,
         render = function()
             local lines, hls = {}, {}
@@ -249,9 +268,15 @@ function M.open(opts)
                     hls[#hls + 1] = { i - 1, ms.c0, ms.c1, hl("match", "LvimUiMsgAreaMatch"), 250 }
                 end
             end
-            -- No "[no matches]" body row on the left — emptiness shows in the preview winbar instead.
+            -- No results: with a preview the `[no matches]` label lives in the PREVIEW panel (the list row
+            -- stays blank under the prompt overlay); without a preview the list shows the tinted label itself.
             if #lines == 0 then
-                lines = { "" }
+                if opts.preview then
+                    lines = { "" }
+                else
+                    lines = { " " .. empty_text }
+                    hls[1] = { 0, 0, -1, hl("preview_file", "LvimUiPeekFile"), 100 } -- a single yellow-tinted row
+                end
             end
             return lines, hls
         end,
@@ -270,12 +295,29 @@ function M.open(opts)
                 size = function()
                     -- Both panels share the CONTENT height (the taller of list/preview, capped) so the
                     -- container fits the bigger one; the preview lines are cached in `state.preview_lines`
-                    -- (fetched on selection — see `fetch_preview`). (+1 winbar row.)
-                    return math.max(40, math.floor(vim.o.columns * 0.5)), content_h() + 1
+                    -- (fetched on selection — see `fetch_preview`). With results +1 for the winbar; with NO
+                    -- results a single tinted `[no matches]` row.
+                    return math.max(40, math.floor(vim.o.columns * 0.5)), panel_height()
                 end,
                 update = function(pan)
-                    local it = state.filtered[state.sel]
-                    set_preview_winbar(pan, it and it._src or nil)
+                    set_preview_winbar(pan, state.filtered[state.sel] and state.filtered[state.sel]._src or nil)
+                    -- No results: a single yellow-tinted `[no matches]` row (no winbar, no syntax).
+                    if not has_results() then
+                        if vim.bo[pan.buf].filetype ~= "" then
+                            pcall(api.nvim_set_option_value, "filetype", "", { buf = pan.buf })
+                        end
+                        vim.bo[pan.buf].modifiable = true
+                        pcall(api.nvim_buf_set_lines, pan.buf, 0, -1, false, { " " .. empty_text })
+                        vim.bo[pan.buf].modifiable = false
+                        api.nvim_buf_clear_namespace(pan.buf, NS, 0, -1)
+                        pcall(api.nvim_buf_set_extmark, pan.buf, NS, 0, 0, {
+                            end_row = 1,
+                            hl_group = hl("preview_file", "LvimUiPeekFile"),
+                            hl_eol = true,
+                        })
+                        return
+                    end
+                    api.nvim_buf_clear_namespace(pan.buf, NS, 0, -1)
                     local lines = state.preview_lines or {}
                     vim.bo[pan.buf].modifiable = true
                     pcall(api.nvim_buf_set_lines, pan.buf, 0, -1, false, lines)
