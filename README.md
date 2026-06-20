@@ -827,6 +827,26 @@ When the focused segment is NOT a grid (e.g. messages), `h`/`j`/`k`/`l` and `<C-
 
 ---
 
+### `fuzzy`
+
+The shared fuzzy MATCHING engine used by the picker / navigator AND the native command-line completion. `filter(texts, query, cb)` ranks a list of strings against a query — the `fzf` binary in `--filter` mode when present (async), a pure-Lua subsequence matcher otherwise — and calls `cb` with `{ idx, match }` entries (the source index + the matched-char positions for highlighting).
+
+**Result ordering** is highly configurable via `config.fuzzy.sort` and applies to EVERY consumer:
+
+```lua
+require("lvim-utils").setup({
+    fuzzy = {
+        -- a preset name, a LIST of criteria (priority order — first decides, the rest break ties),
+        -- or a custom function(a, b) -> boolean comparator
+        sort = { "dirs_first", "score" },
+    },
+})
+```
+
+Built-in criteria: `score` (best fuzzy match), `dirs_first`, `files_first`, `ext` (group by extension), `length`, `alpha`. The fuzzy rank is always the final tiebreak, so the order is deterministic.
+
+---
+
 ### `picker`
 
 A native fuzzy finder built on the [ui.surface](#ui) chassis — a centred float with a typed query INPUT on top, a results LIST on the left and a scrollable PREVIEW on the right (the diagnostics-peek layout, but fuzzy). The **matching engine is the `fzf` binary** in `--filter` mode (no TUI): candidates are piped in, fzf returns them matched + ranked by score, and the surface renders the result (engine vs view, like the blink integration). Without `fzf` it falls back to a Lua subsequence matcher. Matched characters are highlighted.
@@ -847,6 +867,20 @@ require("lvim-utils.picker").open({
 
 require("lvim-utils.picker").buffers() -- ready finder over the open buffers (with a content preview)
 ```
+
+**Layouts** — `layout = "float"` (default centred), `"bottom"` (a dock floating over the bottom rows), or `"area"` (the Emacs-style cmdline region — it grows `cmdheight` so a global statusline rises above it). **Preview side** — `preview_side = "right"` (default) `| "left" | "below" | "above"` (below/above stack and grow the height). **Result ordering** is the shared [`config.fuzzy.sort`](#fuzzy) (so it matches the rest of the engine).
+
+**Ready finders:**
+
+```lua
+local picker = require("lvim-utils.picker")
+picker.buffers() -- open buffers (content preview; <CR> switches)
+picker.files() -- fuzzy file finder under cwd (fd / rg --files / find; <CR> edits)
+picker.directories() -- fuzzy directory finder (<CR> :cd's in)
+picker.grep() -- LIVE grep via ripgrep: each query re-runs rg, preview jumps to the matched line, <CR> opens at it
+```
+
+`files`/`directories` are STATIC lists fuzzy-filtered as you type; `grep` is a **LIVE `source`** — each keystroke re-runs the command and the matches ARE the results (pass your own `source = function(query, cb) … end` to `open` for any live source).
 
 Keys (in the query input, insert mode): type to filter, `<C-j>`/`<Down>` and `<C-k>`/`<Up>` move the selection, `<C-d>`/`<C-u>` scroll the preview, `<CR>` confirms (calls `on_confirm` with the item's source value), `<Esc>`/`<C-c>` cancels. With no `preview` the float is the list alone.
 

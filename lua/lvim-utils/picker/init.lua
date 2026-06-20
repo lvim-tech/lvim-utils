@@ -75,18 +75,19 @@ local function list_row(it)
 end
 
 ---@class LvimPickerOpts
----@field items any[]  candidates (strings, or tables — see `format`)
+---@field items? any[]  STATIC candidates (strings, or tables — see `format`), fuzzy-filtered as you type
+---@field source? fun(query: string, cb: fun(items: any[]))  a LIVE source: each query produces the results (e.g. ripgrep); use instead of `items`
 ---@field on_confirm fun(item: any)  called with the chosen item's source value
 ---@field on_cancel? fun()  called when the finder is dismissed without a choice
 ---@field format? fun(item: any): string  display text for a table item (default: `item.text`)
----@field preview? fun(item: any): string[], string?  preview lines (+ a filetype for syntax) per selection
+---@field preview? fun(item: any): string[], string?, integer?  preview lines (+ a filetype, + a 1-based focus line) per selection
 ---@field preview_side? "right"|"left"|"below"|"above"  where the preview sits (default "right"); below/above stack + grow height
 ---@field title? string  the float title / the statusline action title
 ---@field icon? string  an optional leading glyph for the title (statusline)
 ---@field statusline? boolean  (docked layouts) publish title/counter/query to the bottom statusline (default true); false = draw them in the navigator
 ---@field prompt? string  the query prompt prefix (default "➤ ")
 ---@field max_rows? integer  natural list/preview height hint (default 15)
----@field layout? "float"|"bottom"  centred float (default) or an Emacs-style bottom dock
+---@field layout? "float"|"bottom"|"area"  centred float (default), a bottom dock, or the cmdheight area (heirline above)
 ---@field height? integer  rows for the bottom layout (default 16)
 
 --- Open a fuzzy finder: a centred float with a query input on top, a results list and (with `preview`) a
@@ -161,9 +162,9 @@ function M.open(opts)
                 end,
                 update = function(pan)
                     local it = state.filtered[state.sel]
-                    local lines, ft = nil, nil
+                    local lines, ft, focus = nil, nil, nil
                     if it then
-                        lines, ft = opts.preview(it._src)
+                        lines, ft, focus = opts.preview(it._src)
                     end
                     lines = (type(lines) == "table" and lines) or (lines and { tostring(lines) }) or {}
                     vim.bo[pan.buf].modifiable = true
@@ -171,6 +172,14 @@ function M.open(opts)
                     vim.bo[pan.buf].modifiable = false
                     if ft and ft ~= "" and vim.bo[pan.buf].filetype ~= ft then
                         pcall(api.nvim_set_option_value, "filetype", ft, { buf = pan.buf })
+                    end
+                    -- `focus` (a 1-based line) scrolls the preview to that row and centres it — used by grep
+                    -- to jump the preview to the matched line.
+                    if focus and pan.win and api.nvim_win_is_valid(pan.win) then
+                        pcall(api.nvim_win_set_cursor, pan.win, { math.max(1, math.min(focus, #lines)), 0 })
+                        api.nvim_win_call(pan.win, function()
+                            vim.cmd("normal! zz")
+                        end)
                     end
                 end,
                 keys = function(_, pan)
@@ -202,20 +211,41 @@ function M.open(opts)
         update_preview()
         publish_status() -- the counter follows the selection
     end
+    -- Apply a new result list (from the fuzzy filter or a live source) to the UI.
+    local function apply(list)
+        if state.closed then
+            return
+        end
+        state.filtered, state.sel = list, 1
+        if state.list_pan and state.list_pan.refresh then
+            state.list_pan.refresh()
+        end
+        set_list_cursor()
+        update_preview()
+        publish_status() -- new total + reset counter + query as the action
+    end
+    -- A generation guard so a slow async source/filter callback for an OLD query can't overwrite a newer one.
+    local refilter_gen = 0
     local function refilter(q)
         state.query = q or ""
-        filter(items, q, function(list)
-            if state.closed then
-                return
+        refilter_gen = refilter_gen + 1
+        local mygen = refilter_gen
+        local function guarded(list)
+            if mygen == refilter_gen then
+                apply(normalize(list, opts.format))
             end
-            state.filtered, state.sel = list, 1
-            if state.list_pan and state.list_pan.refresh then
-                state.list_pan.refresh()
-            end
-            set_list_cursor()
-            update_preview()
-            publish_status() -- new total + reset counter + query as the action
-        end)
+        end
+        if opts.source then
+            -- LIVE source: the query drives the results (e.g. ripgrep) — no fuzzy over a static list.
+            opts.source(state.query, guarded)
+        else
+            -- STATIC list: fuzzy-filter it (filter already returns grid items, so skip re-normalising).
+            filter(items, state.query, function(list)
+                if mygen == refilter_gen then
+                    apply(list)
+                end
+            end)
+        end
     end
     local function scroll_preview(dir)
         local p = state.preview_pan
@@ -404,6 +434,159 @@ function M.buffers(opts)
                 return vim.fn.readfile(name, "", 500), ft
             end
             return { "[no preview]" }, ""
+        end,
+    }, opts or {}))
+end
+
+-- ── file / directory / grep finders ────────────────────────────────────────────
+
+---@param bin string
+---@return boolean
+local function has(bin)
+    return vim.fn.executable(bin) == 1
+end
+
+--- The best available command (argv) to LIST files under cwd: fd / fdfind / rg --files / find.
+---@return string[]
+local function file_list_cmd()
+    if has("fd") then
+        return { "fd", "--type", "f", "--hidden", "--strip-cwd-prefix", "--exclude", ".git" }
+    elseif has("fdfind") then
+        return { "fdfind", "--type", "f", "--hidden", "--strip-cwd-prefix", "--exclude", ".git" }
+    elseif has("rg") then
+        return { "rg", "--files", "--hidden", "--glob", "!.git" }
+    end
+    return { "find", ".", "-type", "f", "-not", "-path", "*/.git/*" }
+end
+
+--- The best available command (argv) to LIST directories under cwd.
+---@return string[]
+local function dir_list_cmd()
+    if has("fd") then
+        return { "fd", "--type", "d", "--hidden", "--strip-cwd-prefix", "--exclude", ".git" }
+    elseif has("fdfind") then
+        return { "fdfind", "--type", "d", "--hidden", "--strip-cwd-prefix", "--exclude", ".git" }
+    end
+    return { "find", ".", "-type", "d", "-not", "-path", "*/.git/*" }
+end
+
+--- Read up to `n` lines of `path` for a preview, with a filetype guessed from the name.
+---@param path string
+---@param n? integer
+---@return string[] lines, string filetype
+local function read_preview(path, n)
+    local ft = vim.filetype.match({ filename = path }) or ""
+    if vim.fn.filereadable(path) == 1 then
+        return vim.fn.readfile(path, "", n or 500), ft
+    end
+    return { "[unreadable]" }, ""
+end
+
+--- Run an argv synchronously and return its stdout lines (empty on failure).
+---@param argv string[]
+---@return string[]
+local function run_lines(argv)
+    local ok, res = pcall(vim.fn.systemlist, argv)
+    if not ok or vim.v.shell_error ~= 0 then
+        return type(res) == "table" and res or {}
+    end
+    return res or {}
+end
+
+--- Fuzzy file finder under cwd; confirming edits the file, with a content preview. `opts` forwarded to open.
+---@param opts? table
+function M.files(opts)
+    local items = {}
+    for _, p in ipairs(run_lines(file_list_cmd())) do
+        if p ~= "" then
+            items[#items + 1] = { text = p, path = p }
+        end
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Files",
+        items = items,
+        on_confirm = function(it)
+            if it and it.path then
+                vim.cmd.edit(vim.fn.fnameescape(it.path))
+            end
+        end,
+        preview = function(it)
+            return read_preview(it.path)
+        end,
+    }, opts or {}))
+end
+
+--- Fuzzy directory finder under cwd; confirming `:cd`s into the chosen directory. `opts` forwarded to open.
+---@param opts? table
+function M.directories(opts)
+    local items = {}
+    for _, p in ipairs(run_lines(dir_list_cmd())) do
+        if p ~= "" then
+            items[#items + 1] = { text = p, path = p }
+        end
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Directories",
+        items = items,
+        on_confirm = function(it)
+            if it and it.path then
+                vim.cmd.cd(vim.fn.fnameescape(it.path))
+            end
+        end,
+        preview = function(it)
+            return run_lines({ "ls", "-A", it.path }), ""
+        end,
+    }, opts or {}))
+end
+
+--- LIVE grep (ripgrep) under cwd: each query re-runs `rg`, the matches ARE the results, with a preview that
+--- jumps to the matched line; confirming opens the file at that line. `opts` forwarded to open.
+---@param opts? table
+function M.grep(opts)
+    if not has("rg") then
+        vim.notify("lvim-utils.picker.grep needs ripgrep (rg)", vim.log.levels.WARN)
+        return
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Grep",
+        prompt = "  ", -- a search glyph prompt
+        source = function(query, cb)
+            if query == nil or #query < 2 then -- wait for a couple of chars (rg over a huge tree is heavy)
+                cb({})
+                return
+            end
+            vim.system(
+                { "rg", "--vimgrep", "--smart-case", "--color=never", "--", query },
+                { text = true },
+                function(res)
+                    vim.schedule(function()
+                        local out = {}
+                        for line in (res.stdout or ""):gmatch("[^\n]+") do
+                            local file, lnum, col, text = line:match("^(.-):(%d+):(%d+):(.*)$")
+                            if file then
+                                out[#out + 1] = {
+                                    text = ("%s:%s  %s"):format(file, lnum, text),
+                                    path = file,
+                                    lnum = tonumber(lnum),
+                                    col = tonumber(col),
+                                }
+                            end
+                        end
+                        cb(out)
+                    end)
+                end
+            )
+        end,
+        preview = function(it)
+            local lines, ft = read_preview(it.path)
+            return lines, ft, it.lnum -- focus the preview on the matched line
+        end,
+        on_confirm = function(it)
+            if it and it.path then
+                vim.cmd.edit(vim.fn.fnameescape(it.path))
+                pcall(api.nvim_win_set_cursor, 0, { it.lnum or 1, (it.col or 1) - 1 })
+                vim.cmd("normal! zz")
+            end
         end,
     }, opts or {}))
 end
