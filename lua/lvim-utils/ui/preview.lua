@@ -180,6 +180,9 @@ function M.new(opts)
             vim.wo[pan.win].relativenumber = pn == "relative"
             vim.wo[pan.win].signcolumn = "no" -- diagnostic signs live in the list panel, not here
             vim.wo[pan.win].foldcolumn = "0"
+            -- mark it a preview window so sticky-context plugins (treesitter-context) skip it — else the
+            -- context header floats up out of this small pane over the statusline / the buffer above.
+            vim.wo[pan.win].previewwindow = true
             vim.wo[pan.win].cursorline = true
             -- The preview is the RIGHT panel of the multi-panel peek → NEUTRAL cursorline (a bg line over
             -- the real source), matching the list panel; never the popup-list yellow.
