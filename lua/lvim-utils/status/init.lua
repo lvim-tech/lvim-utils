@@ -32,6 +32,7 @@ local function build()
     pair("LvimUiStatusTitle", c.blue) -- the action title (+ its icon badge)
     pair("LvimUiStatusCount", c.green) -- the match counter
     pair("LvimUiStatusAction", c.yellow) -- the free-form action / query
+    pair("LvimUiStatusSubtitle", c.cyan) -- a per-selection subtitle (e.g. the focused file name)
     return g
 end
 
@@ -45,10 +46,20 @@ end
 ---@field current integer  the selected index (1-based; 0 = none)
 ---@field total integer  the total candidate count
 ---@field action string?  a free-form "current action" string (e.g. the query, or a hint)
+---@field subtitle string?  a per-selection subtitle shown after the title (e.g. the focused file name)
 
 ---@type LvimStatusState
-local state =
-    { active = false, title = nil, title_hl = nil, icon = nil, icon_hl = nil, current = 0, total = 0, action = nil }
+local state = {
+    active = false,
+    title = nil,
+    title_hl = nil,
+    icon = nil,
+    icon_hl = nil,
+    current = 0,
+    total = 0,
+    action = nil,
+    subtitle = nil,
+}
 
 ---@type string?  the user's `statusline` saved before we took it over (native backend), restored on clear
 local saved = nil
@@ -102,6 +113,10 @@ function M.render()
             seg(state.title_hl or "LvimUiStatusTitle", state.title, cfg.title_pad_left or 1, cfg.title_pad_right or 1)
     end
     local gp = cfg.segment_pad or 1
+    -- A per-selection subtitle right after the title — e.g. the focused file name in a finder.
+    if state.subtitle and state.subtitle ~= "" then
+        parts[#parts + 1] = seg("LvimUiStatusSubtitle", state.subtitle, gp, gp)
+    end
     -- The action / query sits on the LEFT, right after the title (the search pattern, the navigator query) —
     -- what the user is entering. Off by default (`show_action`): the input lives where you type it.
     if cfg.show_action and state.action and state.action ~= "" then
@@ -119,7 +134,7 @@ end
 
 --- Publish (merge) the current action's status. Marks the line active and repaints. On the native backend
 --- the first set saves the user's `statusline` and installs our expression.
----@param s { title?: string, title_hl?: string, icon?: string, icon_hl?: string, current?: integer, total?: integer, action?: string }
+---@param s { title?: string, title_hl?: string, icon?: string, icon_hl?: string, current?: integer, total?: integer, action?: string, subtitle?: string }
 function M.set(s)
     s = s or {}
     if not hl_bound then
@@ -147,6 +162,9 @@ function M.set(s)
     if s.action ~= nil then
         state.action = s.action
     end
+    if s.subtitle ~= nil then
+        state.subtitle = s.subtitle
+    end
     if native and saved == nil then
         saved = vim.o.statusline
         vim.o.statusline = "%!v:lua.require'lvim-utils.status'.render()"
@@ -158,6 +176,7 @@ end
 function M.clear()
     state.active = false
     state.title, state.title_hl, state.icon, state.icon_hl, state.action = nil, nil, nil, nil, nil
+    state.subtitle = nil
     state.current, state.total = 0, 0
     if native and saved ~= nil then
         vim.o.statusline = saved

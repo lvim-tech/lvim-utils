@@ -97,6 +97,7 @@ end
 ---@field empty_text? string  shown when there are no results (list body + preview winbar)
 ---@field title? string  the float title / the statusline action title
 ---@field icon? string  an optional leading glyph for the title (statusline)
+---@field subtitle? fun(item: any): string  per-selection subtitle shown after the title in the statusline (e.g. the file name)
 ---@field statusline? boolean  (docked layouts) publish title/counter/query to the bottom statusline (default true); false = draw them in the navigator
 ---@field prompt? string  the query prompt prefix (default "➤ ")
 ---@field keys? { key: string, name?: string, run: fun(item: any, close: fun()) }[]  extra row actions (split, code action…); `name` adds a footer hint
@@ -191,12 +192,19 @@ function M.open(opts)
     local use_status = docked_layout and status.is_enabled() and opts.statusline ~= false
     local function publish_status()
         if use_status then
+            -- a per-selection subtitle (e.g. the focused file name) shown after the title in the statusline
+            local sub
+            if opts.subtitle then
+                local it = state.filtered[state.sel]
+                sub = (it and opts.subtitle(it._src)) or ""
+            end
             status.set({
                 title = opts.title,
                 icon = opts.icon,
                 current = #state.filtered > 0 and state.sel or 0,
                 total = #state.filtered,
                 action = state.query,
+                subtitle = sub,
             })
         end
     end
