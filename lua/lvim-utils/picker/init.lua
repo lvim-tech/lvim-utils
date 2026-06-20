@@ -87,6 +87,7 @@ end
 ---@field preview_side? "right"|"left"|"below"|"above"  where the preview sits (default "right"); below/above stack + grow height
 ---@field preview_numbers? boolean  show line numbers in the preview (default true)
 ---@field preview_wrap? boolean  soft-wrap the preview (default false)
+---@field list_wrap? boolean  soft-wrap the list rows (no "↳" marker) so far-right matches stay visible (default false)
 ---@field empty_text? string  shown when there are no results (list body + preview winbar)
 ---@field title? string  the float title / the statusline action title
 ---@field icon? string  an optional leading glyph for the title (statusline)
@@ -117,6 +118,11 @@ function M.open(opts)
     end
     local empty_text = opts.empty_text or pkcfg.empty_text or "[no matches]"
     local prevcfg = pkcfg.preview or {}
+    -- list wrap: per-call `opts.list_wrap` wins; else the shared `config.picker.list_wrap`.
+    local list_wrap = opts.list_wrap
+    if list_wrap == nil then
+        list_wrap = pkcfg.list_wrap == true
+    end
 
     -- The global `showbreak`/`wrap` would draw a "↳" continuation marker on a wrapped long row — kill it on
     -- our windows (the list/input never wrap; the preview wraps but shows no marker).
@@ -283,7 +289,9 @@ function M.open(opts)
         end,
         keys = function(_, pan, st)
             state.list_pan, state.st = pan, st
-            tame_win(pan.win, false) -- no wrap / no "↳" continuation marker on long rows
+            -- `list_wrap` soft-wraps long rows (so a match far to the right stays visible) — never with the
+            -- "↳" continuation marker (tame_win clears showbreak); default off = truncate.
+            tame_win(pan.win, list_wrap)
             set_list_winbar()
         end,
     }

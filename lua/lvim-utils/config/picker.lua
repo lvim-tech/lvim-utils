@@ -51,4 +51,8 @@ return {
     -- Shown when there are NO results — in the list body AND in the preview's winbar (where the file name
     -- would be). A per-call `opts.empty_text` overrides it.
     empty_text = "[no matches]",
+
+    -- Soft-wrap the LIST rows (no "↳" continuation marker) so a match far to the right of a long row stays
+    -- visible instead of being truncated off-screen. A per-call `opts.list_wrap` overrides it.
+    list_wrap = false,
 }
