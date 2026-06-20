@@ -145,6 +145,20 @@ function M.has_menu()
     return #items > 0
 end
 
+--- True when accepting the current selection WOULD change the command line (there is something to fill) —
+--- read-only, so it is safe to call synchronously from an expr keymap. Lets `<CR>` complete first when the
+--- token is still partial (avoids running an ambiguous command), then execute once it is complete.
+---@return boolean
+function M.would_fill()
+    if #items == 0 or sel < 1 then
+        return false
+    end
+    local cand = items[sel].full or items[sel].text
+    local line = vim.fn.getcmdline()
+    local stem = line:match("^(.*%s)%S*$") or ""
+    return (stem .. cand) ~= line
+end
+
 --- Move down a whole grid ROW (by the column count).
 ---@return boolean handled
 function M.grid_down()
@@ -226,6 +240,7 @@ local KEY_ACTIONS = {
     left = "grid_left",
     accept = "accept",
     drill_out = "drill_out",
+    enter = "accept", -- special-cased in install_keys: complete-then-execute
 }
 
 ---@type string[]  the cmdline lhs's we installed (to delete on disable)
@@ -240,6 +255,16 @@ local function install_keys()
     for action, method in pairs(KEY_ACTIONS) do
         for _, lhs in ipairs(keys[action] or {}) do
             vim.keymap.set("c", lhs, function()
+                -- `enter` is special: complete the selection FIRST while the token is still partial (so an
+                -- ambiguous command like `:LvimPick` is filled, not run → no E464), and only fall through to
+                -- execute once there is nothing left to fill.
+                if action == "enter" then
+                    if M.has_menu() and M.would_fill() then
+                        vim.schedule(M.accept)
+                        return ""
+                    end
+                    return api.nvim_replace_termcodes(lhs, true, false, true)
+                end
                 if M.has_menu() then
                     vim.schedule(function()
                         pcall(M[method])

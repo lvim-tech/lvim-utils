@@ -49,6 +49,7 @@ return {
         left = { "<C-h>" }, -- move one cell left
         accept = { "<Tab>" }, -- accept / drill into the selected candidate
         drill_out = { "<S-Tab>" }, -- go back up a path segment
+        enter = { "<CR>" }, -- complete the selection first (so a partial/ambiguous command is filled, not run), then execute
     },
     wrap = true, -- soft-wrap long lines
     follow = true, -- tail: keep the newest line in view on append
