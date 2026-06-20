@@ -591,4 +591,46 @@ function M.grep(opts)
     }, opts or {}))
 end
 
+--- Fuzzy finder over RECENT files (`v:oldfiles`, readable only), newest first; confirming edits the file.
+---@param opts? table
+function M.oldfiles(opts)
+    local items, seen = {}, {}
+    for _, p in ipairs(vim.v.oldfiles or {}) do
+        if not seen[p] and vim.fn.filereadable(p) == 1 then
+            seen[p] = true
+            items[#items + 1] = { text = vim.fn.fnamemodify(p, ":~:."), path = p }
+        end
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Recent",
+        items = items,
+        on_confirm = function(it)
+            if it and it.path then
+                vim.cmd.edit(vim.fn.fnameescape(it.path))
+            end
+        end,
+        preview = function(it)
+            return read_preview(it.path)
+        end,
+    }, opts or {}))
+end
+
+--- Fuzzy finder over HELP tags; confirming opens that help topic.
+---@param opts? table
+function M.help_tags(opts)
+    local items = {}
+    for _, t in ipairs(vim.fn.getcompletion("", "help")) do
+        items[#items + 1] = { text = t, tag = t }
+    end
+    M.open(vim.tbl_extend("force", {
+        title = "Help",
+        items = items,
+        on_confirm = function(it)
+            if it and it.tag then
+                pcall(vim.cmd.help, it.tag)
+            end
+        end,
+    }, opts or {}))
+end
+
 return M

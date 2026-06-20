@@ -878,6 +878,8 @@ picker.buffers() -- open buffers (content preview; <CR> switches)
 picker.files() -- fuzzy file finder under cwd (fd / rg --files / find; <CR> edits)
 picker.directories() -- fuzzy directory finder (<CR> :cd's in)
 picker.grep() -- LIVE grep via ripgrep: each query re-runs rg, preview jumps to the matched line, <CR> opens at it
+picker.oldfiles() -- recent files (v:oldfiles, readable; <CR> edits)
+picker.help_tags() -- help tags (<CR> :help's the topic)
 ```
 
 `files`/`directories` are STATIC lists fuzzy-filtered as you type; `grep` is a **LIVE `source`** — each keystroke re-runs the command and the matches ARE the results (pass your own `source = function(query, cb) … end` to `open` for any live source).
