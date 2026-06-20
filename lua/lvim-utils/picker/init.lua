@@ -113,6 +113,7 @@ function M.open(opts)
         return phl[key] or default
     end
     local empty_text = opts.empty_text or pkcfg.empty_text or "[no matches]"
+    local prevcfg = pkcfg.preview or {}
 
     -- The global `showbreak`/`wrap` would draw a "↳" continuation marker on a wrapped long row — kill it on
     -- our windows (the list/input never wrap; the preview wraps but shows no marker).
@@ -187,11 +188,25 @@ function M.open(opts)
             local tail = vim.fn.fnamemodify(rel, ":t")
             local dir = vim.fn.fnamemodify(rel, ":h")
             dir = (dir == "." or dir == "") and "" or (dir .. "/")
-            vim.wo[pan.win].winbar = ("%%#%s# %s %%#%s#%s%%#%s#%%="):format(
+            -- the file's devicon (when nvim-web-devicons is present and `preview.show_icon`)
+            local icon = ""
+            if prevcfg.show_icon ~= false then
+                local ok_dev, dev = pcall(require, "nvim-web-devicons")
+                if ok_dev then
+                    local gl = dev.get_icon(tail, vim.fn.fnamemodify(tail, ":e"), { default = true })
+                    icon = gl and (gl .. " ") or ""
+                end
+            end
+            -- name = icon + file (bright); dir = padded path on the winbar bg (so it blends into the bar)
+            local dpl, dpr = prevcfg.dir_pad_left or 1, prevcfg.dir_pad_right or 1
+            vim.wo[pan.win].winbar = ("%%#%s# %s%s %%#%s#%s%s%s%%#%s#%%="):format(
                 hl("preview_file", "LvimUiPeekFile"),
+                esc(icon),
                 esc(tail),
-                hl("preview_dir", "LvimUiPeekDir"),
+                hl("preview_dir", "LvimUiPickerPreviewDir"),
+                string.rep(" ", dpl),
                 esc(dir),
+                string.rep(" ", dpr),
                 hl("bar", "LvimUiPeekFileBar")
             )
         else

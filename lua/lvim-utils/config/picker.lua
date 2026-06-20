@@ -37,8 +37,15 @@ return {
         list_title = "LvimUiPeekTitle", -- the list title (single-panel layout)
         list_count = "LvimUiPeekCount", -- the result count
         preview_file = "LvimUiPeekFile", -- the previewed file name
-        preview_dir = "LvimUiPeekDir", -- its directory
+        preview_dir = "LvimUiPickerPreviewDir", -- its directory (muted fg on the winbar bg)
         bar = "LvimUiPeekFileBar", -- the winbar fill / blank prompt row
+    },
+
+    -- The preview winbar (the file title bar on the preview panel).
+    preview = {
+        show_icon = true, -- show the file's devicon before the name (needs nvim-web-devicons)
+        dir_pad_left = 1, -- spaces before the path
+        dir_pad_right = 1, -- spaces after the path
     },
 
     -- Shown when there are NO results — in the list body AND in the preview's winbar (where the file name
