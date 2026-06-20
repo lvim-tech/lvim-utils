@@ -92,6 +92,7 @@ end
 ---@field icon? string  an optional leading glyph for the title (statusline)
 ---@field statusline? boolean  (docked layouts) publish title/counter/query to the bottom statusline (default true); false = draw them in the navigator
 ---@field prompt? string  the query prompt prefix (default "➤ ")
+---@field keys? { key: string, name?: string, run: fun(item: any, close: fun()) }[]  extra row actions (split, code action…); `name` adds a footer hint
 ---@field max_rows? integer  natural list/preview height hint (default 15)
 ---@field layout? "float"|"bottom"|"area"  centred float (default), a bottom dock, or the cmdheight area (heirline above)
 ---@field height? integer  rows for the bottom layout (default 16)
@@ -465,6 +466,22 @@ function M.open(opts)
             opts.on_confirm(it._src)
         end
     end
+    -- Run a consumer `opts.keys` action on the SELECTED item: it gets the item's source value + a `close`
+    -- callback (so an action can dismiss the finder, or keep it open). No selection ⇒ no-op.
+    local function act(run)
+        local it = state.filtered[state.sel]
+        if not it then
+            return
+        end
+        run(it._src, function()
+            if use_status then
+                status.clear()
+            end
+            if state.st then
+                state.st.close()
+            end
+        end)
+    end
 
     -- layout: a centred float (default), a "bottom" dock that FLOATS over the bottom rows (statusline
     -- unaffected), or "area" — the Emacs-minibuffer model: it GROWS `cmdheight` like the msgarea cmdline
@@ -542,6 +559,19 @@ function M.open(opts)
         prompt_text = { { badge, prompt_hl }, { sp(" ", pcfg.input_gap or 1), input_hl } }
     end
 
+    -- Footer hints: the standard actions + any consumer `opts.keys` that carry a `name`.
+    local footer_items = {
+        { key = "<CR>", name = "open" },
+        { key = "C-j/k", name = "move" },
+        { key = "C-d/u", name = "preview" },
+    }
+    for _, a in ipairs(opts.keys or {}) do
+        if a.name then
+            footer_items[#footer_items + 1] = { key = a.key, name = a.name }
+        end
+    end
+    footer_items[#footer_items + 1] = { key = "Esc", name = "close" }
+
     surface.open({
         mode = "float",
         -- "area" sits IN the cmdline region (grows cmdheight, heirline above) like the msgarea zone; the
@@ -610,6 +640,14 @@ function M.open(opts)
                         end
                         imap("<Esc>", cancel)
                         imap("<C-c>", cancel)
+                        -- consumer row actions: `opts.keys = { { key = lhs, run = fn(item, close) } }` — e.g.
+                        -- open in a split, run a code action, yank. `run` gets the selected item + a close fn.
+                        for _, a in ipairs(opts.keys or {}) do
+                            imap(a.key, function()
+                                vim.cmd("stopinsert")
+                                act(a.run)
+                            end)
+                        end
                     end,
                 },
             },
@@ -618,12 +656,7 @@ function M.open(opts)
         footer = {
             bars = {
                 {
-                    items = {
-                        { key = "<CR>", name = "open" },
-                        { key = "C-j/k", name = "move" },
-                        { key = "C-d/u", name = "preview" },
-                        { key = "Esc", name = "close" },
-                    },
+                    items = footer_items,
                 },
             },
         },
