@@ -14,9 +14,10 @@ M.gx = require("lvim-utils.gx")
 M.notify = require("lvim-utils.notify")
 M.cmdline = require("lvim-utils.cmdline")
 M.input = require("lvim-utils.input")
+M.msgarea = require("lvim-utils.msgarea")
 
 ---Setup lvim-utils.
----@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table }
+---@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table }
 function M.setup(opts)
     opts = opts or {}
 
@@ -33,6 +34,7 @@ function M.setup(opts)
         notify = opts.notify,
         cmdline = opts.cmdline,
         input = opts.input,
+        msgarea = opts.msgarea,
     })
 
     -- 3. Self-theme the UI/notify groups from the fully-configured palette via bind():
@@ -69,6 +71,12 @@ function M.setup(opts)
     -- input dispatcher (vim.ui.input → cmdline/popup); opt-in, no-ops unless enabled.
     if opts.input ~= false then
         M.input.setup(M.config.input)
+    end
+
+    -- message area (notify "msgarea" sink + docked panel); opt-in, no-ops unless enabled.
+    -- Runs AFTER notify.setup so its sink/routing land on the live notify config.
+    if opts.msgarea ~= false then
+        M.msgarea.setup(M.config.msgarea)
     end
 end
 

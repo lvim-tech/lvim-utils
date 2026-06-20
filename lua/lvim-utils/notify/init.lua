@@ -625,11 +625,44 @@ function M.has_printer(name)
 end
 
 --- Register a routing sink for an ext_kinds behaviour (e.g. "cmdline"). Unlike a printer,
---- it is only called for messages whose kind maps to `name` in ext_kinds.
+--- it is only called for messages whose kind maps to `name` in ext_kinds. Pass `nil` to remove.
 ---@param name string
----@param fn fun(text: string, level: integer, opts: table)
+---@param fn fun(text: string, level: integer, opts: table)|nil
 function M.register_sink(name, fn)
     _sinks[name] = fn
+end
+
+-- Saved original `ext_kinds` values, so a temporary routing (e.g. msgarea while enabled) can be
+-- restored verbatim on teardown.
+---@type table<string, any>
+local _saved_kinds = {}
+
+--- Route message kinds to a behaviour at runtime (e.g. `{ echomsg = "msgarea" }`), saving whatever
+--- each kind mapped to before so `unroute_kinds` can put it back. Mutates the live ext_kinds the
+--- ext_messages handler reads.
+---@param map table<string, string>
+function M.route_kinds(map)
+    _cfg.ext_kinds = _cfg.ext_kinds or {}
+    for kind, behaviour in pairs(map or {}) do
+        if _saved_kinds[kind] == nil then
+            -- false sentinel = "was absent" (so we can delete it again, not leave it set)
+            _saved_kinds[kind] = _cfg.ext_kinds[kind] == nil and false or _cfg.ext_kinds[kind]
+        end
+        _cfg.ext_kinds[kind] = behaviour
+    end
+end
+
+--- Restore the `ext_kinds` entries for `keys` to what they were before `route_kinds`.
+---@param keys string[]
+function M.unroute_kinds(keys)
+    _cfg.ext_kinds = _cfg.ext_kinds or {}
+    for _, kind in ipairs(keys or {}) do
+        local prev = _saved_kinds[kind]
+        if prev ~= nil then
+            _cfg.ext_kinds[kind] = (prev == false) and nil or prev
+            _saved_kinds[kind] = nil
+        end
+    end
 end
 
 function M.notify(msg, level, opts)

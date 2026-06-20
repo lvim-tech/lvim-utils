@@ -59,6 +59,25 @@ function M.check()
             ok("self-rendered cmdline enabled, no competing ext_cmdline provider detected")
         end
     end
+
+    -- message area (the segment zone)
+    if cfg_ok and cfg.msgarea and cfg.msgarea.enable then
+        ok("message area enabled (unified cmdline: " .. tostring(cfg.msgarea.unified == true) .. ")")
+        local ints = {}
+        for name, on in pairs(cfg.msgarea.integrations or {}) do
+            if on then
+                ints[#ints + 1] = name
+            end
+        end
+        info("msgarea integrations: " .. (next(ints) and table.concat(ints, ", ") or "none"))
+        local ma_ok, ma = pcall(require, "lvim-utils.msgarea")
+        if ma_ok and ma.segments then
+            local names = vim.tbl_keys(ma.segments())
+            if #names > 0 then
+                info("msgarea segments: " .. table.concat(names, ", "))
+            end
+        end
+    end
 end
 
 return M

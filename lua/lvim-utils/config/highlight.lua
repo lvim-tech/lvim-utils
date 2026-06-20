@@ -56,6 +56,25 @@ return function(c)
         LvimUiSubtitleError = { fg = c.red },
         LvimUiInfo = { fg = c.yellow, bg = mtint(c.yellow, BODY) },
 
+        -- Message area (lvim-utils.msgarea): a docked panel — own dark bg + a full-width blue title bar.
+        LvimUiMsgAreaNormal = { fg = c.fg, bg = c.bg_dark },
+        LvimUiMsgAreaTitle = { fg = c.blue, bg = mtint(c.blue, 0.4), bold = true },
+        LvimUiMsgAreaTitleFill = { bg = mtint(c.blue, 0.4) },
+        -- Intercepted completion list rendered IN the zone (blink stays the engine; we draw it).
+        -- The grid is striped by accent (odd BLUE, even YELLOW): the WHOLE row — icon + label — takes
+        -- that accent as its fg over a LIGHT tint of it (0.1); the selected cell raises the tint to 0.2
+        -- (+ bold) of its row's accent, one solid block. fg and bg share the colour ("fg = the tint").
+        LvimUiMsgAreaItem = { fg = c.fg, bg = c.bg_dark }, -- a completion item row (the label)
+        LvimUiMsgAreaItemKind = { fg = c.cyan, bg = c.bg_dark }, -- its kind icon (fallback when no source hl)
+        LvimUiMsgAreaItemSource = { fg = c.comment, bg = c.bg_dark }, -- the right-aligned [source] tag, dim
+        LvimUiMsgAreaRowOdd = { fg = c.blue, bg = mtint(c.blue, 0.1) }, -- odd grid row stripe (blue)
+        LvimUiMsgAreaRowEven = { fg = c.yellow, bg = mtint(c.yellow, 0.1) }, -- even grid row stripe (yellow)
+        LvimUiMsgAreaSelOdd = { fg = c.blue, bg = mtint(c.blue, 0.2), bold = true }, -- selected cell, blue row
+        LvimUiMsgAreaSelEven = { fg = c.yellow, bg = mtint(c.yellow, 0.2), bold = true }, -- selected cell, yellow row
+        -- The fuzzy-matched characters within an item — bold + a contrasting accent so the typed query
+        -- stands out over the row's own accent fg (painted above the row stripe AND the selected cell).
+        LvimUiMsgAreaMatch = { fg = c.red, bold = true },
+
         -- Tab bar. The ICON box is the BLUE key-badge accent (follows the footer `q close` key style);
         -- the TEXT box stays yellow. Each renders its own tinted box, in three states:
         --   inactive (secondary) · active (the selected tab) · hover (the focused-sector selection).

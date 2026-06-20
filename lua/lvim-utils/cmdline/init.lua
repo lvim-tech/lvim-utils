@@ -101,6 +101,12 @@ local function close()
     end
     _win = nil
     state.block, state.special = {}, nil
+    vim.g.ui_cmdline_pos = nil -- drop the completion-menu anchor (blink falls back to its default)
+    -- Release the unified msgarea reservation (no-op when not hosted there).
+    local ok, ma = pcall(require, "lvim-utils.msgarea")
+    if ok and ma.cmdline_done then
+        ma.cmdline_done()
+    end
 end
 
 --- Draw the current cmdline (and any :g/:'<,'> block) into the float.
@@ -218,17 +224,42 @@ local function render()
     end
     height = math.max(1, math.min(height, _cfg.max_height or math.floor(vim.o.lines * 0.5)))
 
-    local win_config = {
-        relative = "editor",
-        style = "minimal",
-        zindex = 300,
-        row = math.max(0, vim.o.lines - vim.o.cmdheight - height - (_cfg.row_offset or 0)),
-        col = 0,
-        width = width,
-        height = height,
-        border = "none",
-        focusable = false,
-    }
+    -- Unified minibuffer: when the msgarea zone hosts the cmdline, anchor the float to the BOTTOM of
+    -- that panel (over its reserved rows) instead of the editor bottom — identical content, relocated.
+    local host
+    do
+        local ok, ma = pcall(require, "lvim-utils.msgarea")
+        if ok and ma.cmdline_host then
+            host = ma.cmdline_host(height)
+        end
+    end
+    -- Hosted: pin to the ABSOLUTE bottom of the screen, NOT to a bufpos inside the zone. The zone always
+    -- sits flush with the screen bottom (its grid grows UPWARD), so the cmdline's bottom `height` rows are
+    -- invariant — anchoring to the editor bottom keeps it put when the grid resizes, instead of riding a
+    -- bufpos that shifts down (and snapping back a frame later) as completion rows appear above it.
+    local win_config = host
+            and {
+                relative = "editor",
+                row = math.max(0, vim.o.lines - height),
+                col = 0,
+                width = host.width,
+                height = height,
+                style = "minimal",
+                zindex = 300,
+                border = "none",
+                focusable = false,
+            }
+        or {
+            relative = "editor",
+            style = "minimal",
+            zindex = 300,
+            row = math.max(0, vim.o.lines - vim.o.cmdheight - height - (_cfg.row_offset or 0)),
+            col = 0,
+            width = width,
+            height = height,
+            border = "none",
+            focusable = false,
+        }
     if _win and api.nvim_win_is_valid(_win) then
         api.nvim_win_set_config(_win, win_config)
     else
@@ -236,6 +267,14 @@ local function render()
     end
     api.nvim_set_option_value("winhighlight", "Normal:" .. mode.hl .. ",Search:None,CurSearch:None", { win = _win })
     api.nvim_set_option_value("wrap", true, { win = _win })
+
+    -- Publish the cmdline's screen position so a completion engine (blink.cmp) anchors its menu just
+    -- ABOVE the actual command line — wherever it is (the editor bottom, or inside the msgarea zone in
+    -- unified mode) — instead of falling back to a fixed editor-bottom popup. `{ row, col }`, 0-based.
+    local ok_pos, pos = pcall(api.nvim_win_get_position, _win)
+    if ok_pos then
+        vim.g.ui_cmdline_pos = { pos[1], pos[2] }
+    end
 
     -- Force an immediate redraw: cmdline events fire in a fast context, so without this
     -- the float only becomes visible on the next keystroke (not on the initial firstc).

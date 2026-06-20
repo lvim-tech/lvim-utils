@@ -15,9 +15,10 @@ M.gx = vim.deepcopy(require("lvim-utils.config.gx"))
 M.notify = vim.deepcopy(require("lvim-utils.config.notify"))
 M.cmdline = vim.deepcopy(require("lvim-utils.config.cmdline"))
 M.input = vim.deepcopy(require("lvim-utils.config.input"))
+M.msgarea = vim.deepcopy(require("lvim-utils.config.msgarea"))
 
 ---Merge user-provided options into each module's config.
----@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table }
+---@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table }
 function M.setup(opts)
     opts = opts or {}
     if opts.ui then
@@ -37,6 +38,9 @@ function M.setup(opts)
     end
     if opts.input then
         M.input = vim.tbl_deep_extend("force", M.input, opts.input)
+    end
+    if opts.msgarea then
+        M.msgarea = vim.tbl_deep_extend("force", M.msgarea, opts.msgarea)
     end
 end
 
