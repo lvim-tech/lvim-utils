@@ -163,6 +163,10 @@ function M.open(opts)
         return true
     end
 
+    -- Forward declarations — the list panel's NORMAL-mode keys (defined with the panel, early) call these,
+    -- but they are assigned further down (after the providers/state are wired).
+    local move, confirm, cancel, focus_input, act
+
     -- Kill the "↳" continuation marker on wrapped rows WITHOUT touching the user's global `showbreak`: the
     -- special window-local value "NONE" disables showbreak for THIS window only (an empty "" would just
     -- revert to the global) — no marker, no global mutation. (No `breakindent`: its virtual indent draws no
@@ -334,12 +338,37 @@ function M.open(opts)
             end
             return lines, hls
         end,
-        keys = function(_, pan, st)
+        keys = function(map, pan, st)
             state.list_pan, state.st = pan, st
             -- `list_wrap` soft-wraps long rows (so a match far to the right stays visible) — never with the
             -- "↳" continuation marker (tame_win sets showbreak=NONE for this window); default off = truncate.
             tame_win(pan.win, list_wrap)
             set_list_winbar()
+            -- NORMAL-mode keys on the list (reached via <Esc> from the prompt): navigate + act without the
+            -- query. `<C-l>`/`<C-h>` (panel nav) + the filter bar are owned by the surface chassis.
+            if map then
+                map({ "j", "<Down>" }, function()
+                    move(1)
+                end)
+                map({ "k", "<Up>" }, function()
+                    move(-1)
+                end)
+                map("<CR>", function()
+                    confirm()
+                end)
+                map({ "i", "a", "/" }, focus_input) -- back to typing
+                map({ "q", "<Esc>" }, cancel)
+                if filters then
+                    map("m", function()
+                        st.toggle_header()
+                    end)
+                end
+                for _, a in ipairs(opts.keys or {}) do
+                    map(a.key, function()
+                        act(a.run)
+                    end)
+                end
+            end
         end,
     }
 
@@ -455,7 +484,7 @@ function M.open(opts)
         set_list_cursor() -- scroll the window to keep the selection in view
         publish_status()
     end
-    local function move(d)
+    move = function(d)
         if #state.filtered == 0 then
             return
         end
@@ -530,7 +559,7 @@ function M.open(opts)
             end)
         end
     end
-    local function confirm()
+    confirm = function()
         local it = state.filtered[state.sel]
         if use_status then
             status.clear()
@@ -542,9 +571,37 @@ function M.open(opts)
             opts.on_confirm(it._src)
         end
     end
+    -- Dismiss the finder (no choice). Shared by the prompt (<C-c>) and NORMAL-mode list (q / <Esc>).
+    cancel = function()
+        vim.cmd("stopinsert")
+        if use_status then
+            status.clear()
+        end
+        if state.st then
+            state.st.close()
+        end
+        if opts.on_cancel then
+            opts.on_cancel()
+        end
+    end
+    -- Telescope-style modes: the prompt is INSERT (fuzzy type); <Esc> drops to NORMAL on the list (j/k move,
+    -- <C-l>/<C-h> panel nav, the filter bar) — `focus_input` returns to typing, `focus_list` leaves insert.
+    focus_input = function()
+        local w = state.input_buf and vim.fn.bufwinid(state.input_buf) or -1
+        if w ~= -1 then
+            api.nvim_set_current_win(w)
+            vim.cmd("startinsert!")
+        end
+    end
+    local function focus_list()
+        vim.cmd("stopinsert")
+        if state.st and state.st.focus_block then
+            state.st.focus_block("list")
+        end
+    end
     -- Run a consumer `opts.keys` action on the SELECTED item: it gets the item's source value + a `close`
     -- callback (so an action can dismiss the finder, or keep it open). No selection ⇒ no-op.
-    local function act(run)
+    act = function(run)
         local it = state.filtered[state.sel]
         if not it then
             return
@@ -635,18 +692,22 @@ function M.open(opts)
         prompt_text = { { badge, prompt_hl }, { sp(" ", pcfg.input_gap or 1), input_hl } }
     end
 
-    -- Footer hints: the standard actions + any consumer `opts.keys` that carry a `name`.
+    -- Footer hints: the standard actions + any consumer `opts.keys` that carry a `name`. `<Esc>` drops to
+    -- NORMAL on the list (j/k move, <C-l> preview, the filter bar); `i` returns to typing, `<C-c>` cancels.
     local footer_items = {
         { key = "<CR>", name = "open" },
         { key = "C-j/k", name = "move" },
-        { key = "C-d/u", name = "preview" },
     }
+    if filters then
+        footer_items[#footer_items + 1] = { key = "C-f", name = "filter" }
+    end
     for _, a in ipairs(opts.keys or {}) do
         if a.name then
             footer_items[#footer_items + 1] = { key = a.key, name = a.name }
         end
     end
-    footer_items[#footer_items + 1] = { key = "Esc", name = "close" }
+    footer_items[#footer_items + 1] = { key = "Esc", name = "normal" }
+    footer_items[#footer_items + 1] = { key = "C-c", name = "close" }
 
     -- The header FILTER bar: a centred button bar (one button per filter, `●` between groups). Each button
     -- shows a live count (items passing it + the OTHER groups), highlights when active, and toggles its
@@ -723,6 +784,7 @@ function M.open(opts)
                     on_change = refilter,
                     keys = function(buf, st)
                         state.st = st
+                        state.input_buf = buf -- so NORMAL-mode list can jump back to typing (focus_input)
                         publish_status() -- show the title + initial counter the moment the navigator opens
                         local function imap(lhs, fn)
                             vim.keymap.set("i", lhs, fn, { buffer = buf, nowait = true, silent = true })
@@ -749,20 +811,10 @@ function M.open(opts)
                             vim.cmd("stopinsert")
                             confirm()
                         end)
-                        local function cancel()
-                            vim.cmd("stopinsert")
-                            if use_status then
-                                status.clear()
-                            end
-                            st.close()
-                            if opts.on_cancel then
-                                opts.on_cancel()
-                            end
-                        end
-                        imap("<Esc>", cancel)
-                        imap("<C-c>", cancel)
+                        imap("<C-c>", cancel) -- hard cancel from the prompt
+                        imap("<Esc>", focus_list) -- Telescope-style: <Esc> drops to NORMAL on the list
                         -- `<C-f>` jumps to the header filter bar (when present); its buttons activate by their
-                        -- key, and toggling it again / <Esc> there returns to the prompt.
+                        -- key, and toggling it again / <Esc> there returns to the content.
                         if filters then
                             imap("<C-f>", function()
                                 vim.cmd("stopinsert")
