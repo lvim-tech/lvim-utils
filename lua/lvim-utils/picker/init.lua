@@ -359,15 +359,10 @@ function M.open(opts)
                 map("<CR>", function()
                     confirm()
                 end)
-                -- back to typing: `/` + <Tab> (NOT i/a — a consumer filter may own those hotkeys, e.g.
-                -- diagnostics' [A]ll / [I]nfo; the filter button keys activate directly from the list).
-                map({ "/", "<Tab>" }, focus_input)
+                -- back to typing: `/` + <Tab> + <C-f> (NOT i/a — a consumer filter may own those hotkeys,
+                -- e.g. diagnostics' [A]ll / [I]nfo; the filter button keys activate directly from the list).
+                map({ "/", "<Tab>", "<C-f>" }, focus_input)
                 map({ "q", "<Esc>" }, cancel)
-                if filters then
-                    map("m", function()
-                        st.toggle_header()
-                    end)
-                end
                 for _, a in ipairs(opts.keys or {}) do
                     map(a.key, function()
                         act(a.run)
@@ -706,9 +701,6 @@ function M.open(opts)
         { key = "<CR>", name = "open" },
         { key = "C-j/k", name = "move" },
     }
-    if filters then
-        footer_items[#footer_items + 1] = { key = "C-f", name = "filter" }
-    end
     for _, a in ipairs(opts.keys or {}) do
         if a.name then
             footer_items[#footer_items + 1] = { key = a.key, name = a.name }
@@ -830,15 +822,11 @@ function M.open(opts)
                             confirm()
                         end)
                         imap("<C-c>", cancel) -- hard cancel from the prompt
-                        imap("<Esc>", focus_list) -- Telescope-style: <Esc> drops to NORMAL on the list
-                        -- `<C-f>` jumps to the header filter bar (when present); its buttons activate by their
-                        -- key, and toggling it again / <Esc> there returns to the content.
-                        if filters then
-                            imap("<C-f>", function()
-                                vim.cmd("stopinsert")
-                                st.toggle_header()
-                            end)
-                        end
+                        -- Telescope-style: <Esc> / <C-f> drop to NORMAL on the list (where the filter hotkeys
+                        -- activate directly — typing in INSERT would feed them to the query). <C-f> in normal
+                        -- toggles back to typing.
+                        imap("<Esc>", focus_list)
+                        imap("<C-f>", focus_list)
                         -- consumer row actions: `opts.keys = { { key = lhs, run = fn(item, close) } }` — e.g.
                         -- open in a split, run a code action, yank. `run` gets the selected item + a close fn.
                         for _, a in ipairs(opts.keys or {}) do
