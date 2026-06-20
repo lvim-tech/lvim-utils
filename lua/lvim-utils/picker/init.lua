@@ -303,6 +303,9 @@ function M.open(opts)
 
     local list_provider = {
         cursorline = false,
+        -- the SELECTION is the Sel stripe (not a window cursorline), so hide the hardware cursor while the
+        -- list is focused (NORMAL mode) — the bright row, not a block cursor, shows where you are.
+        hide_cursor = true,
         size = function()
             return math.max(30, math.floor(vim.o.columns * 0.32)), panel_height() -- +winbar with results; 1 when empty
         end,
