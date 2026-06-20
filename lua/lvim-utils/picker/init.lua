@@ -94,6 +94,7 @@ end
 ---@field statusline? boolean  (docked layouts) publish title/counter/query to the bottom statusline (default true); false = draw them in the navigator
 ---@field prompt? string  the query prompt prefix (default "➤ ")
 ---@field keys? { key: string, name?: string, run: fun(item: any, close: fun()) }[]  extra row actions (split, code action…); `name` adds a footer hint
+---@field filters? table[]  header filter button GROUPS — each `{ active = id, buttons = { { id, label, key?, predicate?(src), hl?, hl_active? }, … } }`; `<C-f>` focuses the bar
 ---@field max_rows? integer  natural list/preview height hint (default 15)
 ---@field layout? "float"|"bottom"|"area"  centred float (default), a bottom dock, or the cmdheight area (heirline above)
 ---@field height? integer  rows for the bottom layout (default 16)
@@ -122,6 +123,36 @@ function M.open(opts)
     local list_wrap = opts.list_wrap
     if list_wrap == nil then
         list_wrap = pkcfg.list_wrap == true
+    end
+
+    -- FILTER bars (optional): `opts.filters` is a list of GROUPS, each `{ buttons = { { id, label, key?,
+    -- predicate?(src), hl?, hl_active? }, … }, active }`. An item is kept only if it passes EVERY group's
+    -- active button predicate; the surviving pool is then fuzzy-filtered by the query. Header buttons toggle
+    -- the active button live (see build_filter_bar / set_filter). `set_filter` is assigned after `refilter`.
+    local filters = opts.filters
+    local set_filter ---@type fun(gi: integer, id: string)
+    local function active_button(g)
+        for _, b in ipairs(g.buttons) do
+            if b.id == g.active then
+                return b
+            end
+        end
+        return g.buttons[1]
+    end
+    --- True when `src` passes every group's active predicate (optionally skipping `except`).
+    ---@param src any
+    ---@param except? table
+    ---@return boolean
+    local function passes_filters(src, except)
+        for _, g in ipairs(filters or {}) do
+            if g ~= except then
+                local b = active_button(g)
+                if b and b.predicate and not b.predicate(src) then
+                    return false
+                end
+            end
+        end
+        return true
     end
 
     -- Kill the "↳" continuation marker on wrapped rows WITHOUT touching the user's global `showbreak`: the
@@ -449,12 +480,33 @@ function M.open(opts)
             -- LIVE source: the query drives the results (e.g. ripgrep) — no fuzzy over a static list.
             opts.source(state.query, guarded)
         else
-            -- STATIC list: fuzzy-filter it (filter already returns grid items, so skip re-normalising).
-            filter(items, state.query, function(list)
+            -- STATIC list: narrow by the active filter bars FIRST, then fuzzy-filter the survivors.
+            local pool = items
+            if filters then
+                pool = {}
+                for _, it in ipairs(items) do
+                    if passes_filters(it._src) then
+                        pool[#pool + 1] = it
+                    end
+                end
+            end
+            filter(pool, state.query, function(list)
                 if mygen == refilter_gen then
                     apply(list)
                 end
             end)
+        end
+    end
+    -- Activate filter button `id` in group `gi`: re-narrow + re-render, and re-paint the header bar (active
+    -- flags + counts).
+    set_filter = function(gi, id)
+        if not (filters and filters[gi]) then
+            return
+        end
+        filters[gi].active = id
+        refilter(state.query)
+        if state.st and state.st.refresh_chrome then
+            state.st.refresh_chrome()
         end
     end
     local function scroll_preview(dir)
@@ -583,6 +635,47 @@ function M.open(opts)
     end
     footer_items[#footer_items + 1] = { key = "Esc", name = "close" }
 
+    -- The header FILTER bar: a centred button bar (one button per filter, `●` between groups). Each button
+    -- shows a live count (items passing it + the OTHER groups), highlights when active, and toggles its
+    -- group on press. Built from `opts.filters`.
+    local function build_filter_bar()
+        local specs = {}
+        for gi, g in ipairs(filters or {}) do
+            if gi > 1 then
+                specs[#specs + 1] =
+                    { type = "separator", text = "●", style = { padding = { 3, 3 }, hl = "LvimUiPeekFilterSep" } }
+            end
+            for _, b in ipairs(g.buttons) do
+                local accent = b.hl_active or "LvimUiPeekFilterActive"
+                local dim = b.hl or "LvimUiPeekFilterInactive"
+                specs[#specs + 1] = {
+                    type = "button",
+                    text = b.label,
+                    key = b.key, -- brackets the key letter; the bracket takes the accent colour
+                    accent = accent,
+                    count = function()
+                        local n = 0
+                        for _, it in ipairs(items) do
+                            if passes_filters(it._src, g) and (not b.predicate or b.predicate(it._src)) then
+                                n = n + 1
+                            end
+                        end
+                        return n
+                    end,
+                    active = b.id == g.active,
+                    run = function()
+                        set_filter(gi, b.id)
+                    end,
+                    style = {
+                        icon = { padding = { 0, 0 }, normal = accent, active = accent, hover = accent },
+                        text = { padding = { 1, 1 }, normal = dim, active = accent, hover = accent },
+                    },
+                }
+            end
+        end
+        return { items = specs, align = "center" }
+    end
+
     surface.open({
         mode = "float",
         -- "area" sits IN the cmdline region (grows cmdheight, heirline above) like the msgarea zone; the
@@ -600,8 +693,12 @@ function M.open(opts)
         separator_hl = hl("separator", "LvimUiPickerSeparator"),
         size = size,
         header = {
-            bars = {
-                {
+            bars = (function()
+                local hb = {}
+                if filters then
+                    hb[#hb + 1] = build_filter_bar() -- a real header row above the prompt
+                end
+                hb[#hb + 1] = {
                     input = true,
                     prompt = prompt_text,
                     prompt_hl = prompt_hl,
@@ -651,6 +748,14 @@ function M.open(opts)
                         end
                         imap("<Esc>", cancel)
                         imap("<C-c>", cancel)
+                        -- `<C-f>` jumps to the header filter bar (when present); its buttons activate by their
+                        -- key, and toggling it again / <Esc> there returns to the prompt.
+                        if filters then
+                            imap("<C-f>", function()
+                                vim.cmd("stopinsert")
+                                st.toggle_header()
+                            end)
+                        end
                         -- consumer row actions: `opts.keys = { { key = lhs, run = fn(item, close) } }` — e.g.
                         -- open in a split, run a code action, yank. `run` gets the selected item + a close fn.
                         for _, a in ipairs(opts.keys or {}) do
@@ -660,8 +765,9 @@ function M.open(opts)
                             end)
                         end
                     end,
-                },
-            },
+                }
+                return hb
+            end)(),
         },
         content = { blocks = blocks },
         footer = {
