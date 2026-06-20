@@ -123,10 +123,16 @@ function M.open(opts)
     -- list panel: the filtered rows in the tint canon (odd BLUE / even YELLOW full-row stripes, the
     -- selected row a STRONG tint of its accent), matched chars in red. Selection is the Sel stripe (not a
     -- window cursorline), so it survives the row tints; navigation re-renders to move it.
+    -- The visible list height = the result count, clamped to [1, max_rows] — so the finder SHRINKS to fit a
+    -- few (or zero) results instead of always reserving the full height. relayout() is called on every
+    -- result change (see `apply`) so the surface re-fits.
+    local function list_h()
+        return math.max(1, math.min(#state.filtered, maxr))
+    end
     local list_provider = {
         cursorline = false,
         size = function()
-            return math.max(30, math.floor(vim.o.columns * 0.32)), maxr
+            return math.max(30, math.floor(vim.o.columns * 0.32)), list_h()
         end,
         render = function()
             local lines, hls = {}, {}
@@ -158,7 +164,8 @@ function M.open(opts)
     local preview_provider = opts.preview
             and {
                 size = function()
-                    return math.max(40, math.floor(vim.o.columns * 0.5)), maxr
+                    -- match the list height so the panels stay level and the finder fits the results
+                    return math.max(40, math.floor(vim.o.columns * 0.5)), list_h()
                 end,
                 update = function(pan)
                     local it = state.filtered[state.sel]
@@ -212,11 +219,19 @@ function M.open(opts)
         publish_status() -- the counter follows the selection
     end
     -- Apply a new result list (from the fuzzy filter or a live source) to the UI.
+    local prev_h -- last applied list height — only relayout when it actually changes (avoids needless reflow)
     local function apply(list)
         if state.closed then
             return
         end
         state.filtered, state.sel = list, 1
+        -- Re-fit the surface height to the new result count (intelligent shrink/grow). Only when the height
+        -- changed, so typing within the same row count doesn't reflow the windows.
+        local h = list_h()
+        if h ~= prev_h and state.st and state.st.relayout then
+            prev_h = h
+            state.st.relayout()
+        end
         if state.list_pan and state.list_pan.refresh then
             state.list_pan.refresh()
         end
@@ -302,9 +317,12 @@ function M.open(opts)
     end
     -- Size by layout × preview side. Docked: a list-only height, or a TALLER one when the preview is stacked
     -- below/above (it grows up). Float: a wide two-pane, or a taller stacked one.
+    -- Docked layouts AUTO-fit their height to the result count (intelligent shrink/grow), capped so a huge
+    -- result set doesn't take the whole screen. Floats keep a fixed comfortable size.
     local size
     if docked then
-        size = vertical and { height = { fixed = 0.5 } } or { height = { fixed = opts.height or 16 } }
+        local cap = opts.height or maxr + 2
+        size = vertical and { height = { auto = true, max = 0.85 } } or { height = { auto = true, max = cap } }
     elseif vertical then
         size = { width = { fixed = 0.7 }, height = { fixed = 0.8 } }
     else
