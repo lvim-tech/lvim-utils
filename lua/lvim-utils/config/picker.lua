@@ -11,11 +11,12 @@ return {
     -- text only / icon + text). A per-call `opts.prompt` string overrides it.
     prompt = {
         icon = "➤", -- the leading glyph (the canon pointer; set your own nf glyph via setup, or "" for none)
-        label = "", -- optional text after the icon (e.g. "Search")
-        -- Spacing around the badge (all configurable): `pad_left` before the icon, `pad_right` after the
-        -- icon/label (still on the badge's strong tint), `input_gap` between the badge and the typed text
-        -- (on the input's light tint).
+        label = "", -- optional text after the icon (e.g. "Search"); "" for none
+        -- Spacing around the badge (all configurable): `pad_left` before the icon, `icon_gap` between the
+        -- icon and the label (only when both are present), `pad_right` after the icon/label (all on the
+        -- badge's strong tint), `input_gap` between the badge and the typed text (on the input's light tint).
         pad_left = 1,
+        icon_gap = 1,
         pad_right = 1,
         input_gap = 1,
     },

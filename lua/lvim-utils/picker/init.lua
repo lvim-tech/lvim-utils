@@ -427,12 +427,17 @@ function M.open(opts)
         prompt_text = opts.prompt -- a literal override
     else
         local sp = string.rep
+        local has_icon = (pcfg.icon or "") ~= ""
+        local has_label = (pcfg.label or "") ~= ""
         local badge = sp(" ", pcfg.pad_left or 1)
-        if (pcfg.icon or "") ~= "" then
+        if has_icon then
             badge = badge .. pcfg.icon
         end
-        if (pcfg.label or "") ~= "" then
-            badge = badge .. (badge:sub(-1) ~= " " and " " or "") .. pcfg.label
+        if has_icon and has_label then
+            badge = badge .. sp(" ", pcfg.icon_gap or 1) -- the gap between the icon and the label
+        end
+        if has_label then
+            badge = badge .. pcfg.label
         end
         badge = badge .. sp(" ", pcfg.pad_right or 1)
         -- chunk list: badge (strong tint) + a gap on the input tint before the typed text
