@@ -71,9 +71,9 @@ return function(c)
         LvimUiPickerPrompt = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true }, -- the icon + label badge
         LvimUiPickerInput = { fg = c.fg, bg = mtint(c.blue, 0.1) }, -- the typed-text area
         LvimUiPickerSeparator = { fg = c.bg_light }, -- the panel divider — a muted grey, NOT the blue border
-        -- the preview winbar's PATH (dir): muted fg on the WINBAR's own bg, so it blends into the bar (the
-        -- file name stays the brighter LvimUiPeekFile).
-        LvimUiPickerPreviewDir = { fg = c.comment, bg = mtint(c.yellow, 0.3) },
+        -- the preview winbar's PATH (dir): the tint's OWN accent fg on the WINBAR's bg (the "fg = the tint"
+        -- canon), so it blends into the bar; the file name stays the brighter LvimUiPeekFile.
+        LvimUiPickerPreviewDir = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
         LvimUiMsgAreaItemSource = { fg = c.comment, bg = c.bg_dark }, -- the right-aligned [source] tag, dim
         LvimUiMsgAreaRowOdd = { fg = c.blue, bg = mtint(c.blue, 0.1) }, -- odd grid row stripe (blue)
         LvimUiMsgAreaRowEven = { fg = c.yellow, bg = mtint(c.yellow, 0.1) }, -- even grid row stripe (yellow)
