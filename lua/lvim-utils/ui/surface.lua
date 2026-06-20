@@ -130,6 +130,7 @@ local function build_bands(spec, footer, add_air)
                 on_change = bar.on_change,
                 keys = bar.keys,
                 filetype = bar.filetype,
+                scope_panel = bar.scope_panel, -- narrow the prompt to a single panel's columns (else full width)
             }
         else
             -- Mutate the bar spec INTO its band (the machinery reads the element list as `band.buttons`),
@@ -267,7 +268,14 @@ local function compute_geom(state, place)
         local mw = cfg.min_width <= 1 and math.floor(vim.o.columns * cfg.min_width) or cfg.min_width
         W = math.max(W, math.floor(mw))
     end
-    local header_h = #state.header_bands
+    -- A `scope_panel` input band does NOT take its own header row — it overlays its panel's top (winbar)
+    -- row instead, so it doesn't count toward the header height.
+    local header_h = 0
+    for _, b in ipairs(state.header_bands) do
+        if not b.scope_panel then
+            header_h = header_h + 1
+        end
+    end
     local footer_h = #state.footer_bands
     local content_h = header_h + footer_h + (vertical and (nat_h_sum + sep_w * (n - 1)) or nat_h_max)
     -- A split takes the full height nvim gives it (place.H); a float sizes per auto/explicit height. The
@@ -908,6 +916,29 @@ local function relayout(state)
             })
         end
     end
+    -- Re-fit the editable input bands so they follow the moved panels / header (else a resize leaves the
+    -- prompt stranded). A `scope_panel` band tracks its panel's top row; a plain header band its header row.
+    local _, _, _, rcl = util.insets(L.cbord)
+    local hbi = 0
+    for _, band in ipairs(state.header_bands) do
+        if band.input and band.win and api.nvim_win_is_valid(band.win) then
+            local iw, icol, irow = L.W, L.col + rcl, L.row + L.ct + hbi
+            if band.scope_panel and L.panels[band.scope_panel] then
+                local sp = L.panels[band.scope_panel]
+                iw, icol, irow = sp.width, sp.col, sp.row
+            end
+            pcall(api.nvim_win_set_config, band.win, {
+                relative = "editor",
+                row = irow,
+                col = icol,
+                width = iw,
+                height = 1,
+            })
+        end
+        if not band.scope_panel then
+            hbi = hbi + 1
+        end
+    end
     render_chrome(state, L)
 end
 
@@ -1063,11 +1094,20 @@ local function open_windows(state)
                 if band.filetype then
                     vim.bo[band.buf].filetype = band.filetype
                 end
+                -- `scope_panel` narrows the input to a single panel and overlays that panel's TOP (winbar)
+                -- row — a finder whose prompt sits over its LIST, level with the other panels' titles, not on
+                -- a separate full-width header row. Otherwise it spans the full container width on its header
+                -- row.
+                local iw, icol, irow = L.W, L.col + cl, L.row + L.ct + (bi - 1)
+                if band.scope_panel and L.panels[band.scope_panel] then
+                    local sp = L.panels[band.scope_panel]
+                    iw, icol, irow = sp.width, sp.col, sp.row
+                end
                 band.win = api.nvim_open_win(band.buf, false, {
                     relative = "editor",
-                    row = L.row + L.ct + (bi - 1),
-                    col = L.col + cl,
-                    width = L.W,
+                    row = irow,
+                    col = icol,
+                    width = iw,
                     height = 1,
                     style = "minimal",
                     focusable = true,

@@ -137,7 +137,15 @@ function M.open(opts)
     end
     local function set_list_winbar()
         local p = state.list_pan
-        if p and p.win and api.nvim_win_is_valid(p.win) then
+        if not (p and p.win and api.nvim_win_is_valid(p.win)) then
+            return
+        end
+        -- With a preview the scoped INPUT prompt overlays this row, so keep it blank (just reserve the row,
+        -- so the first list item isn't hidden under the prompt); the title/count live in the statusline.
+        -- Without a preview the list owns its title bar.
+        if opts.preview then
+            vim.wo[p.win].winbar = "%#LvimUiPeekFileBar# %="
+        else
             vim.wo[p.win].winbar = ("%%#LvimUiPeekTitle# %s %%#LvimUiPeekCount# %d %%#LvimUiPeekFileBar#%%="):format(
                 esc(opts.title or "Pick"),
                 #state.filtered
@@ -387,6 +395,9 @@ function M.open(opts)
                     input = true,
                     prompt = opts.prompt or "➤ ",
                     filetype = "lvim-picker-prompt",
+                    -- narrow the prompt to the LIST panel (the left one) when a preview is shown, so it does
+                    -- not span the preview — its title winbar owns that side.
+                    scope_panel = (preview_provider and (side ~= "left" and side ~= "above")) and 1 or nil,
                     on_change = refilter,
                     keys = function(buf, st)
                         state.st = st
