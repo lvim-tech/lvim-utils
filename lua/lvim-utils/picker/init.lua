@@ -95,6 +95,9 @@ end
 ---@field prompt? string  the query prompt prefix (default "➤ ")
 ---@field keys? { key: string, name?: string, run: fun(item: any, close: fun()) }[]  extra row actions (split, code action…); `name` adds a footer hint
 ---@field filters? table[]  header filter button GROUPS — each `{ active = id, buttons = { { id, label, key?, predicate?(src), hl?, hl_active? }, … } }`; `<C-f>` focuses the bar
+---@field refresh? fun(): any[]  re-fetch the static items live (e.g. on DiagnosticChanged) — see refresh_events
+---@field refresh_events? string[]  autocmd events that trigger a refresh
+---@field close_on_empty? boolean  dismiss the finder when a refresh leaves no items (e.g. all diagnostics fixed)
 ---@field max_rows? integer  natural list/preview height hint (default 15)
 ---@field layout? "float"|"bottom"|"area"  centred float (default), a bottom dock, or the cmdheight area (heirline above)
 ---@field height? integer  rows for the bottom layout (default 16)
@@ -780,11 +783,54 @@ function M.open(opts)
         close_keys = {}, -- the input owns <Esc>/<C-c>; the panels are not normally focused
         on_close = function()
             state.closed = true
+            if state.live_augroup then
+                pcall(api.nvim_del_augroup_by_id, state.live_augroup)
+                state.live_augroup = nil
+            end
         end,
     })
 
     -- initial: show all, select the first, preview it (fetch + fit + render)
     rerender()
+
+    -- LIVE refresh: re-fetch the static items on `opts.refresh_events` (e.g. "DiagnosticChanged") via
+    -- `opts.refresh()`, then re-narrow (filters) + re-fuzzy + re-render. Coalesce a burst into ONE reload.
+    -- `opts.close_on_empty` dismisses the finder once nothing is left (e.g. all diagnostics fixed). Torn
+    -- down in on_close.
+    if opts.refresh and opts.refresh_events and not opts.source then
+        state.live_augroup =
+            api.nvim_create_augroup("LvimUtilsPickerLive_" .. tostring(state.st and state.st.container_buf or 0), {})
+        local scheduled = false
+        api.nvim_create_autocmd(opts.refresh_events, {
+            group = state.live_augroup,
+            callback = function(ev)
+                -- ignore the echo from our OWN preview buffers (mirroring would loop)
+                if state.preview_pan and state.preview_pan.buf == ev.buf then
+                    return
+                end
+                if scheduled or state.closed then
+                    return
+                end
+                scheduled = true
+                vim.schedule(function()
+                    scheduled = false
+                    if state.closed then
+                        return
+                    end
+                    local fresh = opts.refresh()
+                    if type(fresh) ~= "table" then
+                        return
+                    end
+                    if #fresh == 0 and opts.close_on_empty and state.st then
+                        state.st.close()
+                        return
+                    end
+                    items = normalize(fresh, opts.format)
+                    refilter(state.query)
+                end)
+            end,
+        })
+    end
 end
 
 --- A ready finder over the listed buffers; confirming switches to the chosen buffer, with a content preview.
