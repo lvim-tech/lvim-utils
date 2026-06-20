@@ -675,7 +675,6 @@ function M.grep(opts)
     end
     M.open(vim.tbl_extend("force", {
         title = "Grep",
-        prompt = "  ", -- a search glyph prompt
         source = function(query, cb)
             if query == nil or #query < 2 then -- wait for a couple of chars (rg over a huge tree is heavy)
                 cb({})
