@@ -16,8 +16,9 @@ CONTENTS                                                        *lvim-utils*
  11. cmdline ................................ |lvim-utils-cmdline|
  12. input .................................. |lvim-utils-input|
  13. utils .................................. |lvim-utils-utils|
- 14. Highlight groups ....................... |lvim-utils-highlights|
- 15. Health ................................. |lvim-utils-health|
+ 14. msgarea ................................ |lvim-utils-msgarea|
+ 15. Highlight groups ....................... |lvim-utils-highlights|
+ 16. Health ................................. |lvim-utils-health|
 
 ==============================================================================
 1. INTRODUCTION                                           *lvim-utils-intro*
@@ -28,8 +29,8 @@ lvim-utils is the shared foundation for the lvim-tech plugins. It provides:
   - a self-theming highlight engine (|lvim-utils-highlight|) every plugin uses to
     color its own UI from that palette while staying overwritable,
   - a floating popup toolkit (|lvim-utils-ui|): select, multiselect, input, tabs, info,
-  - a notification system (|lvim-utils-notify|), plus cursor, gx, quit, cmdline,
-    input and misc helpers.
+  - a notification system (|lvim-utils-notify|) and a docked message/picker zone
+    (|lvim-utils-msgarea|), plus cursor, gx, quit, cmdline, input and misc helpers.
 
 It has no hard dependency on lvim-colorscheme: absent it, the bundled muted palette
 is used and every group still renders.
@@ -281,23 +282,78 @@ Routes |vim.ui.input| to the cmdline or a popup. Opt-in via `setup({ input = {..
 Misc helpers (table merge, etc.) shared across plugins:
 >lua
   require("lvim-utils.utils").merge(a, b)  -- deep merge, arrays replaced
+  require("lvim-utils.utils").match_indices(query, text)  -- 0-based matched char indices
 <
 ==============================================================================
-14. HIGHLIGHT GROUPS                                  *lvim-utils-highlights*
+14. MSGAREA                                              *lvim-utils-msgarea*
+
+A persistent, toggleable zone docked at the BOTTOM of the screen (a float over the
+`cmdheight` region, so a global statusline stays above it). It is a vertical stack of
+named SEGMENTS ordered by priority (low = top, high = bottom); every owner puts content
+in through a segment and the core composes them. Three are built in: messages (routed
+notifications), the completion grid (blink's list, rendered here), and the unified
+command line. Enable via `setup({ msgarea = { enable = true } })`; toggle with
+`:LvimMsgArea`. The zone is hidden whenever the stack is empty.
+
+PUBLIC SEGMENT API                                   *lvim-utils-msgarea-api*
+
+`require("lvim-utils.msgarea").segment(name, opts?)` returns a HANDLE (get-or-create by
+name; `opts` = `{ priority?, kind? }`). Every method reflows the zone:
+>lua
+  local ma = require("lvim-utils.msgarea")
+  local h = ma.segment("my-plugin", { priority = 60 })
+  h:set(lines, hls)                    -- plain lines + parallel highlights
+  h:set_grid(items, sel, opts)         -- grid of { text, icon?, icon_hl?, match? }
+  h:select(idx)                        -- cheap selection-only update (grid)
+  h:provider(function(width) end)      -- lazy lines, re-rendered each paint
+  h:refresh()                          -- force a re-render (provider data changed)
+  h:reserve(height)                    -- blank rows for an external float; returns a rect
+  h:title("Results")                   -- a header row above the segment
+  h:clear()                            -- empty the content (keep the segment)
+  h:release()                          -- remove the segment entirely
+<
+`match` (grid items) is a list of 0-based char indices into `text` to highlight. blink
+fills it from its fuzzy; other consumers compute it with
+`require("lvim-utils.utils").match_indices(query, text)`.
+
+INTERACTION                                          *lvim-utils-msgarea-focus*
+
+When the zone is focused, one segment is active and takes the keyboard:
+>lua
+  ma.segment("picker")
+    :set_grid(items, 1, { columns = 2 })
+    :on_confirm(function(item, idx) ma.blur() end)  -- <CR>
+    :on_move(function(idx) end)                      -- selection moved
+    :keys({ d = function(handle) end })              -- custom keymaps while focused
+    :focus()                                          -- M.focus(name) / M.blur()
+<
+On a grid: h/j/k/l (and arrows) move the selection (columns-aware), <CR> fires on_confirm,
+<Esc> blurs. On a non-grid (messages) segment those keys stay native, so the scrollback
+scrolls. blink mirrors from the command line and is never focused, so the two never collide.
+
+INTEGRATIONS                                  *lvim-utils-msgarea-integrations*
+
+Per-source glue lives in `msgarea/integrations/<plugin>.lua` (an enable()/disable()
+module), gated by `setup({ msgarea = { integrations = { <plugin> = true } } })`. blink is
+the reference integration.
+
+==============================================================================
+15. HIGHLIGHT GROUPS                                  *lvim-utils-highlights*
 
 All groups are self-themed from the palette via |lvim-utils-highlight| `bind` and applied
 with `default = true` (overwritable). Prefixes:
 
   LvimUi*        Popup chrome: Normal, Border, Separator, Title, Subtitle, Info,
                  Tab*, Button*, Row*, Item*, Checkbox*, Input, Footer*, Spacer,
-                 CursorLine, and the cmdline pager groups (LvimUiMsg*).
+                 CursorLine, the cmdline pager groups (LvimUiMsg*), and the message
+                 zone groups (LvimUiMsgArea*: Normal/Title/Row*/Sel*/Match/Item*).
   LvimNotify*    Notification panels: Normal, Title, Info/Warn/Error/Debug and their
                  Title*/Header*/Sep* variants.
 
 Override any group explicitly with `setup({ highlights = { GroupName = {...} } })`.
 
 ==============================================================================
-15. HEALTH                                                *lvim-utils-health*
+16. HEALTH                                                *lvim-utils-health*
 
 >
     :checkhealth lvim-utils

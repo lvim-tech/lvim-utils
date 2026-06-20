@@ -758,6 +758,98 @@ notify.has_printer("my_printer") -- → boolean
 
 ---
 
+### `msgarea`
+
+A persistent, toggleable zone docked at the screen bottom (over the `cmdheight` region, below the global statusline). It is a vertical stack of named **segments** — every owner puts content in through one, and the core composes them. Three are built in: **messages** (routed notifications), the **completion grid** (blink's list, rendered here), and the unified **cmdline** (reserved rows an external float overlays). Any plugin adds its own.
+
+```lua
+require("lvim-utils").setup({
+    msgarea = {
+        enable = true,
+        max_height = 12, -- hard cap; auto_resize fits content up to it
+        unified = true, -- host the command-line at the bottom of the zone
+        completion_columns = 3, -- grid columns for the intercepted completion
+        integrations = { blink = true }, -- opt-in source glue (per plugin)
+    },
+})
+```
+
+Toggle live with `:LvimMsgArea`. The zone is hidden whenever the stack is empty.
+
+**Public segment API** — the seam every plugin uses. `segment(name)` returns a handle (get-or-create by name); its methods mutate that segment and reflow the zone:
+
+```lua
+local ma = require("lvim-utils.msgarea")
+
+-- plain lines + parallel highlights (a whole-row group, a span list, or nil per line)
+ma.segment("my-plugin", { priority = 60 }):set({ "line one", "line two" }, { "Comment", false })
+
+-- a row-major grid of neutral items { text, icon?, icon_hl?, match? }, one selected.
+-- `match` = 0-based char indices into `text` to highlight (the fuzzy-matched query). blink fills it from
+-- its fuzzy; a non-blink consumer computes its own: `match = require("lvim-utils.utils").match_indices(query, text)`.
+ma.segment("picker"):set_grid(items, 3, { columns = 2, max_rows = 8 })
+ma.segment("picker"):select(4) -- cheap selection-only update
+
+-- a lazy provider re-rendered on every paint; call :refresh() to repaint after its data changed
+ma.segment("outline"):provider(function(width)
+    return lines, hls
+end)
+ma.segment("outline"):refresh()
+
+-- reserve blank rows for your own float to overlay; returns the editor-relative rect
+local rect = ma.segment("input", { priority = 900 }):reserve(1)
+
+ma.segment("picker"):clear() -- empty content, keep registered
+ma.segment("picker"):release() -- remove entirely
+```
+
+**Interactive segment** — make the zone a focusable picker. Focus it, navigate the active grid with `h`/`j`/`k`/`l` (and arrows), `<CR>` confirms, `<Esc>` blurs. `blink` instead mirrors from the command line and is never focused, so the two never collide.
+
+```lua
+ma
+    .segment("picker", { priority = 40 })
+    :title("Results") -- an optional header row above the segment (separates owners)
+    :set_grid(items, 1, { columns = 2 })
+    :on_move(function(idx) end) -- selection changed
+    :on_confirm(function(item, idx) -- <CR>
+        ma.blur() -- return focus first, then act
+        -- … open `item` …
+    end)
+    :keys({ ["d"] = function(handle) end }) -- custom keymaps while focused
+    :focus() -- M.focus(name) / M.blur() also exist
+```
+
+When the focused segment is NOT a grid (e.g. messages), `h`/`j`/`k`/`l` and `<C-d>`/`<C-u>` stay native, so the scrollback scrolls normally.
+
+`priority` orders the stack (low = top, high = bottom). The built-ins use `messages` = 10, `completion` = 50, `cmdline` = 1000. New consumers ship as `msgarea/integrations/<plugin>.lua` (an `enable()`/`disable()` module) gated by the `integrations = { <plugin> = true }` flag.
+
+---
+
+### `picker`
+
+A native fuzzy finder built on the [ui.frame](#ui) chassis — a centred float with a typed query INPUT on top, a results LIST on the left and a scrollable PREVIEW on the right (the diagnostics-peek layout, but fuzzy). The **matching engine is the `fzf` binary** in `--filter` mode (no TUI): candidates are piped in, fzf returns them matched + ranked by score, and the frame renders the result (engine vs view, like the blink integration). Without `fzf` it falls back to a Lua subsequence matcher. Matched characters are highlighted.
+
+```lua
+require("lvim-utils.picker").open({
+    items = { "one", "two", "three" }, -- strings, or tables (see `format`)
+    title = "Pick",
+    on_confirm = function(item)
+        vim.print(item)
+    end,
+    preview = function(item) -- optional: the right panel, refreshed per selection
+        return { "preview of " .. tostring(item) }
+    end,
+    -- format = function(it) return it.label end,  -- display text for table items
+    -- on_cancel = function() end, prompt = "➤ ", max_rows = 15,
+})
+
+require("lvim-utils.picker").buffers() -- ready finder over the open buffers (with a content preview)
+```
+
+Keys (in the query input, insert mode): type to filter, `<C-j>`/`<Down>` and `<C-k>`/`<Up>` move the selection, `<C-d>`/`<C-u>` scroll the preview, `<CR>` confirms (calls `on_confirm` with the item's source value), `<Esc>`/`<C-c>` cancels. With no `preview` the float is the list alone.
+
+---
+
 ### `quit`
 
 Quit dialog that lists all unsaved normal buffers as toggleable rows. The user chooses which files to save, then picks an action from a horizontal button bar.
