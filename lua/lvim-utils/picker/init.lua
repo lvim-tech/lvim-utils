@@ -124,15 +124,17 @@ function M.open(opts)
         list_wrap = pkcfg.list_wrap == true
     end
 
-    -- Kill the "↳" continuation marker on wrapped rows. `showbreak` is GLOBAL-LOCAL with no per-window
-    -- EMPTY value (an empty local reverts to the user's global "↳", and Neovim rejects a zero-width glyph),
-    -- so the cleanest per-window override that draws no marker is a single SPACE (width-1, no glyph) — set
-    -- it window-local, no global mutation.
+    -- Kill the "↳" continuation marker on wrapped rows WITHOUT touching the user's global `showbreak`: the
+    -- special window-local value "NONE" disables showbreak for THIS window only (an empty "" would just
+    -- revert to the global) — no marker, no leading space, no global mutation. `breakindent` then aligns
+    -- each wrapped row under its first line's text (the row's 1-space lead), so continuations don't fall
+    -- back to column 0.
     local function tame_win(win, wrap)
         if win and api.nvim_win_is_valid(win) then
             vim.wo[win].wrap = wrap or false
             vim.wo[win].list = false
-            vim.wo[win].showbreak = " "
+            vim.wo[win].showbreak = "NONE"
+            vim.wo[win].breakindent = wrap or false
         end
     end
 
@@ -292,16 +294,8 @@ function M.open(opts)
         keys = function(_, pan, st)
             state.list_pan, state.st = pan, st
             -- `list_wrap` soft-wraps long rows (so a match far to the right stays visible) — never with the
-            -- "↳" continuation marker (tame_win uses a single-space showbreak); default off = truncate.
+            -- "↳" continuation marker (tame_win sets showbreak=NONE for this window); default off = truncate.
             tame_win(pan.win, list_wrap)
-            -- The wrapped-row showbreak space sits OUTSIDE the row tint, so it would render in the dim
-            -- NonText colour — map NonText to the panel bg so it just reads as background.
-            if pan.win and api.nvim_win_is_valid(pan.win) then
-                local wh = vim.wo[pan.win].winhighlight
-                if not wh:find("NonText:") then
-                    vim.wo[pan.win].winhighlight = (wh ~= "" and wh .. "," or "") .. "NonText:LvimUiPeekNormal"
-                end
-            end
             set_list_winbar()
         end,
     }
