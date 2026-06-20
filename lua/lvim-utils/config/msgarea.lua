@@ -35,6 +35,21 @@ return {
     scrollback = 500, -- max retained message lines (ring buffer; oldest dropped)
     completion_max = 12, -- max intercepted completion ROWS shown at once (windowed around the selection)
     completion_columns = 1, -- grid columns: 1 = a list; 2/3/4… = a row-major grid (navigated by the grid)
+    completion_hidden = true, -- (native integration) include hidden dotfiles/folders in file/dir completion
+    -- (result ORDERING is configured in `config.fuzzy` — it applies to every fuzzy consumer: this completion
+    --  AND the picker/navigator.)
+    -- (native integration) the COMMAND-LINE keymaps that drive the completion grid — action → key(s). The
+    -- integration installs them while it is enabled; when a key's menu is closed it falls through to its
+    -- native cmdline behaviour. The ARROWS are intentionally NOT bound, so <Up>/<Down> keep recalling
+    -- command history and <Left>/<Right> move the cursor. Set an action to {} to leave it unbound.
+    completion_keys = {
+        next = { "<C-j>", "<C-n>" }, -- move the selection down a grid row
+        prev = { "<C-k>", "<C-p>" }, -- move up a grid row
+        right = { "<C-l>" }, -- move one cell right
+        left = { "<C-h>" }, -- move one cell left
+        accept = { "<Tab>" }, -- accept / drill into the selected candidate
+        drill_out = { "<S-Tab>" }, -- go back up a path segment
+    },
     wrap = true, -- soft-wrap long lines
     follow = true, -- tail: keep the newest line in view on append
     dedup = true, -- collapse a repeated consecutive message into "message  (xN)"

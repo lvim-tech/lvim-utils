@@ -11,7 +11,7 @@ local M = {}
 
 -- The integration modules we know about (each is `integrations/<name>.lua`).
 ---@type string[]
-local KNOWN = { "blink" }
+local KNOWN = { "blink", "native" }
 
 ---@type table<string, table>  currently-active integrations (name → module)
 local active = {}

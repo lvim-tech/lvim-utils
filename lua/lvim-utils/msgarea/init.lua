@@ -15,6 +15,18 @@
 
 local api = vim.api
 local levels = vim.log.levels
+local status = require("lvim-utils.status")
+
+--- Publish the completion match counter to the statusline — but ONLY when a transient action already owns
+--- it (the cmdline published its mode), so this never activates the line on its own (it respects the
+--- cmdline's `statusline = false`). Enriches the active status with `selected/total`.
+---@param items table[]?
+---@param selected integer?
+local function publish_completion_count(items, selected)
+    if status.get().active then
+        status.set({ current = selected or 0, total = items and #items or 0 })
+    end
+end
 
 local M = {}
 
@@ -598,6 +610,7 @@ function M.set_completion(items, selected)
     s.columns = cfg.completion_columns
     s.max_rows = cfg.completion_max
     update_visibility()
+    publish_completion_count(items, selected)
 end
 
 --- Update ONLY the selected index and re-render — the cheap path for grid NAVIGATION, where the item
@@ -614,6 +627,7 @@ function M.set_completion_selected(selected)
     end
     s.selected = selected
     update_visibility()
+    publish_completion_count(s.items, selected)
 end
 
 --- Drop the intercepted completion list and reflow (hides the zone if nothing remains).
@@ -624,6 +638,7 @@ function M.clear_completion()
     end
     s.items = nil
     update_visibility()
+    publish_completion_count(nil, nil) -- reset the counter (the cmdline mode stays until it closes)
 end
 
 --- Wipe the scrollback and reflow (hides the zone if nothing else remains).
@@ -631,6 +646,16 @@ function M.clear()
     ring = {}
     refresh_messages()
     update_visibility()
+end
+
+--- Open a NAVIGATOR (Vertico/Consult-style: a filter input + a results list + an optional live preview)
+--- through the bottom AREA — the Emacs-minibuffer model: a selectable list IN the message-area space (not a
+--- centred float). Delegates to the picker on ui.surface with the bottom "area" layout; `opts` is the
+--- picker's (items, format, preview, preview_side, on_confirm, on_cancel, prompt, title, …).
+---@param opts table
+function M.navigator(opts)
+    local o = vim.tbl_extend("force", {}, opts or {}, { layout = "area" })
+    return require("lvim-utils.picker").open(o)
 end
 
 -- ─── public segment API ─────────────────────────────────────────────────────────

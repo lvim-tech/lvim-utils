@@ -17,7 +17,7 @@ M.input = require("lvim-utils.input")
 M.msgarea = require("lvim-utils.msgarea")
 
 ---Setup lvim-utils.
----@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table }
+---@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, status?: table, fuzzy?: table }
 function M.setup(opts)
     opts = opts or {}
 
@@ -35,6 +35,8 @@ function M.setup(opts)
         cmdline = opts.cmdline,
         input = opts.input,
         msgarea = opts.msgarea,
+        status = opts.status,
+        fuzzy = opts.fuzzy,
     })
 
     -- 3. Self-theme the UI/notify groups from the fully-configured palette via bind():

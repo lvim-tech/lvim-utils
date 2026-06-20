@@ -16,6 +16,15 @@ return {
         -- Keys that clear a persistent message (Vim notation; "esc" accepted). List.
         dismiss_keys = { "<Esc>" },
     },
+    -- Statusline integration (default on): publish the cmdline MODE (label + glyph) and the completion
+    -- match counter to the bottom statusline (lvim-utils.status), so the line shows the current action like
+    -- the navigator. The float then keeps only the glyph as a compact prompt prefix (the static label moves
+    -- to the statusline). false = keep the full mode label badge in the float, nothing in the statusline.
+    statusline = true,
+    -- The float's mode badge padding (when the badge is shown in the float — i.e. `statusline = false`, or
+    -- an input() prompt). Independent spaces left of / right of the glyph (the gap to the label / text).
+    badge_pad_left = 2,
+    badge_pad_right = 2,
     -- Rows of extra offset above the cmdheight area.
     row_offset = 0,
     -- Max float height; false = auto (≈ half the screen). Long input wraps + grows up.

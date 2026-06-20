@@ -11,20 +11,10 @@
 ---@module "lvim-utils.picker"
 
 local api = vim.api
-local utils = require("lvim-utils.utils")
+local fuzzy = require("lvim-utils.fuzzy")
+local status = require("lvim-utils.status")
 
 local M = {}
-
----@type string?  cached path to the fzf binary (false-y string when absent)
-local fzf_bin
---- The fzf binary path, or nil when fzf is not installed.
----@return string?
-local function fzf_path()
-    if fzf_bin == nil then
-        fzf_bin = vim.fn.exepath("fzf")
-    end
-    return (fzf_bin ~= "" and fzf_bin) or nil
-end
 
 --- Normalise the caller's items into `{ text, icon?, _src }`. A string item is its own text; a table item
 --- uses `opts.format(item)` (or `item.text`) for the display text and keeps the original as `_src`.
@@ -43,83 +33,24 @@ local function normalize(items, format)
     return out
 end
 
---- A grid item for the source `it`, with the matched-char indices for `query` (nil query = none).
----@param it table
----@param query? string
----@return table
-local function to_grid(it, query)
-    return {
-        text = it.text,
-        icon = it.icon,
-        icon_hl = it.icon_hl,
-        _src = it._src,
-        match = query and query ~= "" and utils.match_indices(query, it.text) or nil,
-    }
-end
-
---- Lua fallback filter (no fzf): subsequence match + a simple score (earlier and tighter matches rank
---- higher). Returns grid items in ranked order.
----@param items table[]
----@param query string
----@return table[]
-local function lua_filter(items, query)
-    local scored = {}
-    for _, it in ipairs(items) do
-        local m = utils.match_indices(query, it.text)
-        if m then
-            scored[#scored + 1] = { it = it, m = m, score = m[1] * 1000 + (m[#m] - m[1]) }
-        end
-    end
-    table.sort(scored, function(a, b)
-        return a.score < b.score
-    end)
-    local out = {}
-    for i, s in ipairs(scored) do
-        out[i] = { text = s.it.text, icon = s.it.icon, icon_hl = s.it.icon_hl, _src = s.it._src, match = s.m }
-    end
-    return out
-end
-
---- Filter `items` by `query` and hand the ranked grid items to `cb`. Empty query = all (source order, no
---- highlight). With fzf: pipe `idx\ttext` to `fzf --filter` (matching field 2 only), read back the ranked
---- indices, and rebuild from the source. Without fzf: the Lua fallback. fzf runs async (vim.system).
+--- Filter `items` (normalised `{ text, icon?, _src }`) by `query` via the shared fuzzy engine and hand the
+--- ranked GRID items (`{ text, icon, icon_hl, _src, match }`) to `cb`. Empty query = all, source order.
 ---@param items table[]
 ---@param query string
 ---@param cb fun(list: table[])
 local function filter(items, query, cb)
-    if query == "" then
+    local texts = {}
+    for i, it in ipairs(items) do
+        texts[i] = it.text
+    end
+    fuzzy.filter(texts, query, function(ranked)
         local out = {}
-        for i, it in ipairs(items) do
-            out[i] = to_grid(it, nil)
+        for i, r in ipairs(ranked) do
+            local it = items[r.idx]
+            out[i] = { text = it.text, icon = it.icon, icon_hl = it.icon_hl, _src = it._src, match = r.match }
         end
         cb(out)
-        return
-    end
-    local bin = fzf_path()
-    if not bin or type(vim.system) ~= "function" then
-        cb(lua_filter(items, query))
-        return
-    end
-    local lines = {}
-    for i, it in ipairs(items) do
-        lines[i] = i .. "\t" .. (it.text:gsub("[\t\n]", " "))
-    end
-    vim.system(
-        { bin, "--filter", query, "--delimiter", "\t", "--nth", "2" },
-        { stdin = table.concat(lines, "\n"), text = true },
-        function(res)
-            vim.schedule(function()
-                local out = {}
-                for line in (res.stdout or ""):gmatch("[^\n]+") do
-                    local idx = tonumber(line:match("^(%d+)\t"))
-                    if idx and items[idx] then
-                        out[#out + 1] = to_grid(items[idx], query)
-                    end
-                end
-                cb(out)
-            end)
-        end
-    )
+    end)
 end
 
 --- Build a list ROW for a grid item: ` icon text`, plus the BYTE spans of its matched label characters.
@@ -149,7 +80,10 @@ end
 ---@field on_cancel? fun()  called when the finder is dismissed without a choice
 ---@field format? fun(item: any): string  display text for a table item (default: `item.text`)
 ---@field preview? fun(item: any): string[], string?  preview lines (+ a filetype for syntax) per selection
----@field title? string  the float title
+---@field preview_side? "right"|"left"|"below"|"above"  where the preview sits (default "right"); below/above stack + grow height
+---@field title? string  the float title / the statusline action title
+---@field icon? string  an optional leading glyph for the title (statusline)
+---@field statusline? boolean  (docked layouts) publish title/counter/query to the bottom statusline (default true); false = draw them in the navigator
 ---@field prompt? string  the query prompt prefix (default "➤ ")
 ---@field max_rows? integer  natural list/preview height hint (default 15)
 ---@field layout? "float"|"bottom"  centred float (default) or an Emacs-style bottom dock
@@ -164,7 +98,26 @@ function M.open(opts)
     local surface = require("lvim-utils.ui.surface")
     local items = normalize(opts.items, opts.format)
     local maxr = opts.max_rows or 15
-    local state = { filtered = items, sel = 1, list_pan = nil, preview_pan = nil, st = nil, closed = false }
+    local state = { filtered = items, sel = 1, list_pan = nil, preview_pan = nil, st = nil, closed = false, query = "" }
+
+    -- statusline integration (default ON): publish the title + match counter + query to the bottom
+    -- statusline (lvim-utils.status) so it shows the current action, instead of the navigator drawing its
+    -- own border title. `statusline = false` keeps the title/counter IN the navigator. Only the DOCKED
+    -- navigator (the area/minibuffer model) uses it; a centred float always shows its own title.
+    local docked_layout = opts.layout == "bottom" or opts.layout == "area"
+    -- the global echo master switch (config.status.enabled) AND this picker opting in
+    local use_status = docked_layout and status.is_enabled() and opts.statusline ~= false
+    local function publish_status()
+        if use_status then
+            status.set({
+                title = opts.title,
+                icon = opts.icon,
+                current = #state.filtered > 0 and state.sel or 0,
+                total = #state.filtered,
+                action = state.query,
+            })
+        end
+    end
 
     -- list panel: the filtered rows in the tint canon (odd BLUE / even YELLOW full-row stripes, the
     -- selected row a STRONG tint of its accent), matched chars in red. Selection is the Sel stripe (not a
@@ -247,8 +200,10 @@ function M.open(opts)
         end
         set_list_cursor() -- scroll the window to keep the selection in view
         update_preview()
+        publish_status() -- the counter follows the selection
     end
     local function refilter(q)
+        state.query = q or ""
         filter(items, q, function(list)
             if state.closed then
                 return
@@ -259,6 +214,7 @@ function M.open(opts)
             end
             set_list_cursor()
             update_preview()
+            publish_status() -- new total + reset counter + query as the action
         end)
     end
     local function scroll_preview(dir)
@@ -271,6 +227,9 @@ function M.open(opts)
     end
     local function confirm()
         local it = state.filtered[state.sel]
+        if use_status then
+            status.clear()
+        end
         if state.st then
             state.st.close()
         end
@@ -279,21 +238,63 @@ function M.open(opts)
         end
     end
 
-    local blocks = { { id = "list", provider = list_provider, size = { width = { fixed = 0.4 } } } }
-    if preview_provider then
-        blocks[#blocks + 1] = { id = "preview", provider = preview_provider }
-    end
-
-    -- layout: a centred float (default), or an Emacs-style dock at the bottom of the screen (full width).
+    -- layout: a centred float (default), a "bottom" dock that FLOATS over the bottom rows (statusline
+    -- unaffected), or "area" — the Emacs-minibuffer model: it GROWS `cmdheight` like the msgarea cmdline
+    -- zone, so a global statusline (heirline) rises ABOVE it. Both bottom/area dock full-width borderless.
     local bottom = opts.layout == "bottom"
+    local area = opts.layout == "area"
+    local docked = bottom or area
+    -- preview side: where the preview panel sits relative to the list. right/left → side-by-side; below/
+    -- above → stacked (the surface grows its height — see ui.surface `direction = "vertical"`).
+    local side = opts.preview_side or "right"
+    local vertical = side == "below" or side == "above"
+    -- Docked: borderless panels (the separator divides them) so they fill the zone edge-to-edge, like the
+    -- cmdline zone. A float keeps the default per-panel border.
+    local pbord = docked and "none" or nil
+    -- The surface's own border-title is shown ONLY when we're NOT publishing the title to the statusline
+    -- (else it would duplicate). `surf_title` = nil suppresses it.
+    local surf_title = (not use_status) and opts.title or nil
+    local titled = surf_title ~= nil and surf_title ~= ""
+    local list_block = {
+        id = "list",
+        provider = list_provider,
+        border = pbord,
+        size = vertical and { height = { fixed = 0.45 } } or { width = { fixed = 0.4 } },
+    }
+    local preview_block = preview_provider and { id = "preview", provider = preview_provider, border = pbord }
+    local blocks
+    if not preview_block then
+        blocks = { list_block }
+    elseif side == "left" or side == "above" then
+        blocks = { preview_block, list_block }
+    else
+        blocks = { list_block, preview_block }
+    end
+    -- Size by layout × preview side. Docked: a list-only height, or a TALLER one when the preview is stacked
+    -- below/above (it grows up). Float: a wide two-pane, or a taller stacked one.
+    local size
+    if docked then
+        size = vertical and { height = { fixed = 0.5 } } or { height = { fixed = opts.height or 16 } }
+    elseif vertical then
+        size = { width = { fixed = 0.7 }, height = { fixed = 0.8 } }
+    else
+        size = { width = { fixed = 0.85 }, height = { fixed = 0.7 } }
+    end
     surface.open({
         mode = "float",
-        position = bottom and "bottom" or nil,
-        title = opts.title or "Pick",
-        border = bottom and "none" or "rounded",
-        separator = "│",
-        size = bottom and { height = { fixed = opts.height or 16 } }
-            or { width = { fixed = 0.85 }, height = { fixed = 0.7 } },
+        -- "area" sits IN the cmdline region (grows cmdheight, heirline above) like the msgarea zone; the
+        -- zindex keeps it in the cmdline layer so it isn't re-anchored below the statusline. "bottom" just
+        -- floats over the bottom rows.
+        position = area and "cmdline" or (bottom and "bottom") or nil,
+        zindex = area and 200 or nil,
+        header_air = (docked and not titled) and false or nil,
+        direction = vertical and "vertical" or nil,
+        title = surf_title,
+        -- Docked: a native top-border TITLE when there IS a title (the canon — a top " " border, no ring +
+        -- 1 air row under it), else NO border. A float keeps the rounded ring.
+        border = docked and (titled and { "", " ", "", "", "", "", "", "" } or "none") or "rounded",
+        separator = vertical and "─" or "│",
+        size = size,
         header = {
             bars = {
                 {
@@ -303,6 +304,7 @@ function M.open(opts)
                     on_change = refilter,
                     keys = function(buf, st)
                         state.st = st
+                        publish_status() -- show the title + initial counter the moment the navigator opens
                         local function imap(lhs, fn)
                             vim.keymap.set("i", lhs, fn, { buffer = buf, nowait = true, silent = true })
                         end
@@ -330,6 +332,9 @@ function M.open(opts)
                         end)
                         local function cancel()
                             vim.cmd("stopinsert")
+                            if use_status then
+                                status.clear()
+                            end
                             st.close()
                             if opts.on_cancel then
                                 opts.on_cancel()

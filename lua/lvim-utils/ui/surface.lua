@@ -218,10 +218,15 @@ local function compute_geom(state, place)
     local panels = state.panels
     local n = #panels
     local sep_w = (cfg.separator and cfg.separator ~= "") and 1 or 0
+    -- Panels stack VERTICALLY (top→bottom, full width, height grows) when direction == "vertical"; else
+    -- they sit side-by-side (the default). Used for the navigator's above/below preview.
+    local vertical = cfg.direction == "vertical"
 
-    -- Per-panel border insets + natural content size (provider.size()).
+    -- Per-panel border insets + natural content size (provider.size()). Track BOTH axes so either layout
+    -- direction can auto-size: sum along the stacking axis, max across it.
     local pin = {}
-    local nat_w_sum, nat_h_max, border_cols, max_vborder = 0, 1, 0, 0
+    local nat_w_sum, nat_w_max, nat_h_sum, nat_h_max = 0, 1, 0, 1
+    local border_cols, border_rows, max_vborder, max_hborder = 0, 0, 0, 0
     for i, pan in ipairs(panels) do
         local b = util.resolve_border(pan.border or cfg.panel_border)
         local pt, pr, pbm, pl = util.insets(b)
@@ -234,9 +239,13 @@ local function compute_geom(state, place)
         end
         pin[i] = { b = b, t = pt, r = pr, bo = pbm, l = pl, nat_w = sw, nat_h = sh }
         nat_w_sum = nat_w_sum + pl + sw + pr
+        nat_w_max = math.max(nat_w_max, pl + sw + pr)
+        nat_h_sum = nat_h_sum + pt + sh + pbm
         nat_h_max = math.max(nat_h_max, sh)
         border_cols = border_cols + pl + pr
+        border_rows = border_rows + pt + pbm
         max_vborder = math.max(max_vborder, pt + pbm) -- so min_content counts VISIBLE rows, not the border
+        max_hborder = math.max(max_hborder, pl + pr)
     end
 
     -- Widest content drives auto_width: the widest bar band vs the panels' natural footprints.
@@ -247,7 +256,9 @@ local function compute_geom(state, place)
     for _, band in ipairs(state.footer_bands) do
         bars_w = math.max(bars_w, band.buttons and uibar.width(band.buttons) or 0)
     end
-    local content_w = math.max(bars_w, nat_w_sum + sep_w * (n - 1))
+    -- Stacking axis sums; cross axis is the max. Horizontal: width sums (+ column separators), height = the
+    -- tallest panel. Vertical: width = the widest panel, height sums (+ row separators).
+    local content_w = vertical and math.max(bars_w, nat_w_max) or math.max(bars_w, nat_w_sum + sep_w * (n - 1))
 
     -- Container CONTENT width/height (W excludes the container's own border columns). A docked split
     -- passes its window's ACTUAL width in `place.W` (full width for a below/above dock).
@@ -258,12 +269,13 @@ local function compute_geom(state, place)
     end
     local header_h = #state.header_bands
     local footer_h = #state.footer_bands
-    local content_h = header_h + footer_h + nat_h_max
+    local content_h = header_h + footer_h + (vertical and (nat_h_sum + sep_w * (n - 1)) or nat_h_max)
     -- A split takes the full height nvim gives it (place.H); a float sizes per auto/explicit height. The
     -- center never shrinks below `min_content_height` VISIBLE rows — counted on the panel content, so the
-    -- panel borders are added on top (the header/footer bands are fixed-height). `min_h` is the resulting
-    -- minimum container height, exported for the resize clamp.
-    local min_center = math.max(1, cfg.min_content_height or 1) + max_vborder
+    -- panel borders are added on top (the header/footer bands are fixed-height). Stacked panels need room
+    -- for ALL of them. `min_h` is the resulting minimum container height, exported for the resize clamp.
+    local min_center = vertical and (n * math.max(1, cfg.min_content_height or 1) + border_rows + sep_w * (n - 1))
+        or (math.max(1, cfg.min_content_height or 1) + max_vborder)
     local min_h = header_h + footer_h + min_center
     local H = place and place.H or util.axis_size(cfg.auto_height, cfg.height, cfg.max_height, content_h, vim.o.lines)
     H = math.max(H, min_h)
@@ -301,49 +313,84 @@ local function compute_geom(state, place)
     local center_top = cc_row + header_h
     local center_h = math.max(min_center, H - header_h - footer_h)
 
-    -- Distribute the center width across panels: weighted panels take their share, weightless ones
-    -- split the remainder (auto_width ⇒ each takes its natural width).
-    local avail = math.max(n, W - border_cols - sep_w * (n - 1))
-    local widths, fixed, flex = {}, 0, {}
-    for i, pan in ipairs(panels) do
-        local wgt = pan.weight
-        if cfg.auto_width and not wgt then
-            widths[i] = pin[i].nat_w
-            fixed = fixed + widths[i]
-        elseif wgt then
-            widths[i] = math.max(1, wgt <= 1 and math.floor(avail * wgt) or math.floor(wgt))
-            fixed = fixed + widths[i]
-        else
-            flex[#flex + 1] = i
+    -- Distribute the center across panels along the STACKING axis (width when horizontal, height when
+    -- vertical): weighted panels take their share, weightless ones split the remainder (auto ⇒ each takes
+    -- its natural size); the cross axis is the full center extent. `dividers` are column offsets when
+    -- horizontal, row offsets when vertical (render_chrome draws them per `L.vertical`).
+    local out, dividers = {}, {}
+    --- Share `avail` across the panels by weight / auto-natural / flex (the common allocation for both axes).
+    ---@param avail integer
+    ---@param natural fun(i: integer): integer
+    ---@param auto boolean
+    ---@return integer[]
+    local function allocate(avail, natural, auto)
+        local sizes, fixed, flex = {}, 0, {}
+        for i, pan in ipairs(panels) do
+            local wgt = pan.weight
+            if auto and not wgt then
+                sizes[i] = natural(i)
+                fixed = fixed + sizes[i]
+            elseif wgt then
+                sizes[i] = math.max(1, wgt <= 1 and math.floor(avail * wgt) or math.floor(wgt))
+                fixed = fixed + sizes[i]
+            else
+                flex[#flex + 1] = i
+            end
         end
-    end
-    local rest = math.max(0, avail - fixed)
-    if #flex > 0 then
-        local each = math.max(1, math.floor(rest / #flex))
-        for _, i in ipairs(flex) do
-            widths[i] = each
+        local rest = math.max(0, avail - fixed)
+        if #flex > 0 then
+            local each = math.max(1, math.floor(rest / #flex))
+            for _, i in ipairs(flex) do
+                sizes[i] = each
+            end
+            sizes[flex[#flex]] = sizes[flex[#flex]] + (rest - each * #flex)
+        elseif n > 0 then
+            sizes[n] = sizes[n] + rest
         end
-        widths[flex[#flex]] = widths[flex[#flex]] + (rest - each * #flex)
-    elseif n > 0 then
-        widths[n] = widths[n] + rest
+        return sizes
     end
 
-    -- Lay footprints left→right; each panel's col is its LEFT-BORDER position; dividers sit in the gaps.
-    local out, dividers = {}, {}
-    local x = cc_col
-    for i = 1, n do
-        local pi = pin[i]
-        out[i] = {
-            width = widths[i],
-            height = math.max(1, center_h - pi.t - pi.bo),
-            row = center_top,
-            col = x,
-            border = pi.b,
-        }
-        x = x + pi.l + widths[i] + pi.r
-        if i < n and sep_w > 0 then
-            dividers[#dividers + 1] = x - cc_col
-            x = x + sep_w
+    if vertical then
+        local heights = allocate(math.max(n, center_h - border_rows - sep_w * (n - 1)), function(i)
+            return pin[i].nat_h
+        end, cfg.auto_height)
+        -- Lay footprints top→bottom; each panel is full center width; dividers sit in the row gaps.
+        local y = center_top
+        for i = 1, n do
+            local pi = pin[i]
+            out[i] = {
+                width = math.max(1, W - pi.l - pi.r),
+                height = heights[i],
+                row = y,
+                col = cc_col,
+                border = pi.b,
+            }
+            y = y + pi.t + heights[i] + pi.bo
+            if i < n and sep_w > 0 then
+                dividers[#dividers + 1] = y - center_top
+                y = y + sep_w
+            end
+        end
+    else
+        local widths = allocate(math.max(n, W - border_cols - sep_w * (n - 1)), function(i)
+            return pin[i].nat_w
+        end, cfg.auto_width)
+        -- Lay footprints left→right; each panel's col is its LEFT-BORDER position; dividers sit in the gaps.
+        local x = cc_col
+        for i = 1, n do
+            local pi = pin[i]
+            out[i] = {
+                width = widths[i],
+                height = math.max(1, center_h - pi.t - pi.bo),
+                row = center_top,
+                col = x,
+                border = pi.b,
+            }
+            x = x + pi.l + widths[i] + pi.r
+            if i < n and sep_w > 0 then
+                dividers[#dividers + 1] = x - cc_col
+                x = x + sep_w
+            end
         end
     end
 
@@ -360,6 +407,7 @@ local function compute_geom(state, place)
         center_h = center_h,
         panels = out,
         dividers = dividers,
+        vertical = vertical, -- dividers are ROW offsets (a horizontal rule) when true, else column offsets
     }
 end
 
@@ -377,9 +425,15 @@ local function render_chrome(state, L)
         divider_set[d] = true
     end
 
-    local function center_line()
+    -- A center row. Horizontal layout: vertical separator glyphs at the divider COLUMNS (the 1-col gaps
+    -- between side-by-side panels). Vertical layout: the whole row is a separator rule when it IS a divider
+    -- ROW (the 1-row gap between stacked panels), else blank. The panels (floats) overlay the rest.
+    local function center_line(center_off)
         if not sep_char then
             return string.rep(" ", W)
+        end
+        if L.vertical then
+            return divider_set[center_off] and string.rep(sep_char, W) or string.rep(" ", W)
         end
         local cells = {}
         for c = 0, W - 1 do
@@ -390,7 +444,7 @@ local function render_chrome(state, L)
 
     local lines = {}
     for i = 1, H do
-        lines[i] = (i > L.header_h and i <= H - L.footer_h) and center_line() or string.rep(" ", W)
+        lines[i] = (i > L.header_h and i <= H - L.footer_h) and center_line(i - L.header_h - 1) or string.rep(" ", W)
     end
 
     -- Place each header/footer band, recording where its bar buttons land (for the next layer's
@@ -1502,11 +1556,13 @@ function M.open(cfg)
     cfg.auto_width, cfg.width, cfg.max_width, cfg.min_width = sw.auto, sw.fixed, sw.max, sw.min
     cfg.auto_height, cfg.height, cfg.max_height, cfg.min_content_height = sh.auto, sh.fixed, sh.max, sh.min
 
-    -- content.blocks → panels: each block carries an `id`, a `provider`, its own width (`size.width.fixed`
-    -- = a weight; absent = flex/auto), and an optional `border`.
+    -- content.blocks → panels: each block carries an `id`, a `provider`, its share along the STACKING axis
+    -- (`size.width.fixed` when horizontal / `size.height.fixed` when vertical = a weight; absent = flex/
+    -- auto), and an optional `border`.
     local panels = {}
+    local stack_axis = cfg.direction == "vertical" and "height" or "width"
     for i, blk in ipairs((cfg.content or {}).blocks or {}) do
-        local bw = (blk.size or {}).width or {}
+        local bw = (blk.size or {})[stack_axis] or {}
         panels[i] = { id = blk.id, provider = blk.provider, weight = bw.fixed, border = blk.border }
     end
 

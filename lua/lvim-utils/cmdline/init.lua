@@ -8,6 +8,7 @@
 ---@module "lvim-utils.cmdline"
 
 local colors = require("lvim-utils.colors")
+local status = require("lvim-utils.status")
 local M = {}
 
 local api = vim.api
@@ -89,6 +90,9 @@ end
 
 local function close()
     _active = false
+    if _cfg and status.is_enabled() and _cfg.statusline ~= false then
+        status.clear() -- drop the mode + counter from the statusline
+    end
     stop_blink()
     if _msg_timer then
         _msg_timer:stop()
@@ -131,15 +135,57 @@ local function render()
     -- Left panel = icon + a label. For the input mode the live prompt ("New name: ")
     -- wins; otherwise the per-mode static label ("Command", "Search ↓", …).
     local label = (prompt ~= "" and prompt) or (mode.label or "")
-    -- Trailing pad inside the panel so the label is not flush against its right edge:
-    -- normalise to exactly 2 trailing spaces (matching the 2 spaces around the icon).
-    if label ~= "" then
-        label = label:gsub("%s+$", "") .. "  "
+    local badge
+    -- Publish to the statusline only when the global echo model is on (config.status.enabled) AND this
+    -- cmdline opts in (cmdline.statusline). Either off ⇒ the float keeps its own mode badge.
+    local to_statusline = status.is_enabled() and _cfg.statusline ~= false
+    if to_statusline then
+        -- For a SEARCH (`/` `?`), compute the live match statistics for the typed pattern (current/total,
+        -- like Emacs/hlslens) and publish them as the counter — recomputed each keystroke. Empty pattern or
+        -- an invalid in-progress regex ⇒ 0 (the counter hides). nil for non-search so the `:` completion
+        -- counter (published by msgarea) is left untouched.
+        local typed = flatten(state.content)
+        local cur, total
+        if state.firstc == "/" or state.firstc == "?" then
+            -- live search match statistics (current/total) for the typed pattern. (For `:`, the counter is
+            -- the completion result count — published by the completion integration (native / blink) via
+            -- msgarea, which has a real selection; computing it here too would fight that, flicking the
+            -- counter between e.g. `1/2` and `2`.)
+            if typed ~= "" then
+                local ok, sc = pcall(vim.fn.searchcount, { pattern = typed, recompute = 1, maxcount = 0 })
+                cur = (ok and sc and sc.current) or 0
+                total = (ok and sc and sc.total) or 0
+            else
+                cur, total = 0, 0
+            end
+        end
+        -- Statusline integration: the mode ICON + LABEL move UP to the bottom line (like the navigator), so
+        -- the float shows ONLY the input. Also publish the STRING being entered (the search pattern / the
+        -- command) as the action, so `:`/`/`/`?` all show what is typed. The counter is the search count for
+        -- a search, else nil (msgarea sets the `:` completion count). An input() prompt stays in the float.
+        status.set({
+            title = label ~= "" and label:gsub("%s+$", "") or nil,
+            title_hl = mode.hl,
+            icon = mode.glyph,
+            icon_hl = mode.hl .. "Icon", -- the float badge's own per-mode colour, so the line mirrors it
+            action = prompt == "" and typed or "", -- the typed string (not for an input() prompt)
+            current = cur,
+            total = total,
+        })
+        badge = (prompt ~= "" and (" " .. prompt:gsub("%s+$", "") .. " ")) or ""
+    else
+        -- The mode badge in the float: configurable spaces left of / right of the glyph (`badge_pad_left/
+        -- right`). A trailing gap on the label keeps the input text off the box edge.
+        local lpad = string.rep(" ", _cfg.badge_pad_left or 2)
+        local rpad = string.rep(" ", _cfg.badge_pad_right or 2)
+        if label ~= "" then
+            label = label:gsub("%s+$", "") .. "  "
+        end
+        badge = lpad .. mode.glyph .. rpad .. label
     end
-    local badge = "  " .. mode.glyph .. "  " .. label
     local badge_w = vim.fn.strdisplaywidth(badge)
-    -- One extra cell after the panel so the input text is not glued to the box.
-    local pad = string.rep(" ", badge_w + 1)
+    -- One extra cell after the panel so the input text is not glued to the box (>= 1 when there is no badge).
+    local pad = string.rep(" ", math.max(badge_w + 1, 1))
 
     -- Command text; may contain newlines (multi-line paste, or <C-CR>). Split it so the
     -- format is preserved — each source line becomes its own buffer line.
@@ -187,7 +233,13 @@ local function render()
     lines[#lines] = lines[#lines] .. " "
 
     local buf = ensure_buf()
-    api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    -- This render can be reached from a `setcmdline()`-triggered CmdlineChanged (e.g. accepting a completion
+    -- in the zone), which fires under TEXTLOCK — buffer changes are then forbidden (E565). Detect that via
+    -- the first write and retry on the next tick (outside textlock) instead of erroring.
+    if not pcall(api.nvim_buf_set_lines, buf, 0, -1, false, lines) then
+        vim.schedule(render)
+        return
+    end
     api.nvim_buf_clear_namespace(buf, _ns, 0, -1)
 
     -- Left panel (icon + prompt label) overlaying the reserved leading cells.
@@ -457,7 +509,9 @@ function M.message(msg)
         return
     end
     local hl = m.hl or "LvimUiCmdlineInput"
-    local badge = "  " .. (m.glyph or "") .. "  "
+    local badge = string.rep(" ", _cfg.badge_pad_left or 2)
+        .. (m.glyph or "")
+        .. string.rep(" ", _cfg.badge_pad_right or 2)
     local badge_w = vim.fn.strdisplaywidth(badge)
     local pad = string.rep(" ", badge_w + 1)
 

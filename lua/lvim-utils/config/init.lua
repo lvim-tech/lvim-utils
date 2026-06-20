@@ -16,9 +16,11 @@ M.notify = vim.deepcopy(require("lvim-utils.config.notify"))
 M.cmdline = vim.deepcopy(require("lvim-utils.config.cmdline"))
 M.input = vim.deepcopy(require("lvim-utils.config.input"))
 M.msgarea = vim.deepcopy(require("lvim-utils.config.msgarea"))
+M.status = vim.deepcopy(require("lvim-utils.config.status"))
+M.fuzzy = vim.deepcopy(require("lvim-utils.config.fuzzy"))
 
 ---Merge user-provided options into each module's config.
----@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table }
+---@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, status?: table, fuzzy?: table }
 function M.setup(opts)
     opts = opts or {}
     if opts.ui then
@@ -41,6 +43,17 @@ function M.setup(opts)
     end
     if opts.msgarea then
         M.msgarea = vim.tbl_deep_extend("force", M.msgarea, opts.msgarea)
+    end
+    if opts.status then
+        M.status = vim.tbl_deep_extend("force", M.status, opts.status)
+    end
+    if opts.fuzzy then
+        -- `sort` may be a string OR a list OR a function — replace it wholesale (deep_extend would merge a
+        -- list element-wise). Merge the rest, then overwrite sort if the user gave one.
+        M.fuzzy = vim.tbl_deep_extend("force", M.fuzzy, opts.fuzzy)
+        if opts.fuzzy.sort ~= nil then
+            M.fuzzy.sort = opts.fuzzy.sort
+        end
     end
 end
 
