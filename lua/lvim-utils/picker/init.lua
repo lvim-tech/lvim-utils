@@ -147,11 +147,19 @@ function M.open(opts)
     -- list panel: the filtered rows in the tint canon (odd BLUE / even YELLOW full-row stripes, the
     -- selected row a STRONG tint of its accent), matched chars in red. Selection is the Sel stripe (not a
     -- window cursorline), so it survives the row tints; navigation re-renders to move it.
-    -- The visible list height = the result count, clamped to [1, max_rows] — so the finder SHRINKS to fit a
-    -- few (or zero) results instead of always reserving the full height. relayout() is called on every
-    -- result change (see `apply`) so the surface re-fits.
+    -- Dynamic height: the container fits the TALLER of the two panels, capped at `max_rows`. The list
+    -- contributes its result count; the preview contributes its content's line count (cached on selection).
+    -- 0 results ⇒ both are 0 ⇒ only the prompt + the preview winbar show. relayout() re-fits on every change.
+    state.preview_lines = {}
     local function list_h()
-        return math.max(1, math.min(#state.filtered, maxr))
+        return math.min(#state.filtered, maxr) -- 0 when empty (no [no matches] body row)
+    end
+    local function preview_h()
+        return math.min(#state.preview_lines, maxr)
+    end
+    -- The CONTENT height shared by both panels (each panel adds its own +1 winbar row on top).
+    local function content_h()
+        return math.max(list_h(), preview_h())
     end
 
     -- Each panel carries a WINBAR title, the lvim-lsp peek look: the list shows the title + result count,
@@ -222,7 +230,7 @@ function M.open(opts)
     local list_provider = {
         cursorline = false,
         size = function()
-            return math.max(30, math.floor(vim.o.columns * 0.32)), list_h() + 1 -- +1 for the winbar row
+            return math.max(30, math.floor(vim.o.columns * 0.32)), content_h() + 1 -- +1 for the winbar row
         end,
         render = function()
             local lines, hls = {}, {}
@@ -239,8 +247,9 @@ function M.open(opts)
                     hls[#hls + 1] = { i - 1, ms.c0, ms.c1, hl("match", "LvimUiMsgAreaMatch"), 250 }
                 end
             end
+            -- No "[no matches]" body row on the left — emptiness shows in the preview winbar instead.
             if #lines == 0 then
-                lines = { "  " .. empty_text }
+                lines = { "" }
             end
             return lines, hls
         end,
@@ -257,27 +266,25 @@ function M.open(opts)
     local preview_provider = opts.preview
             and {
                 size = function()
-                    -- The preview wants a USEFUL height even when the list is tiny (1 match): ask for the
-                    -- full `max_rows` so the surface (whose container is the MAX of the panel heights, capped)
-                    -- doesn't collapse to the list's 1 row. (+1 winbar row.) The cap keeps it within bounds.
-                    return math.max(40, math.floor(vim.o.columns * 0.5)), maxr + 1
+                    -- Both panels share the CONTENT height (the taller of list/preview, capped) so the
+                    -- container fits the bigger one; the preview lines are cached in `state.preview_lines`
+                    -- (fetched on selection — see `fetch_preview`). (+1 winbar row.)
+                    return math.max(40, math.floor(vim.o.columns * 0.5)), content_h() + 1
                 end,
                 update = function(pan)
                     local it = state.filtered[state.sel]
                     set_preview_winbar(pan, it and it._src or nil)
-                    local lines, ft, focus = nil, nil, nil
-                    if it then
-                        lines, ft, focus = opts.preview(it._src)
-                    end
-                    lines = (type(lines) == "table" and lines) or (lines and { tostring(lines) }) or {}
+                    local lines = state.preview_lines or {}
                     vim.bo[pan.buf].modifiable = true
                     pcall(api.nvim_buf_set_lines, pan.buf, 0, -1, false, lines)
                     vim.bo[pan.buf].modifiable = false
+                    local ft = state.preview_ft
                     if ft and ft ~= "" and vim.bo[pan.buf].filetype ~= ft then
                         pcall(api.nvim_set_option_value, "filetype", ft, { buf = pan.buf })
                     end
                     -- `focus` (a 1-based line) scrolls the preview to that row and centres it — used by grep
                     -- to jump the preview to the matched line.
+                    local focus = state.preview_focus
                     if focus and pan.win and api.nvim_win_is_valid(pan.win) then
                         pcall(api.nvim_win_set_cursor, pan.win, { math.max(1, math.min(focus, #lines)), 0 })
                         api.nvim_win_call(pan.win, function()
@@ -301,44 +308,61 @@ function M.open(opts)
             pcall(api.nvim_win_set_cursor, p.win, { math.max(1, math.min(#state.filtered, state.sel)), 0 })
         end
     end
-    local function update_preview()
+    -- Fetch the CURRENT selection's preview content into the cache (so `content_h`/`size` know its line
+    -- count before relayout, and `update` writes it). No preview, or no selection ⇒ empty.
+    local function fetch_preview()
+        if not opts.preview then
+            state.preview_lines, state.preview_ft, state.preview_focus = {}, nil, nil
+            return
+        end
+        local it = state.filtered[state.sel]
+        if not it then
+            state.preview_lines, state.preview_ft, state.preview_focus = {}, nil, nil
+            return
+        end
+        local lines, ft, focus = opts.preview(it._src)
+        state.preview_lines = (type(lines) == "table" and lines) or (lines and { tostring(lines) }) or {}
+        state.preview_ft, state.preview_focus = ft, focus
+    end
+    -- Re-fit the surface to the CONTENT height (the taller of list/preview, capped) — only when it actually
+    -- changes, so navigating within the same height doesn't reflow the windows.
+    local last_h
+    local function refit()
+        local h = content_h()
+        if h ~= last_h and state.st and state.st.relayout then
+            last_h = h
+            state.st.relayout()
+        end
+    end
+    -- Re-render everything after a selection or result change: refresh the preview cache, re-fit the height,
+    -- then re-render both panels + the chrome.
+    local function rerender()
+        fetch_preview()
+        refit()
+        if state.list_pan and state.list_pan.refresh then
+            state.list_pan.refresh()
+        end
         if state.preview_pan and state.preview_pan.refresh then
             state.preview_pan.refresh()
         end
+        set_list_winbar() -- the result count in the winbar follows the list
+        set_list_cursor() -- scroll the window to keep the selection in view
+        publish_status()
     end
     local function move(d)
         if #state.filtered == 0 then
             return
         end
         state.sel = math.max(1, math.min(#state.filtered, state.sel + d))
-        if state.list_pan and state.list_pan.refresh then
-            state.list_pan.refresh() -- re-render so the Sel stripe moves to the new row
-        end
-        set_list_cursor() -- scroll the window to keep the selection in view
-        update_preview()
-        publish_status() -- the counter follows the selection
+        rerender() -- the preview (and so the height) changes with the selection
     end
     -- Apply a new result list (from the fuzzy filter or a live source) to the UI.
-    local prev_h -- last applied list height — only relayout when it actually changes (avoids needless reflow)
     local function apply(list)
         if state.closed then
             return
         end
         state.filtered, state.sel = list, 1
-        -- Re-fit the surface height to the new result count (intelligent shrink/grow). Only when the height
-        -- changed, so typing within the same row count doesn't reflow the windows.
-        local h = list_h()
-        if h ~= prev_h and state.st and state.st.relayout then
-            prev_h = h
-            state.st.relayout()
-        end
-        if state.list_pan and state.list_pan.refresh then
-            state.list_pan.refresh()
-        end
-        set_list_winbar() -- the result count in the winbar follows the new list
-        set_list_cursor()
-        update_preview()
-        publish_status() -- new total + reset counter + query as the action
+        rerender()
     end
     -- A generation guard so a slow async source/filter callback for an OLD query can't overwrite a newer one.
     local refilter_gen = 0
@@ -430,7 +454,10 @@ function M.open(opts)
     -- result set doesn't take the whole screen. Floats keep a fixed comfortable size.
     local size
     if docked then
-        local cap = opts.height or maxr + 2
+        -- The CONTENT (list/preview) is already capped at `max_rows`; the container cap adds the chrome
+        -- overhead (winbar + footer + air ≈ 4 rows) so the content can actually reach `max_rows`. The
+        -- area's own cmdheight clamp keeps it within the room available between the splits.
+        local cap = opts.height or (maxr + 4)
         size = vertical and { height = { auto = true, max = 0.85 } } or { height = { auto = true, max = cap } }
     elseif vertical then
         size = { width = { fixed = 0.7 }, height = { fixed = 0.8 } }
@@ -556,9 +583,8 @@ function M.open(opts)
         end,
     })
 
-    -- initial: show all, select the first, preview it
-    set_list_cursor()
-    update_preview()
+    -- initial: show all, select the first, preview it (fetch + fit + render)
+    rerender()
 end
 
 --- A ready finder over the listed buffers; confirming switches to the chosen buffer, with a content preview.

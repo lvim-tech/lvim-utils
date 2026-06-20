@@ -206,6 +206,31 @@ end
 
 -- ─── geometry ─────────────────────────────────────────────────────────────────
 
+--- The largest `cmdheight` the current window layout can give up without "E36: Not enough room": the
+--- non-floating windows must keep their minimum rows. Walks `winlayout()` — a "col" stacks rows (heights
+--- ADD), a "row" sits side by side (heights are the MAX); each leaf needs ~2 (one text row + its status/
+--- winbar). The cmdline region can take everything left over.
+---@return integer
+local function max_cmdheight()
+    local function need(node)
+        if not node then
+            return 2
+        end
+        local kind, items = node[1], node[2]
+        if kind == "leaf" then
+            return 2
+        end
+        local n = 0
+        for _, child in ipairs(items or {}) do
+            local c = need(child)
+            n = (kind == "col") and (n + c) or math.max(n, c)
+        end
+        return math.max(n, 2)
+    end
+    local mn = need(vim.fn.winlayout())
+    return math.max(1, vim.o.lines - mn - 1) -- -1 keeps a row for a global statusline above the region
+end
+
 --- Pure geometry: the container frame, the header/footer band rows, and every center-panel rect + the
 --- divider columns. No window/buffer side effects. `place` overrides position/size for a SPLIT (docked)
 --- frame whose container window already exists: `{ row, col, H }` (screen position + the split height).
@@ -314,6 +339,11 @@ local function compute_geom(state, place)
         -- area, so a global statusline / heirline stays above it — hence no `- 1`.
         W = vim.o.columns - cl - cr
         col = 0
+        -- Clamp to the largest cmdheight the window layout can give up without "E36: Not enough room": the
+        -- non-floating windows must keep their minimum rows. (A tall preview must not grow the area past the
+        -- room available between the splits above it.)
+        H = math.min(H, max_cmdheight())
+        H = math.max(H, min_h)
         row = math.max(0, vim.o.lines - H - ct - cb)
     else
         row = math.max(1, math.floor((vim.o.lines - H) / 2 - 1))
