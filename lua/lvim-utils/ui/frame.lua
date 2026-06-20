@@ -120,6 +120,17 @@ local function build_bands(spec, footer)
     for _, bar in ipairs(spec.bars or {}) do
         if bar.text ~= nil then
             bands[#bands + 1] = { meta = bar.text, hl = bar.hl or (footer and "LvimUiSubtitle" or "LvimUiPeekTitle") }
+        elseif bar.input then
+            -- An editable INPUT band — a focusable 1-row editable window the frame creates over this row
+            -- (see open_windows). It reserves a row like a meta line; the consumer drives it via
+            -- `on_change(query)` (fired live on type) and the band's own insert-mode `keys(buf, st)`.
+            bands[#bands + 1] = {
+                input = true,
+                prompt = bar.prompt,
+                on_change = bar.on_change,
+                keys = bar.keys,
+                filetype = bar.filetype,
+            }
         else
             -- Mutate the bar spec INTO its band (the machinery reads the element list as `band.buttons`),
             -- so a consumer that keeps a reference to the bar can drive its `_sel` / button `active` flags
@@ -270,6 +281,11 @@ local function compute_geom(state, place)
         W = vim.o.columns - cl - cr
         col = 0
         row = cfg.position == "bottom" and math.max(0, vim.o.lines - H - ct - cb - 1) or 0
+    elseif cfg.position == "left" or cfg.position == "right" then
+        -- Dock to a side: full editor height (minus the cmdline row), fixed width (`size.width`) on that edge.
+        H = math.max(min_h, vim.o.lines - ct - cb - 1)
+        row = 0
+        col = cfg.position == "right" and math.max(0, vim.o.columns - W - cl - cr) or 0
     else
         row = math.max(1, math.floor((vim.o.lines - H) / 2 - 1))
         col = math.max(1, math.floor((vim.o.columns - W) / 2))
@@ -376,6 +392,9 @@ local function render_chrome(state, L)
     local placements = {}
 
     local function lay_band(ln, band, where)
+        if band.input then -- an editable input band — its overlay window draws the row; leave it blank
+            return
+        end
         if band.meta ~= nil then
             lines[ln] = util.center(band.meta, W)
             if band.meta ~= "" and band.hl then
@@ -476,11 +495,20 @@ local function render_panel(state, idx)
     vim.bo[pan.buf].modifiable = (pan.provider and pan.provider.editable) or false
     api.nvim_buf_clear_namespace(pan.buf, NS, 0, -1)
     for _, h in ipairs(hls) do
-        pcall(api.nvim_buf_set_extmark, pan.buf, NS, h[1], h[2], {
-            end_col = h[3],
-            hl_group = util.resolve_hl(h[4]),
-            priority = h[5] or 200,
-        })
+        if h[3] == -1 then -- a FULL-ROW span: the bg reaches the window edge (hl_eol), for row striping
+            pcall(api.nvim_buf_set_extmark, pan.buf, NS, h[1], 0, {
+                end_row = h[1] + 1,
+                hl_group = util.resolve_hl(h[4]),
+                hl_eol = true,
+                priority = h[5] or 200,
+            })
+        else
+            pcall(api.nvim_buf_set_extmark, pan.buf, NS, h[1], h[2], {
+                end_col = h[3],
+                hl_group = util.resolve_hl(h[4]),
+                priority = h[5] or 200,
+            })
+        end
     end
 end
 
@@ -891,6 +919,15 @@ local function open_windows(state)
 
     render_chrome(state, L)
 
+    -- An editable input band (see below) takes the initial focus instead of a panel.
+    local has_input = false
+    for _, band in ipairs(state.header_bands) do
+        if band.input then
+            has_input = true
+            break
+        end
+    end
+
     for i, pan in ipairs(state.panels) do
         local pl = L.panels[i]
         pan.buf = api.nvim_create_buf(false, true)
@@ -909,7 +946,7 @@ local function open_windows(state)
         -- container IS a float, so the panels need `zindex + 1` to stay above it.
         -- Enter the first panel on open — UNLESS `cfg.enter == false` (a non-focusing float like a hover:
         -- it appears but the cursor stays in the editor; a later `st.focus_block()` enters it).
-        pan.win = api.nvim_open_win(pan.buf, i == 1 and state.cfg.enter ~= false, {
+        pan.win = api.nvim_open_win(pan.buf, i == 1 and state.cfg.enter ~= false and not has_input, {
             relative = "editor",
             width = pl.width,
             height = pl.height,
@@ -939,6 +976,63 @@ local function open_windows(state)
         end
         pan.frame = state -- providers reach the frame (focus_panel / close / cfg) through their panel
         render_panel(state, i)
+    end
+
+    -- Editable INPUT bands: a focusable 1-row editable window over each input band's header row. The frame
+    -- creates it + wires a live on_change; the consumer drives the panels from on_change + the band's keys
+    -- (insert-mode), like a fuzzy-finder prompt. Not part of the normal-mode sector nav — it is always
+    -- focused (insert) while open, so there is no mode clash with the chassis keymaps.
+    do
+        local _, _, _, cl = util.insets(L.cbord)
+        for bi, band in ipairs(state.header_bands) do
+            if band.input then
+                band.buf = api.nvim_create_buf(false, true)
+                vim.bo[band.buf].bufhidden = "hide"
+                vim.bo[band.buf].modifiable = true -- it is a typed field
+                if band.filetype then
+                    vim.bo[band.buf].filetype = band.filetype
+                end
+                band.win = api.nvim_open_win(band.buf, false, {
+                    relative = "editor",
+                    row = L.row + L.ct + (bi - 1),
+                    col = L.col + cl,
+                    width = L.W,
+                    height = 1,
+                    style = "minimal",
+                    focusable = true,
+                    zindex = state.zindex + 2, -- above the container (z) and the panels (z+1)
+                })
+                vim.wo[band.win].winhighlight = "Normal:LvimUiPeekNormal"
+                if band.prompt and band.prompt ~= "" then
+                    pcall(api.nvim_buf_set_extmark, band.buf, NS, 0, 0, {
+                        virt_text = { { band.prompt, "LvimUiMsgAreaItemKind" } },
+                        virt_text_pos = "inline",
+                        right_gravity = false,
+                    })
+                end
+                if band.on_change then
+                    api.nvim_create_autocmd({ "TextChangedI", "TextChanged" }, {
+                        buffer = band.buf,
+                        callback = function()
+                            band.on_change(api.nvim_buf_get_lines(band.buf, 0, 1, false)[1] or "")
+                        end,
+                    })
+                end
+                if band.keys then
+                    pcall(band.keys, band.buf, state)
+                end
+            end
+        end
+        -- Enter the FIRST input band on open (insert), unless the consumer opted out of focusing.
+        if state.cfg.enter ~= false then
+            for _, band in ipairs(state.header_bands) do
+                if band.input and band.win and api.nvim_win_is_valid(band.win) then
+                    api.nvim_set_current_win(band.win)
+                    vim.cmd("startinsert!")
+                    break
+                end
+            end
+        end
     end
 
     -- Wire interaction: the sector list, the keymaps, and the initial focus (the first center panel).
@@ -1052,6 +1146,8 @@ local function open_windows(state)
     -- do NOT focus it; the consumer focuses later (e.g. a hover entered on the 2nd keypress).
     if state.cfg.enter == false then
         state.center_panel = center_idx() or 1
+    elseif has_input then
+        state.center_panel = center_idx() or 1 -- the input band (focused above, in insert) owns the keyboard
     else
         focus_sector(state, center_idx() or 1)
     end
@@ -1061,6 +1157,11 @@ local function open_windows(state)
     local watch = { state.container_win }
     for _, pan in ipairs(state.panels) do
         watch[#watch + 1] = pan.win
+    end
+    for _, band in ipairs(state.header_bands) do
+        if band.input and band.win then
+            watch[#watch + 1] = band.win
+        end
     end
     api.nvim_create_autocmd("WinClosed", {
         group = state.augroup,
@@ -1172,6 +1273,16 @@ local function close(state)
         end
         if pan.buf and api.nvim_buf_is_valid(pan.buf) then
             pcall(api.nvim_buf_delete, pan.buf, { force = true })
+        end
+    end
+    for _, band in ipairs(state.header_bands or {}) do -- editable input bands' overlay windows
+        if band.input then
+            if band.win and api.nvim_win_is_valid(band.win) then
+                pcall(api.nvim_win_close, band.win, true)
+            end
+            if band.buf and api.nvim_buf_is_valid(band.buf) then
+                pcall(api.nvim_buf_delete, band.buf, { force = true })
+            end
         end
     end
     if state.container_win and api.nvim_win_is_valid(state.container_win) then
@@ -1335,6 +1446,24 @@ end
 ---@return table state
 function M.open(cfg)
     cfg = cfg or {}
+    -- `nvim_open_win` is forbidden in the command-line window (q: / q/ / q?), so a frame opened from there
+    -- (e.g. an installer prompt that fires while `q:` is open) would raise E11. Defer the whole open until
+    -- the cmdwin closes and return a no-op stub, so the caller never crashes on the missing handle.
+    if vim.fn.getcmdwintype() ~= "" then
+        vim.api.nvim_create_autocmd("CmdwinLeave", {
+            once = true,
+            callback = function()
+                vim.schedule(function()
+                    M.open(cfg)
+                end)
+            end,
+        })
+        return setmetatable({ deferred = true }, {
+            __index = function()
+                return function() end
+            end,
+        })
+    end
     cfg.mode = cfg.mode or "float"
     -- Modal frames close on q / <Esc> from anywhere; a `persistent` frame (e.g. a docked outline) sets
     -- its own close_keys (or none) and is never auto-closed.
