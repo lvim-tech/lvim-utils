@@ -208,27 +208,57 @@ end
 
 --- The largest `cmdheight` the current window layout can give up without "E36: Not enough room": the
 --- non-floating windows must keep their minimum rows. Walks `winlayout()` — a "col" stacks rows (heights
---- ADD), a "row" sits side by side (heights are the MAX); each leaf needs ~2 (one text row + its status/
---- winbar). The cmdline region can take everything left over.
+--- ADD), a "row" sits side by side (heights are the MAX); each leaf needs `winminheight` + its statusline
+--- (per-window when `laststatus` 1/2) + its winbar. Plus the global chrome (tabline, the `laststatus=3`
+--- global statusline). The cmdline region can take everything left over.
 ---@return integer
 local function max_cmdheight()
+    local ls = vim.o.laststatus
+    local per_win_status = (ls == 1 or ls == 2) and 1 or 0 -- a statusline on each window
+    local wmh = math.max(1, vim.o.winminheight)
     local function need(node)
         if not node then
-            return 2
+            return wmh + per_win_status
         end
         local kind, items = node[1], node[2]
         if kind == "leaf" then
-            return 2
+            local win = items
+            local wb = (api.nvim_win_is_valid(win) and vim.wo[win].winbar ~= "") and 1 or 0
+            return wmh + per_win_status + wb
         end
         local n = 0
         for _, child in ipairs(items or {}) do
             local c = need(child)
             n = (kind == "col") and (n + c) or math.max(n, c)
         end
-        return math.max(n, 2)
+        return n
     end
-    local mn = need(vim.fn.winlayout())
-    return math.max(1, vim.o.lines - mn - 1) -- -1 keeps a row for a global statusline above the region
+    local tabs = vim.api.nvim_list_tabpages()
+    local tabline = (vim.o.showtabline == 2 or (vim.o.showtabline == 1 and #tabs > 1)) and 1 or 0
+    local global_status = (ls == 3) and 1 or 0
+    local reserve = need(vim.fn.winlayout()) + tabline + global_status
+    return math.max(1, vim.o.lines - reserve)
+end
+
+--- Set `cmdheight` to `h`, clamped to what the layout allows (`max_cmdheight`), then DECREMENT on the rare
+--- "E36: Not enough room" (the estimate is conservative but window minima can be quirky) until it sticks.
+--- Returns the value actually applied — the geometry uses THAT so the container float matches the region.
+---@param h integer
+---@return integer
+local function set_cmdheight(h)
+    h = math.max(1, math.min(h, max_cmdheight()))
+    while h > 1 do
+        if pcall(function()
+            vim.o.cmdheight = h
+        end) then
+            return h
+        end
+        h = h - 1
+    end
+    pcall(function()
+        vim.o.cmdheight = 1
+    end)
+    return 1
 end
 
 --- Pure geometry: the container frame, the header/footer band rows, and every center-panel rect + the
@@ -925,7 +955,9 @@ local function relayout(state)
         -- A float reflows to the (possibly resized) screen; move the container float too.
         L = compute_geom(state)
         if state.cfg.position == "cmdline" then
-            vim.o.cmdheight = L.H -- keep the grown cmdline region in step with the (changed) content height
+            -- Grow the cmdline region to the content; the helper clamps to the room the splits leave + steps
+            -- down on a stray E36 (`L.H` is already clamped in compute_geom, so it normally sets as-is).
+            set_cmdheight(L.H)
         end
         pcall(api.nvim_win_set_config, state.container_win, {
             relative = "editor",
@@ -1025,7 +1057,7 @@ local function open_windows(state)
         -- cmdheight to restore on close.
         if state.cfg.position == "cmdline" then
             state.base_cmdheight = vim.o.cmdheight
-            vim.o.cmdheight = L.H
+            set_cmdheight(L.H) -- clamped to the room the splits leave (no E36)
         end
         -- The brand is the window's TOP-border title (needs a top border, ct > 0), built from the `title`
         -- box (icon box + text box, each its own padding + colour). `title_pos` must only be set WITH a
