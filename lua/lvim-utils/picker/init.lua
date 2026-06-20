@@ -301,8 +301,11 @@ function M.open(opts)
                 end,
                 update = function(pan)
                     set_preview_winbar(pan, state.filtered[state.sel] and state.filtered[state.sel]._src or nil)
-                    -- No results: a single yellow-tinted `[no matches]` row (no winbar, no syntax).
+                    -- No results: a single yellow-tinted `[no matches]` row (no winbar, no number, no syntax).
                     if not has_results() then
+                        if pan.win and api.nvim_win_is_valid(pan.win) then
+                            vim.wo[pan.win].number = false
+                        end
                         if vim.bo[pan.buf].filetype ~= "" then
                             pcall(api.nvim_set_option_value, "filetype", "", { buf = pan.buf })
                         end
@@ -316,6 +319,9 @@ function M.open(opts)
                             hl_eol = true,
                         })
                         return
+                    end
+                    if pan.win and api.nvim_win_is_valid(pan.win) then
+                        vim.wo[pan.win].number = opts.preview_numbers ~= false -- restore line numbers
                     end
                     api.nvim_buf_clear_namespace(pan.buf, NS, 0, -1)
                     local lines = state.preview_lines or {}
