@@ -247,18 +247,8 @@ end
 ---@return integer
 local function set_cmdheight(h)
     h = math.max(1, math.min(h, max_cmdheight()))
-    while h > 1 do
-        if pcall(function()
-            vim.o.cmdheight = h
-        end) then
-            return h
-        end
-        h = h - 1
-    end
-    pcall(function()
-        vim.o.cmdheight = 1
-    end)
-    return 1
+    vim.o.cmdheight = h
+    return vim.o.cmdheight
 end
 
 --- Pure geometry: the container frame, the header/footer band rows, and every center-panel rect + the

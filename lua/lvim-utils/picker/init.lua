@@ -157,9 +157,11 @@ function M.open(opts)
     local function preview_h()
         return math.min(#state.preview_lines, maxr)
     end
-    -- The CONTENT height shared by both panels (each panel adds its own +1 winbar row on top).
+    -- The CONTENT height shared by both panels (each panel adds its own +1 winbar row on top). Floored at 1:
+    -- a panel that carries a WINBAR needs at least 2 rows (winbar + 1 content) or `winbar` raises "E36: Not
+    -- enough room" — so even with 0 results the panels keep one (blank) content row under the winbar.
     local function content_h()
-        return math.max(list_h(), preview_h())
+        return math.max(1, list_h(), preview_h())
     end
 
     -- Each panel carries a WINBAR title, the lvim-lsp peek look: the list shows the title + result count,
