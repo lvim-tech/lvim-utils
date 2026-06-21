@@ -550,6 +550,9 @@ local function render_chrome(state, L)
         })
         band._off = res.off
         lines[ln] = res.line
+        -- A continuous full-width bg STRIP under the buttons, so the whole bar row reads as one tinted bar
+        -- (the buttons + chevrons sit ON it). Priority below the button/chevron spans (200) so they show through.
+        placements[#placements + 1] = { ln - 1, 0, #res.line, "LvimUiBarFill", 150 }
         local entry = { kind = where, row = ln, buttons = {}, band = band }
         for i, b in ipairs(res.items) do
             entry.buttons[i] = { c0 = b.c0, c1 = b.c1, spec = b.spec, sep = b.sep }

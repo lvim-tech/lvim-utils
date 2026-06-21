@@ -969,7 +969,7 @@ local function _history_bar(filter, opts, sel)
         }
     end
     local res = uibar.render({ items = items, width = vim.o.columns, align = "left", sel = sel, hover = sel })
-    local hls = { { eol = true, hl = "LvimUiMsgAreaNormal", priority = 1 } } -- the row bg under the buttons
+    local hls = { { eol = true, hl = "LvimUiBarFill", priority = 1 } } -- the continuous bar STRIP under the buttons
     for _, sp in ipairs(res.spans) do
         hls[#hls + 1] = { c0 = sp[1], c1 = sp[2], hl = sp[3], priority = 100 }
     end

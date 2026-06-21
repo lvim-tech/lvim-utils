@@ -133,6 +133,9 @@ return function(c)
         LvimUiFooterLabelHover = { fg = c.yellow, bg = mtint(c.yellow, 0.4) },
         LvimUiFooterChevron = { fg = c.yellow, bold = true }, -- overflow scroll chevrons (‹ ›)
         LvimUiBarChevron = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true }, -- bar overflow chevron BOX (‹ ›)
+        -- A continuous full-width bg STRIP under a bar's buttons, so the whole row reads as one tinted bar (the
+        -- buttons + the blue 0.05 hover sit on top). A FAINT blue tint, below the hover so the selection pops.
+        LvimUiBarFill = { bg = mtint(c.blue, 0.02) },
         LvimUiBarSep = { fg = c.blue, bg = mtint(c.blue, 0.12) }, -- visible bar separator box (➤ / ● between groups)
         LvimUiFrameSel = { bg = mtint(c.blue, 0.2) }, -- focused bar-button selection bg (no-accent fallback)
 
