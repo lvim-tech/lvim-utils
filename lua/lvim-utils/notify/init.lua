@@ -911,18 +911,59 @@ local function _history_zone_lines(filter)
     return lines, hls
 end
 
+-- The history filter bar as the segment's TITLE row: a coloured badge + label per button — All / per-level
+-- (in its level colour, ACTIVE one bold via the "Sel" tint) / Refresh / close — over the zone bg.
+---@param filter string?  the active level filter (nil = All)
+---@return string text, table spans
+local function _history_bar(filter)
+    local btns = {
+        { k = "a", l = "All", lvl = nil, filt = true },
+        { k = "e", l = "Error", lvl = "error", filt = true },
+        { k = "w", l = "Warn", lvl = "warn", filt = true },
+        { k = "i", l = "Info", lvl = "info", filt = true },
+        { k = "d", l = "Debug", lvl = "debug", filt = true },
+        { k = "r", l = "Refresh", lvl = nil, filt = false },
+        { k = "q", l = "close", lvl = nil, filt = false },
+    }
+    local text = " "
+    local spans = { { eol = true, hl = "LvimUiMsgAreaNormal", priority = 1 } } -- the row's own bg
+    for _, b in ipairs(btns) do
+        local active = b.filt and (b.lvl == filter)
+        local badge_hl, label_hl
+        if b.lvl then -- a level: coloured badge + label (bold "Sel" when it is the active filter)
+            local cap = _hist_cap[b.lvl]
+            badge_hl = "LvimUiMsg" .. cap .. "Icon"
+            label_hl = "LvimUiMsg" .. cap .. (active and "Sel" or "Text")
+        elseif b.filt then -- All: bright when active, dim otherwise
+            badge_hl = active and "LvimUiMsgAreaTitle" or "LvimUiMsgAreaItemSource"
+            label_hl = badge_hl
+        else -- Refresh / close (actions, not filters)
+            badge_hl, label_hl = "LvimUiMsgAreaItem", "LvimUiMsgAreaItem"
+        end
+        local p0 = #text
+        text = text .. " " .. b.k .. " " -- the key badge
+        spans[#spans + 1] = { c0 = p0, c1 = #text, hl = badge_hl, priority = 120 }
+        local p1 = #text
+        text = text .. b.l .. " " -- the label
+        spans[#spans + 1] = { c0 = p1, c1 = #text, hl = label_hl, priority = 110 }
+        text = text .. "  " -- gap between buttons
+    end
+    return text, spans
+end
+
 --- Render the log into the zone's "history" segment (priority 10 — below a hosted finder) + focus it: `j`/`k`
---- scroll with the active row lit, the level keys filter, `r` refreshes, `q` dismisses (the generic zone
---- key). The inline recent-messages segment is cleared (the history supersedes it).
+--- scroll with the active row lit, the level keys filter (a styled bar shows which is active), `r` refreshes,
+--- `q` dismisses (the generic zone key). The inline recent-messages scrollback is cleared (history wins).
 ---@param ma table  the lvim-utils.msgarea module
 local function _history_in_zone(ma)
     local filter = nil
     local seg = ma.segment("history", { priority = 10 })
     local function render()
+        local bar, bar_hls = _history_bar(filter) -- the filter bar (title row), re-styled for the active level
+        seg:configure({ title = bar, title_hls = bar_hls })
         seg:set(_history_zone_lines(filter))
     end
     seg:configure({
-        title = "History  ·  a all  e error  w warn  i info  d debug  ·  r refresh  q close",
         keys = {
             a = function()
                 filter = nil

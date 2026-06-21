@@ -69,6 +69,7 @@ local content_lines = 0
 ---@field on_move? fun(idx: integer)  fired when the selection moves while the zone is focused (grid)
 ---@field keys? table<string, fun(handle: table)>  custom keymaps active while this segment is focused
 ---@field title? string  an optional header row drawn above this segment's content (separates owners)
+---@field title_hls? table  span list styling the title row per-cell (e.g. the history filter-bar badges)
 
 ---@type LvimMsgAreaSegment[]  the stack, kept sorted by priority
 local segments = {}
@@ -352,10 +353,12 @@ local function compose()
             end
         end
 
-        -- 2) a title header row above the content (only when the segment actually has content, never a reserve)
+        -- 2) a title header row above the content (only when the segment actually has content, never a reserve).
+        -- `title_hls` (a span list) styles it per-cell — e.g. the history's coloured filter-bar badges; else the
+        -- whole row is the plain title tint.
         if s.title and #seg_lines > 0 and s.kind ~= "reserve" then
-            lines[#lines + 1] = " " .. s.title
-            hls[#hls + 1] = "LvimUiMsgAreaTitle"
+            lines[#lines + 1] = s.title_hls and s.title or (" " .. s.title)
+            hls[#hls + 1] = s.title_hls or "LvimUiMsgAreaTitle"
         end
 
         -- 3) append, offsetting the segment's selected row into the buffer
@@ -878,12 +881,15 @@ end
 
 --- Configure the segment's header `title` (a row drawn above its content) and the `keys` active while it is
 --- focused (lhs → fn(handle) — e.g. the history view's level filters). Set fields are merged; nil ones keep.
----@param opts { title?: string, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?) }
+---@param opts { title?: string, title_hls?: table, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?) }
 ---@return LvimMsgAreaHandle
 function Handle:configure(opts)
     local s = seg_get(self.name)
     if opts.title ~= nil then
         s.title = opts.title
+    end
+    if opts.title_hls ~= nil then
+        s.title_hls = opts.title_hls
     end
     if opts.keys ~= nil then
         s.keys = opts.keys
