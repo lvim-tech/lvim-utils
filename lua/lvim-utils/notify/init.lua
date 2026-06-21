@@ -937,9 +937,10 @@ local _bar_btns = {
 -- hls (msgarea span format), with the active FILTER bold and the SELECTED button (cursor) lit.
 ---@param filter string?  the active level filter (nil = All)
 ---@param opts table  `{ key_pad = {l,r}, label_pad = {l,r}, gap }`
----@param sel? integer  the focused button index (lit via the hover state); nil = none
+---@param sel? integer  the focused button index — kept VISIBLE (scroll-follow) even when the bar isn't focused
+---@param hover? integer  the button to LIGHT (blue hover) — only while the bar sub-sector is focused
 ---@return string text, table spans
-local function _history_bar(filter, opts, sel)
+local function _history_bar(filter, opts, sel, hover)
     local uibar = require("lvim-utils.ui.bar")
     local items = {}
     for bi, b in ipairs(_bar_btns) do
@@ -968,7 +969,7 @@ local function _history_bar(filter, opts, sel)
             },
         }
     end
-    local res = uibar.render({ items = items, width = vim.o.columns, align = "left", sel = sel, hover = sel })
+    local res = uibar.render({ items = items, width = vim.o.columns, align = "left", sel = sel, hover = hover })
     local hls = { { eol = true, hl = "LvimUiBarFill", priority = 1 } } -- the continuous bar STRIP under the buttons
     for _, sp in ipairs(res.spans) do
         hls[#hls + 1] = { c0 = sp[1], c1 = sp[2], hl = sp[3], priority = 100 }
@@ -1029,7 +1030,10 @@ local function _history_zone_render(focus)
         end
     end
     local function render()
-        local bar, bar_hls = _history_bar(_hist_filter, opts, _hist_sel)
+        -- light the focused button (hover) ONLY while the BAR sub-sector is focused; keep `sel` always so the
+        -- bar scrolls to keep that button visible.
+        local hov = (ma.bar_focused and ma.bar_focused()) and _hist_sel or nil
+        local bar, bar_hls = _history_bar(_hist_filter, opts, _hist_sel, hov)
         seg:configure({ title = bar, title_hls = bar_hls })
         seg:set(_history_zone_lines(_hist_filter))
     end
@@ -1075,19 +1079,33 @@ local function _history_zone_render(focus)
                 render()
                 publish()
             end,
-            -- BAR navigation: `l`/`h` move the focused button, `<CR>` activates it (chevrons scroll-follow it)
+            -- BAR navigation — only while the bar SUB-SECTOR is focused (reached with `<C-k>`): `l`/`h` move the
+            -- focused button, `<CR>` activates it (chevrons scroll-follow it). From the content they are inert.
             l = function()
+                if not (ma.bar_focused and ma.bar_focused()) then
+                    return
+                end
                 _hist_sel = math.min(#_bar_btns, _hist_sel + 1)
                 render()
             end,
             h = function()
+                if not (ma.bar_focused and ma.bar_focused()) then
+                    return
+                end
                 _hist_sel = math.max(1, _hist_sel - 1)
                 render()
             end,
             ["<CR>"] = function()
+                if not (ma.bar_focused and ma.bar_focused()) then
+                    return
+                end
                 run_btn(_bar_btns[_hist_sel])
             end,
         },
+        -- The msgarea toggles bar ⇄ content focus (`<C-k>`/`<C-j>`); re-render so the bar's hover follows.
+        on_bar_change = function()
+            render()
+        end,
         -- The statusline is FOCUS-driven (so it is right even on re-descend): entering snapshots whoever owns
         -- the line now (the finder) + shows "Messages"; leaving puts it back (or clears if there was none).
         on_focus = function()

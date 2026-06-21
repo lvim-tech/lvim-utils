@@ -70,6 +70,7 @@ local content_lines = 0
 ---@field on_move? fun(idx: integer)  fired when the selection moves while the zone is focused (grid)
 ---@field on_focus? fun()  fired when focus ENTERS this segment (e.g. to publish its statusline)
 ---@field on_blur? fun()  fired when focus leaves this segment (e.g. to restore the statusline it published)
+---@field on_bar_change? fun(focused: boolean)  fired when focus steps between this segment's filter BAR and its content (so the owner re-renders the bar's hover)
 ---@field keys? table<string, fun(handle: table)>  custom keymaps active while this segment is focused
 ---@field title? string  an optional header row drawn above this segment's content (separates owners)
 ---@field title_hls? table  span list styling the title row per-cell (e.g. the history filter-bar badges)
@@ -81,6 +82,9 @@ local segments = {}
 local by_name = {}
 ---@type string?  the segment receiving focused keyboard interaction (nil = passive / not focused)
 local active_name = nil
+---@type boolean  while a TITLED segment is focused, whether its filter BAR sub-sector is focused (so `l`/`h`
+--- drive the buttons + the bar lights up) vs its content rows. `<C-k>`/`<C-j>` step between bar ⇄ content.
+local bar_focused = false
 ---@type integer?  the window focus returns to on blur
 local prev_win = nil
 ---@type integer?  the cursor row (0-based, panel buffer) while a lines zone is focused — the render boosts it
@@ -458,19 +462,13 @@ local function open_surface()
                         render = function()
                             local lines, hls, cl = compose()
                             content_lines = cl -- exported for cmdline_host
-                            -- Boost the cursor row of a FOCUSED zone so it stands out while the hardware cursor
-                            -- is hidden: a message row (whole-row string hl) → its stronger "Sel" tint; a styled
-                            -- BAR row (the filter bar, a span list) → a fill bg UNDER its buttons (so it is clear
-                            -- you are ON the bar). Copies the span list so the segment's title_hls is untouched.
-                            local base = active_name and active_row and hls[active_row + 1]
+                            -- Boost the cursor's message row to its stronger "Sel" tint so it stands out while
+                            -- the hardware cursor is hidden — but ONLY when the CONTENT is focused. While the
+                            -- filter BAR sub-sector is focused (`bar_focused`) the bar's own button hover marks
+                            -- the position, so the message rows stay calm.
+                            local base = active_name and not bar_focused and active_row and hls[active_row + 1]
                             if type(base) == "string" and base:match("^LvimUiMsg") and not base:match("Sel$") then
                                 hls[active_row + 1] = base .. "Sel"
-                            elseif type(base) == "table" then
-                                local boosted = { { eol = true, hl = "LvimUiMsgAreaTitleFill", priority = 2 } }
-                                for _, sp in ipairs(base) do
-                                    boosted[#boosted + 1] = sp
-                                end
-                                hls[active_row + 1] = boosted
                             end
                             return lines, to_surface_hls(hls)
                         end,
@@ -785,19 +783,20 @@ function M.focus_content()
                 return s.on_descend() ~= false -- a hosted finder above the messages — enter IT
             end
         elseif seg_has_content(s) then
-            return M.focus(s.name)
+            return M.focus(s.name, true) -- a descend from above lands on the segment's filter BAR
         end
     end
     return false
 end
 
 --- Focus the first content SEGMENT (skipping reserves / hosted floats) — used by a finder descending PAST
---- itself into the messages below it, where `focus_content` would just re-enter the finder.
+--- itself into the messages below it, where `focus_content` would just re-enter the finder. The descend lands
+--- on the segment's filter BAR (then `<C-j>` steps into the messages).
 ---@return boolean focused
 function M.focus_messages()
     for _, s in ipairs(segments) do
         if s.kind ~= "reserve" and seg_has_content(s) then
-            return M.focus(s.name)
+            return M.focus(s.name, true)
         end
     end
     return false
@@ -942,7 +941,7 @@ end
 
 --- Configure the segment's header `title` (a row drawn above its content) and the `keys` active while it is
 --- focused (lhs → fn(handle) — e.g. the history view's level filters). Set fields are merged; nil ones keep.
----@param opts { title?: string, title_hls?: table, title_when_focused?: boolean, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?), on_focus?: fun(), on_blur?: fun(), on_descend?: fun(): boolean? }
+---@param opts { title?: string, title_hls?: table, title_when_focused?: boolean, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?), on_focus?: fun(), on_blur?: fun(), on_bar_change?: fun(focused: boolean), on_descend?: fun(): boolean? }
 ---@return LvimMsgAreaHandle
 function Handle:configure(opts)
     local s = seg_get(self.name)
@@ -969,6 +968,9 @@ function Handle:configure(opts)
     end
     if opts.on_blur ~= nil then
         s.on_blur = opts.on_blur
+    end
+    if opts.on_bar_change ~= nil then
+        s.on_bar_change = opts.on_bar_change
     end
     return self
 end
@@ -1021,6 +1023,31 @@ end
 ---@return LvimMsgAreaSegment?
 local function active_seg()
     return (active_name and by_name[active_name]) or nil
+end
+
+--- True while the focused titled segment's filter BAR sub-sector is focused (vs its content rows) — read by
+--- the segment owner (e.g. notify) to gate the bar's `l`/`h`/`<CR>` and light its selected button.
+---@return boolean
+function M.bar_focused()
+    return bar_focused
+end
+
+--- Move focus between the focused segment's BAR sub-sector and its content rows; fires the segment's
+--- `on_bar_change` (so the owner re-renders the bar's hover) and repaints. No-op without a titled segment.
+---@param on boolean  true = focus the bar, false = focus the content
+local function set_bar_focus(on)
+    local s = active_seg()
+    if not (s and s.title) then
+        bar_focused = false
+        return
+    end
+    bar_focused = on
+    if s.on_bar_change then
+        pcall(s.on_bar_change, on)
+    end
+    if surf_panel and surf_panel.refresh then
+        surf_panel.refresh()
+    end
 end
 
 --- Move the active grid's selection by `delta` (clamped) and re-render. No-op unless it is a non-empty grid.
@@ -1111,11 +1138,26 @@ local function install_interaction()
     local ok_cfg, ucfg = pcall(require, "lvim-utils.config")
     local escape = (ok_cfg and ucfg.ui and ucfg.ui.keys and ucfg.ui.keys.zone_escape) or { "<C-k>", "<C-w>k" }
     map("<Esc>", function()
-        M.blur()
+        M.blur() -- a hard escape always leaves the zone, from the bar or the content
     end)
+    -- `<C-k>` / `<C-w>k` step UP one sub-sector: content → the filter BAR (a stop, so `l`/`h` can drive it) →
+    -- then leave the zone. So the bar is reachable on the way out, mirroring a finder's header.
     for _, lhs in ipairs(type(escape) == "table" and escape or { escape }) do
         map(lhs, function()
-            M.blur()
+            if s and s.title and not bar_focused then
+                set_bar_focus(true)
+            else
+                M.blur()
+            end
+        end)
+    end
+    -- `<C-j>` / `<C-w>j` step DOWN: from the bar back into the content (no-op when already in the content — the
+    -- messages are the bottom of the stack).
+    for _, lhs in ipairs({ "<C-j>", "<C-w>j" }) do
+        map(lhs, function()
+            if bar_focused then
+                set_bar_focus(false)
+            end
         end)
     end
     -- A titled LINES zone (the history + its filter BAR): floor `k`/`<Up>` at the first content row, so they
@@ -1155,13 +1197,20 @@ end
 --- Focus the zone for keyboard interaction with `name` (or the first interactive segment). Opens the zone
 --- if needed; the hardware cursor stays hidden (the surface panel sets `hide_cursor`).
 ---@param name? string
+---@param on_bar? boolean  true = land on the filter BAR sub-sector (a descend from above); else the content
 ---@return boolean focused
-function M.focus(name)
+function M.focus(name, on_bar)
     update_visibility() -- ensure it is open when there is anything to show
     if not (surf_panel and surf_panel.win and api.nvim_win_is_valid(surf_panel.win)) then
         return false
     end
     active_name = name or first_interactive()
+    do
+        -- sub-focus: a descend from ABOVE lands on the filter BAR (so `<C-j>` then steps into the messages); a
+        -- direct browse (`:Messages`) lands on the content. Only a titled segment HAS a bar.
+        local s0 = active_seg()
+        bar_focused = (on_bar == true) and (s0 ~= nil and s0.title ~= nil) or false
+    end
     -- Capture the return window only when entering from OUTSIDE the zone — a RE-focus from within (e.g. a
     -- repeated descend key, or a content swap) must NOT clobber it with the zone's own window, else blur could
     -- never get back out to the real editor buffer above.
@@ -1204,6 +1253,9 @@ function M.focus(name)
     if s and s.on_focus then
         pcall(s.on_focus) -- e.g. the history publishes "Messages" to the statusline (restored on blur)
     end
+    if s and s.on_bar_change then
+        pcall(s.on_bar_change, bar_focused) -- re-render the bar so its hover reflects the landing sub-sector
+    end
     return true
 end
 
@@ -1218,6 +1270,7 @@ function M.blur()
     end
     active_row = nil
     active_name = nil
+    bar_focused = false
     if s and s.on_blur then
         pcall(s.on_blur)
     end
