@@ -120,6 +120,9 @@ function M.open(opts)
     local items = normalize(opts.items, opts.format)
     local maxr = opts.max_rows or 15
     local state = { filtered = items, sel = 1, list_pan = nil, preview_pan = nil, st = nil, closed = false, query = "" }
+    ---@type table?  the msgarea module when this finder HOSTS in its zone (area + zone enabled); else nil. Set
+    --- below at open; the NORMAL-mode list `<C-j>` uses it to descend into the messages composed below us.
+    local msgarea = nil
 
     -- Every highlight group is configurable + shared via `config.picker.hl` (fall back to the built-in
     -- tint-canon / peek groups).
@@ -378,6 +381,14 @@ function M.open(opts)
                 end)
                 map("<C-u>", function()
                     scroll_preview(-1)
+                end)
+                -- (HOSTED) descend INTO the message zone composed below us: focus it (cursor lands on the
+                -- first message), where `j`/`k` scroll and `q` dismisses it + returns here. Only when there
+                -- ARE messages — else a no-op.
+                map("<C-j>", function()
+                    if msgarea and msgarea.has_messages() then
+                        msgarea.focus("messages")
+                    end
                 end)
                 -- back to typing: `/` + <Tab> + <C-f> (NOT i/a — a consumer filter may own those hotkeys,
                 -- e.g. diagnostics' [A]ll / [I]nfo; the filter button keys activate directly from the list).
@@ -681,6 +692,16 @@ function M.open(opts)
     local bottom = opts.layout == "bottom"
     local area = opts.layout == "area"
     local docked = bottom or area
+
+    -- (HOSTED area) Detect early (before the footer + list keys reference it): when the msgarea zone is on, an
+    -- `area` finder HOSTS in it (reserves rows above the messages, which compose below). Gates the footer
+    -- `C-j msgs` hint, the NORMAL-mode `<C-j>` descend, and the `host` reserve wiring at open.
+    if area then
+        local ok_ma, m = pcall(require, "lvim-utils.msgarea")
+        if ok_ma and m.is_enabled and m.is_enabled() then
+            msgarea = m
+        end
+    end
     -- preview side: where the preview panel sits relative to the list. right/left → side-by-side; below/
     -- above → stacked (the surface grows its height — see ui.surface `direction = "vertical"`).
     local side = opts.preview_side or "right"
@@ -763,6 +784,9 @@ function M.open(opts)
         end
     end
     footer_items[#footer_items + 1] = { key = "Esc", name = "normal" }
+    if msgarea then -- (HOSTED) NORMAL-mode <C-j> descends into the messages composed below the finder
+        footer_items[#footer_items + 1] = { key = "C-j", name = "msgs" }
+    end
     footer_items[#footer_items + 1] = { key = "C-c", name = "close" }
 
     -- The header FILTER bar: a centred button bar (one button per filter, `●` between groups). Each button
@@ -820,13 +844,6 @@ function M.open(opts)
     -- ABOVE the messages (priority 5) instead of growing `cmdheight` on its own, so messages compose BELOW the
     -- finder (no longer covering its footer) and it follows the zone via `reposition` as the zone reflows. When
     -- the zone is off, `host` is nil and the surface grows cmdheight itself (the previous behaviour).
-    local msgarea = nil
-    if area then
-        local ok_ma, m = pcall(require, "lvim-utils.msgarea")
-        if ok_ma and m.is_enabled and m.is_enabled() then
-            msgarea = m
-        end
-    end
     local host = msgarea
         and function(h)
             return msgarea.segment("lvim-picker-host", { priority = 5 }):reserve(h, function(rect)

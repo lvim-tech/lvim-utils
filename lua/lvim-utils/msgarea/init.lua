@@ -705,6 +705,14 @@ function M.is_enabled()
     return cfg.enable == true
 end
 
+--- True when the messages segment currently holds content — so a hosted finder knows there is something
+--- BELOW it to descend into (and only then focuses the zone).
+---@return boolean
+function M.has_messages()
+    local s = by_name["messages"]
+    return s ~= nil and s.lines ~= nil and #s.lines > 0
+end
+
 -- ─── public segment API ─────────────────────────────────────────────────────────
 -- The seam every plugin uses to put content into the zone. `M.segment(name)` returns a HANDLE to a
 -- named segment (get-or-create); its methods mutate that segment and reflow. The built-in messages /
@@ -977,6 +985,15 @@ local function install_interaction()
     map("<Esc>", function()
         M.blur()
     end)
+    -- A focused LINES/MESSAGES zone (e.g. the messages composed below a hosted finder): `q` DISMISSES its
+    -- content — clear the segment (the zone shrinks back, the finder above reclaims the space) and return
+    -- focus. A grid keeps `q` native; a segment with its OWN `q` key overrides this below.
+    if s and s.kind ~= "grid" then
+        map("q", function()
+            M.segment(s.name):clear()
+            M.blur()
+        end)
+    end
     if s and s.keys then
         for lhs, fn in pairs(s.keys) do
             map(lhs, function()
@@ -1000,6 +1017,13 @@ function M.focus(name)
     pcall(api.nvim_set_current_win, surf_panel.win)
     install_interaction()
     update_visibility() -- repaint with the selection highlight
+    -- Land on the focused segment's FIRST content row (compose set `line_offset`), not the top of the zone —
+    -- which, under a hosted finder, is the finder's reserve rows hidden behind it. So `j`/`k` scroll the
+    -- messages from their top instead of from inside the reserve.
+    local s = active_seg()
+    if s and s.line_offset and api.nvim_win_is_valid(surf_panel.win) then
+        pcall(api.nvim_win_set_cursor, surf_panel.win, { s.line_offset + 1, 0 })
+    end
     return true
 end
 
