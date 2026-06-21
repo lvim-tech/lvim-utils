@@ -923,13 +923,13 @@ local _btn_cap = { a = "Info", e = "Error", w = "Warn", i = "Info", d = "Debug",
 -- The history filter bar's BUTTONS, in display order. Each: key (the letter + hotkey), label, lvl (the level
 -- it filters to, nil for All / actions), filt (a filter vs an action).
 local _bar_btns = {
-    { k = "a", l = "all", lvl = nil, filt = true },
-    { k = "e", l = "error", lvl = "error", filt = true },
-    { k = "w", l = "warn", lvl = "warn", filt = true },
-    { k = "i", l = "info", lvl = "info", filt = true },
-    { k = "d", l = "debug", lvl = "debug", filt = true },
-    { k = "r", l = "refresh", lvl = nil, filt = false },
-    { k = "q", l = "close", lvl = nil, filt = false },
+    { k = "a", l = "All", lvl = nil, filt = true },
+    { k = "e", l = "Error", lvl = "error", filt = true },
+    { k = "w", l = "Warn", lvl = "warn", filt = true },
+    { k = "i", l = "Info", lvl = "info", filt = true },
+    { k = "d", l = "Debug", lvl = "debug", filt = true },
+    { k = "r", l = "Refresh", lvl = nil, filt = false },
+    { k = "q", l = "Close", lvl = nil, filt = false },
 }
 
 -- The history filter bar rendered THROUGH ui.bar — so it gets real button navigation (`l`/`h` move the
@@ -951,22 +951,23 @@ local function _history_bar(filter, opts, sel, hover)
         items[#items + 1] = {
             type = "button",
             text = b.l,
-            key = b.k, -- the hotkey letter bracketed IN the label ([A]ll) — one box, the brackets mark the key
+            key = b.k, -- the lowercase hotkey (a/e/w/…) as its OWN badge box ahead of the name — no brackets
+            key_badge = true,
             active = b.filt and (b.lvl == filter),
             style = {
-                -- ONE even tint across the whole button (the bracketed letter is NOT a separate stronger part):
-                -- normally 0.1 (Text); raised to 0.3 (Key) when HOVERED or the ACTIVE (current) filter.
+                -- TWO parts: the hotkey LETTER badge always at 0.2 (Icon); the NAME at 0.1 (Text) normally,
+                -- rising to 0.2 (Icon) when HOVERED or the ACTIVE (current) filter — so both parts then match.
                 icon = {
                     padding = opts.key_pad,
-                    normal = "LvimUiMsg" .. cap .. "Text",
-                    active = "LvimUiMsg" .. cap .. "Key",
-                    hover = "LvimUiMsg" .. cap .. "Key",
+                    normal = "LvimUiMsg" .. cap .. "Icon",
+                    active = "LvimUiMsg" .. cap .. "Icon",
+                    hover = "LvimUiMsg" .. cap .. "Icon",
                 },
                 text = {
                     padding = opts.label_pad,
                     normal = "LvimUiMsg" .. cap .. "Text",
-                    active = "LvimUiMsg" .. cap .. "Key",
-                    hover = "LvimUiMsg" .. cap .. "Key",
+                    active = "LvimUiMsg" .. cap .. "Icon",
+                    hover = "LvimUiMsg" .. cap .. "Icon",
                 },
             },
         }
@@ -1009,7 +1010,7 @@ local function _history_zone_render(focus)
     end
     local hcfg = _cfg.history or {}
     local bcfg = hcfg.bar or {}
-    local opts = { key_pad = bcfg.key_pad or { 1, 1 }, label_pad = bcfg.label_pad or { 1, 0 }, gap = bcfg.gap or 0 }
+    local opts = { key_pad = bcfg.key_pad or { 1, 1 }, label_pad = bcfg.label_pad or { 1, 1 }, gap = bcfg.gap or 0 }
     local title_text = hcfg.title or "Messages"
     local ok_st, status = pcall(require, "lvim-utils.status")
     local use_status = ok_st and hcfg.statusline ~= false and status.is_enabled()
@@ -1352,9 +1353,6 @@ function M.msg_highlights()
         -- The ACTIVE (cursor) message row when the zone is focused: same hue, STRONGER tint (fg + a 0.4 blend
         -- + bold — the help-window active-row canon), so the focused row stands out while the cursor is hidden.
         g["LvimUiMsg" .. name .. "Sel"] = { fg = col, bg = b(col, bg, 0.4), bold = true }
-        -- The filter bar's HOTKEY letter — a STRONGER tint (0.3) than its label (Text, 0.1). On hover the label
-        -- is raised to this same group, so the whole button reads at one tint.
-        g["LvimUiMsg" .. name .. "Key"] = { fg = col, bg = b(col, bg, 0.3), bold = true }
     end
     return g
 end
