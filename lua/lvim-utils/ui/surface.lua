@@ -183,8 +183,9 @@ local function title_chunks(title)
         end
         return { string.rep(" ", f) .. content .. string.rep(" ", b), util.resolve_hl(bs.hl or default_hl) }
     end
+    -- titles render UPPERCASE everywhere (the canon — matches the ui.bar title bars); the icon glyph is left
     if type(title) == "string" then
-        return title ~= "" and { box(title, {}, "LvimUiPeekTitle") } or nil
+        return title ~= "" and { box(title:upper(), {}, "LvimUiPeekTitle") } or nil
     end
     if type(title) ~= "table" then
         return nil
@@ -192,7 +193,7 @@ local function title_chunks(title)
     local st = title.style or {}
     local chunks = {}
     local ic = box(title.icon, st.icon or {}, "LvimUiPeekTitleIcon")
-    local tc = box(title.text, st.text or {}, "LvimUiPeekTitle")
+    local tc = box(title.text and tostring(title.text):upper() or nil, st.text or {}, "LvimUiPeekTitle")
     if ic then
         chunks[#chunks + 1] = ic
     end
@@ -1831,7 +1832,13 @@ function M.open(cfg)
     local hbands = build_bands(cfg.header, false, cfg.header_air)
     if cfg.mode == "split" then
         local t = cfg.title
-        local s = (type(t) == "table" and ((t.icon and t.icon .. " " or "") .. (t.text or ""))) or (t or "")
+        -- UPPERCASE the title text (the canon), keep the icon glyph
+        local s
+        if type(t) == "table" then
+            s = (t.icon and t.icon .. " " or "") .. (t.text and tostring(t.text):upper() or "")
+        else
+            s = t and tostring(t):upper() or ""
+        end
         if s ~= "" then
             table.insert(hbands, 1, { meta = s, hl = "LvimUiPeekTitle" })
         end

@@ -60,7 +60,8 @@ function M.render(opts)
     -- An optional LEFT-anchored TITLE prefix (always visible): the items then lay out in the width AFTER it
     -- (e.g. a "Messages"/"Diagnostics" title with the buttons/counter aligned to the right). ASCII-only, so
     -- byte length == display width. Prepended at the very end, with all item/chevron offsets shifted by it.
-    local prefix = (opts.title and opts.title ~= "") and (" " .. opts.title .. "  ") or ""
+    -- the bar TITLE is shown UPPERCASE everywhere (the canon for these title bars — message zone, picker, …)
+    local prefix = (opts.title and opts.title ~= "") and (" " .. tostring(opts.title):upper() .. "  ") or ""
     local pb = #prefix
     if pb > 0 then
         W = math.max(1, W - pb)
