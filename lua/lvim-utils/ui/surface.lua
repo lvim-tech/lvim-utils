@@ -1225,6 +1225,8 @@ local function open_windows(state)
         if docked then
             vim.w[pan.win].lvim_frame = true
         end
+        vim.wo[pan.win].wrap = false -- a UI panel never wraps: a too-wide row (the message filter bar) must
+        -- stay ONE line and let its own ui.bar chevrons scroll it, not spill onto a second row.
         if pan.provider and pan.provider.cursorline then
             -- MULTI-panel frames (the list+preview peek) use the NEUTRAL cursorline in BOTH panels; only a
             -- single-panel popup (a pick list) uses the yellow "list hover" cursorline (matches the row icon).

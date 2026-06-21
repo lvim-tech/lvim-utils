@@ -1032,6 +1032,17 @@ function M.bar_focused()
     return bar_focused
 end
 
+--- The zone panel's REAL text width (style=minimal, so no gutter) — so a segment owner builds a full-width
+--- row (the filter bar) to the actual panel, not `vim.o.columns` (which can differ), and its chevrons land at
+--- the true right edge. Falls back to `vim.o.columns` before the panel exists.
+---@return integer
+function M.zone_width()
+    if surf_panel and surf_panel.win and api.nvim_win_is_valid(surf_panel.win) then
+        return api.nvim_win_get_width(surf_panel.win)
+    end
+    return vim.o.columns
+end
+
 --- Move focus between the focused segment's BAR sub-sector and its content rows; fires the segment's
 --- `on_bar_change` (so the owner re-renders the bar's hover) and repaints. No-op without a titled segment.
 ---@param on boolean  true = focus the bar, false = focus the content

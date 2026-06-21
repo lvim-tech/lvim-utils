@@ -913,7 +913,8 @@ local function _history_zone_lines(filter)
     if #lines == 0 then
         -- the empty-filter placeholder carries THAT level's own bg tint (a red row for "No Error records", …),
         -- so the empty state reads as belonging to the filtered colour; All (no filter) stays Info-blue.
-        lines, hls = { "  No " .. (_hist_cap[filter] or "") .. " records" }, { "LvimUiMsg" .. (_hist_cap[filter] or "Info") }
+        lines, hls =
+            { "  No " .. (_hist_cap[filter] or "") .. " records" }, { "LvimUiMsg" .. (_hist_cap[filter] or "Info") }
     end
     return lines, hls
 end
@@ -976,8 +977,9 @@ local function _history_bar(filter, opts, sel, hover)
     end
     -- With a left TITLE ("Messages", shown only when NOT publishing to the statusline) the buttons stack to the
     -- RIGHT in the remaining width; without one they sit at the left. The title is ASCII, so bytes = columns.
+    local W = opts.width or vim.o.columns
     local prefix = (opts.title and opts.title ~= "") and (" " .. opts.title .. "  ") or ""
-    local bw = math.max(1, vim.o.columns - #prefix)
+    local bw = math.max(1, W - #prefix)
     local res = uibar.render({
         items = items,
         width = bw,
@@ -1053,6 +1055,7 @@ local function _history_zone_render(focus)
         -- light the focused button (hover) ONLY while the BAR sub-sector is focused; keep `sel` always so the
         -- bar scrolls to keep that button visible.
         local hov = (ma.bar_focused and ma.bar_focused()) and _hist_sel or nil
+        opts.width = (ma.zone_width and ma.zone_width()) or vim.o.columns -- the REAL panel width (not o.columns)
         local bar, bar_hls = _history_bar(_hist_filter, opts, _hist_sel, hov)
         seg:configure({ title = bar, title_hls = bar_hls })
         seg:set(_history_zone_lines(_hist_filter))
