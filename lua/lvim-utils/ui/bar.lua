@@ -26,8 +26,8 @@ local M = {}
 --- defaults; a caller overrides `chevrons.left` / `chevrons.right` (glyph via `text`, spacing via
 --- `style.padding`, colour via `style.hl`) only when it wants something else.
 local DEFAULT_CHEVRONS = {
-    left = { type = "separator", text = "‹", style = { padding = { 0, 1 }, hl = "LvimUiBarChevron" } },
-    right = { type = "separator", text = "›", style = { padding = { 1, 0 }, hl = "LvimUiBarChevron" } },
+    left = { type = "separator", text = "‹", style = { padding = { 1, 1 }, hl = "LvimUiBarChevron" } },
+    right = { type = "separator", text = "›", style = { padding = { 1, 1 }, hl = "LvimUiBarChevron" } },
 }
 
 ---@param c table|nil
