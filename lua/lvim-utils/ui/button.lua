@@ -37,6 +37,7 @@ local M = {}
 ---@field key? string                 -- hotkey; with `key_badge` the lead box shows it whole, else it
 ---                                    --   brackets its letter in `text`
 ---@field key_pos? integer            -- button: explicit 1-based char index in `text` to bracket
+---@field key_brackets? boolean       -- button: false = highlight the hotkey letter WITHOUT the `[ ]` brackets
 ---@field key_badge? boolean          -- true: lead box = the whole `key` as a badge (action style)
 ---@field count? number|string|fun(): (number|string|nil)  -- button: optional trailing count
 ---@field active? boolean             -- the semantically active button (the bar reads it)
@@ -143,7 +144,11 @@ function M.render(spec, state)
     if not spec.key_badge and (spec.key or spec.key_pos) and txt ~= "" then
         local pos = M.key_pos(txt, spec.key, spec.key_pos)
         put(txt:sub(1, pos - 1), thl)
-        put("[" .. txt:sub(pos, pos) .. "]", ihl) -- the bracketed key takes the lead/accent colour
+        if spec.key_brackets == false then
+            put(txt:sub(pos, pos), ihl) -- just the hotkey letter in the lead/accent colour — no brackets
+        else
+            put("[" .. txt:sub(pos, pos) .. "]", ihl) -- the bracketed key takes the lead/accent colour
+        end
         put(txt:sub(pos + 1), thl)
     else
         put(txt, thl)

@@ -951,20 +951,24 @@ local function _history_bar(filter, opts, sel, hover)
         items[#items + 1] = {
             type = "button",
             text = b.l,
-            key = b.k, -- ui.button brackets the hotkey letter
+            key = b.k, -- highlights the hotkey letter in the label …
+            key_brackets = false, -- … WITHOUT the `[ ]` brackets — just the coloured letter
             active = b.filt and (b.lvl == filter),
             style = {
+                -- the hotkey LETTER: a stronger 0.3 tint (Key); the rest of the label a light 0.1 (Text). On
+                -- HOVER the label rises to the letter's tint so the whole button reads at one level. ACTIVE
+                -- (the current filter) is the strongest (Sel, 0.4).
                 icon = {
                     padding = opts.key_pad,
-                    normal = "LvimUiMsg" .. cap .. "Icon",
-                    active = "LvimUiMsg" .. cap .. "Icon",
-                    hover = "LvimUiMsg" .. cap .. "Hover",
+                    normal = "LvimUiMsg" .. cap .. "Key",
+                    active = "LvimUiMsg" .. cap .. "Sel",
+                    hover = "LvimUiMsg" .. cap .. "Key",
                 },
                 text = {
                     padding = opts.label_pad,
                     normal = "LvimUiMsg" .. cap .. "Text",
                     active = "LvimUiMsg" .. cap .. "Sel",
-                    hover = "LvimUiMsg" .. cap .. "Hover",
+                    hover = "LvimUiMsg" .. cap .. "Key",
                 },
             },
         }
@@ -1350,9 +1354,9 @@ function M.msg_highlights()
         -- The ACTIVE (cursor) message row when the zone is focused: same hue, STRONGER tint (fg + a 0.4 blend
         -- + bold — the help-window active-row canon), so the focused row stands out while the cursor is hidden.
         g["LvimUiMsg" .. name .. "Sel"] = { fg = col, bg = b(col, bg, 0.4), bold = true }
-        -- HOVER (the filter bar's focused button, moved with l/h): the level fg on a uniform BLUE tint (0.05),
-        -- so the selection reads the same on every button regardless of its hue.
-        g["LvimUiMsg" .. name .. "Hover"] = { fg = col, bg = b(c.blue, bg, 0.05), bold = true }
+        -- The filter bar's HOTKEY letter — a STRONGER tint (0.3) than its label (Text, 0.1). On hover the label
+        -- is raised to this same group, so the whole button reads at one tint.
+        g["LvimUiMsg" .. name .. "Key"] = { fg = col, bg = b(col, bg, 0.3), bold = true }
     end
     return g
 end
