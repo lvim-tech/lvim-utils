@@ -382,14 +382,9 @@ function M.open(opts)
                 map("<C-u>", function()
                     scroll_preview(-1)
                 end)
-                -- (HOSTED) descend INTO the message zone composed below us: focus it (cursor lands on the
-                -- first message), where `j`/`k` scroll and `q` dismisses it + returns here. Only when there
-                -- ARE messages — else a no-op.
-                map("<C-j>", function()
-                    if msgarea and msgarea.has_messages() then
-                        msgarea.focus("messages")
-                    end
-                end)
+                -- NOTE: <C-j>/<C-k> are the surface's SECTOR navigation (list → footer bar → … and, when
+                -- hosted, on past the footer DOWN into the messages via `on_escape_below`). We do NOT bind
+                -- them here — that would shadow the stack navigation.
                 -- back to typing: `/` + <Tab> + <C-f> (NOT i/a — a consumer filter may own those hotkeys,
                 -- e.g. diagnostics' [A]ll / [I]nfo; the filter button keys activate directly from the list).
                 map({ "/", "<Tab>", "<C-f>" }, focus_input)
@@ -860,6 +855,16 @@ function M.open(opts)
         -- floats over the bottom rows. When the msgarea zone is on, `host` re-homes us INSIDE it (above msgs).
         position = area and "cmdline" or (bottom and "bottom") or nil,
         host = host,
+        -- (HOSTED) <C-j> off the bottom sector (the footer bar) descends INTO the messages composed below —
+        -- the bottom of the finder's vertical stack (list → footer → messages). Only when there ARE messages;
+        -- else the sector nav wraps as usual. The cursor lands on the first message; `<C-k>`/`q`/`<Esc>` return.
+        on_escape_below = msgarea and function()
+            if msgarea.has_messages() then
+                msgarea.focus("messages")
+                return true
+            end
+            return false
+        end or nil,
         -- HOSTED: float ABOVE the msgarea zone's own content panel (container 200 / panel 201) so our list /
         -- preview aren't covered by it — our panels land at 211, the prompt at 212, all clear of the messages
         -- that render in the zone panel BELOW us. Unhosted area stays in the cmdline layer at 200.

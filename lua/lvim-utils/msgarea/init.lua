@@ -78,6 +78,10 @@ local by_name = {}
 local active_name = nil
 ---@type integer?  the window focus returns to on blur
 local prev_win = nil
+---@type integer?  the cursor row (0-based, panel buffer) while a lines zone is focused — the render boosts it
+local active_row = nil
+---@type integer?  the CursorMoved autocmd tracking `active_row` (removed on blur)
+local cursor_au = nil
 ---@type string[]  surface-panel keymap lhs's installed for focused interaction (cleared on blur)
 local interaction_keys = {}
 
@@ -441,6 +445,12 @@ local function open_surface()
                         render = function()
                             local lines, hls, cl = compose()
                             content_lines = cl -- exported for cmdline_host
+                            -- Boost the cursor row of a FOCUSED lines zone (the messages) to its stronger
+                            -- "Sel" tint, so the active row stands out while the hardware cursor is hidden.
+                            local base = active_name and active_row and hls[active_row + 1]
+                            if type(base) == "string" and base:match("^LvimUiMsg") and not base:match("Sel$") then
+                                hls[active_row + 1] = base .. "Sel"
+                            end
                             return lines, to_surface_hls(hls)
                         end,
                         keys = function(_, pan)
@@ -985,10 +995,14 @@ local function install_interaction()
     map("<Esc>", function()
         M.blur()
     end)
-    -- A focused LINES/MESSAGES zone (e.g. the messages composed below a hosted finder): `q` DISMISSES its
-    -- content — clear the segment (the zone shrinks back, the finder above reclaims the space) and return
-    -- focus. A grid keeps `q` native; a segment with its OWN `q` key overrides this below.
+    -- A focused LINES/MESSAGES zone (e.g. the messages composed below a hosted finder): `<C-k>` steps back UP
+    -- the stack (return to the finder's footer — symmetric with the surface's `<C-k>` sector nav); `q`
+    -- DISMISSES the content — clear the segment (the zone shrinks back, the finder above reclaims the space)
+    -- and return. A grid keeps these native; a segment with its OWN key overrides this below.
     if s and s.kind ~= "grid" then
+        map("<C-k>", function()
+            M.blur()
+        end)
         map("q", function()
             M.segment(s.name):clear()
             M.blur()
@@ -1024,6 +1038,26 @@ function M.focus(name)
     if s and s.line_offset and api.nvim_win_is_valid(surf_panel.win) then
         pcall(api.nvim_win_set_cursor, surf_panel.win, { s.line_offset + 1, 0 })
     end
+    -- Track the cursor row (the render boosts it to the "Sel" tint) + repaint on every move, so the active
+    -- message row follows the hidden cursor.
+    active_row = (s and s.line_offset) or 0
+    if cursor_au then
+        pcall(api.nvim_del_autocmd, cursor_au)
+    end
+    cursor_au = api.nvim_create_autocmd("CursorMoved", {
+        buffer = surf_panel.buf,
+        callback = function()
+            if surf_panel and surf_panel.win and api.nvim_win_is_valid(surf_panel.win) then
+                active_row = api.nvim_win_get_cursor(surf_panel.win)[1] - 1
+                if surf_panel.refresh then
+                    surf_panel.refresh()
+                end
+            end
+        end,
+    })
+    if surf_panel.refresh then
+        surf_panel.refresh() -- paint the initial active-row boost
+    end
     return true
 end
 
@@ -1031,6 +1065,11 @@ end
 --- zone stays open). An `on_confirm` that opens something should call this first.
 function M.blur()
     remove_interaction()
+    if cursor_au then
+        pcall(api.nvim_del_autocmd, cursor_au)
+        cursor_au = nil
+    end
+    active_row = nil
     active_name = nil
     if prev_win and api.nvim_win_is_valid(prev_win) then
         pcall(api.nvim_set_current_win, prev_win)

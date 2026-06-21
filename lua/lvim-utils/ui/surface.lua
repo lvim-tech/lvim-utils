@@ -790,6 +790,11 @@ local function sector_cycle(state, dir)
         if escape_to_neighbor(state, dir < 0 and "k" or "j") then
             return
         end
+        -- Bottom edge of a HOSTED float → hand focus DOWN to the host zone below it (the messages composed
+        -- under a finder); if it takes focus, stop here instead of wrapping back to the top sector.
+        if dir > 0 and state.cfg.on_escape_below and state.cfg.on_escape_below() then
+            return
+        end
     end
     focus_sector(state, ((cur - 1 + dir) % n) + 1)
 end

@@ -1077,6 +1077,9 @@ function M.msg_highlights()
         g["LvimUiMsg" .. name .. "Text"] = { fg = col, bg = b(col, bg, 0.1) }
         g["LvimUiMsg" .. name .. "Icon"] = { fg = col, bg = b(col, bg, 0.2), bold = true }
         g["LvimUiMsg" .. name .. "Active"] = { bg = b(col, bg, 0.2) }
+        -- The ACTIVE (cursor) message row when the zone is focused: same hue, STRONGER tint (fg + a 0.4 blend
+        -- + bold — the help-window active-row canon), so the focused row stands out while the cursor is hidden.
+        g["LvimUiMsg" .. name .. "Sel"] = { fg = col, bg = b(col, bg, 0.4), bold = true }
     end
     return g
 end
