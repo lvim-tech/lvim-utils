@@ -64,8 +64,9 @@ return {
         -- ui.surface chassis NAVIGATION (the finder, the message zone, any windowed UI). Override globally,
         -- e.g. `setup({ ui = { keys = { sector_next = "<C-Down>" } } })`; a single surface can still override
         -- via its own `keys`. Each value is a lhs string OR a list of lhs strings.
-        sector_next = "<C-j>", -- DOWN the vertical stack: header · center · footer (and on into the zone)
+        sector_next = "<C-j>", -- DOWN the vertical stack: header · center · footer (the preview is SKIPPED)
         sector_prev = "<C-k>", -- UP
+        panel_toggle = "<Tab>", -- toggle the center panel (list ⇄ preview) — the only way onto the preview
         panel_next = "<C-l>", -- next center panel (right) — e.g. list → preview
         panel_prev = "<C-h>", -- previous center panel (left)
         menu_prev = { "h", "<Left>" }, -- move the selection within a focused button bar

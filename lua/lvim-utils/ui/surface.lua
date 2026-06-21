@@ -59,8 +59,9 @@ end
 
 -- Default keymaps for the chassis; the consumer may override via `cfg.keys`.
 local DEFAULT_KEYS = {
-    sector_next = "<C-j>", -- header · center · footer (down), from anywhere
+    sector_next = "<C-j>", -- header · center · footer (down), from anywhere (the PREVIEW is skipped)
     sector_prev = "<C-k>", -- (up)
+    panel_toggle = "<Tab>", -- toggle the center panel (list ⇄ preview) — the ONLY way onto the preview
     panel_next = "<C-l>", -- next center panel (right) — only while a center panel is focused
     panel_prev = "<C-h>", -- previous center panel (left)
     menu_prev = { "h", "<Left>" },
@@ -791,9 +792,14 @@ local function sector_cycle(state, dir)
             return
         end
         -- Bottom edge of a HOSTED float → hand focus DOWN to the host zone below it (the messages composed
-        -- under a finder); if it takes focus, stop here instead of wrapping back to the top sector.
-        if dir > 0 and state.cfg.on_escape_below and state.cfg.on_escape_below() then
-            return
+        -- under a finder). Remember THIS sector (the footer) so when focus returns, we land back on it (not on
+        -- the header, the WinEnter default) — symmetric up/down navigation.
+        if dir > 0 and state.cfg.on_escape_below then
+            state._return_sector = cur
+            if state.cfg.on_escape_below() then
+                return
+            end
+            state._return_sector = nil
         end
         -- Top edge → hand focus UP to the editor above (the mirror of on_escape_below): stop here instead of
         -- WRAPPING down to the footer. Without a handler we still stop (no wrap) rather than jump to the bottom.
@@ -802,7 +808,30 @@ local function sector_cycle(state, dir)
             return
         end
     end
-    focus_sector(state, ((cur - 1 + dir) % n) + 1)
+    local target = ((cur - 1 + dir) % n) + 1
+    -- Entering the CENTER vertically lands on the PRIMARY panel (panel 1, e.g. the list): the preview is
+    -- reached only by `panel_toggle` (Tab), never by up/down — so it is skipped in the vertical stack.
+    if state.sectors[target] and state.sectors[target].kind == "center" then
+        state.center_panel = 1
+    end
+    focus_sector(state, target)
+end
+
+--- Toggle the focused CENTER panel (list ⇄ preview, cycling when there are more) — `panel_toggle` (Tab). The
+--- vertical sector nav always lands on panel 1, so this is the ONLY way onto the preview.
+---@param state table
+local function panel_toggle(state)
+    local np = #state.panels
+    if np <= 1 then
+        return
+    end
+    state.center_panel = ((state.center_panel or 1) % np) + 1
+    for si, sec in ipairs(state.sectors) do
+        if sec.kind == "center" then
+            focus_sector(state, si) -- focus_sector reads center_panel
+            return
+        end
+    end
 end
 
 --- Move the focused bar's selection by `dir`, skipping non-interactive separators; redraw (which
@@ -879,6 +908,9 @@ local function set_keys(state)
         end)
         map(pan.buf, K.panel_prev, function()
             state.panel(-1)
+        end)
+        map(pan.buf, K.panel_toggle, function()
+            panel_toggle(state)
         end)
         if pan.provider and pan.provider.keys then
             pcall(pan.provider.keys, function(lhs, fn)
@@ -1479,11 +1511,14 @@ local function open_windows(state)
                 -- Native window nav landed on the chrome split (e.g. `<C-w>j` from the editor above) — the
                 -- user means "step into the panel". Land on the FIRST sector (the top header bar) so entry
                 -- is step-by-step (header → center → footer via `<C-j>`), not a jump straight to the center.
-                -- A frame-driven bar focus sets `_focusing_bar`, so it stays on the chrome as intended.
+                -- EXCEPT when focus is RETURNING from the host zone below (`_return_sector` set by sector_cycle):
+                -- land back on the footer it descended from, so up/down nav is symmetric. A frame-driven bar
+                -- focus sets `_focusing_bar`, so it stays on the chrome as intended.
                 if not state._focusing_bar then
                     vim.schedule(function()
                         if not state._closed and api.nvim_get_current_win() == state.container_win then
-                            focus_sector(state, 1)
+                            focus_sector(state, state._return_sector or 1)
+                            state._return_sector = nil
                         end
                     end)
                 end

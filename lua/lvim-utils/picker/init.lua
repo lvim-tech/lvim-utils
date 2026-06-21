@@ -386,9 +386,9 @@ function M.open(opts)
                 -- NOTE: <C-j>/<C-k> are the surface's SECTOR navigation (list → footer bar → … and, when
                 -- hosted, on past the footer DOWN into the messages via `on_escape_below`). We do NOT bind
                 -- them here — that would shadow the stack navigation.
-                -- back to typing: `/` + <Tab> + <C-f> (NOT i/a — a consumer filter may own those hotkeys,
-                -- e.g. diagnostics' [A]ll / [I]nfo; the filter button keys activate directly from the list).
-                map({ "/", "<Tab>", "<C-f>" }, focus_input)
+                -- back to typing: `/` + <C-f> (NOT <Tab> — the chassis owns it for the list ⇄ preview toggle;
+                -- NOT i/a — a consumer filter may own those hotkeys, e.g. diagnostics' [A]ll / [I]nfo).
+                map({ "/", "<C-f>" }, focus_input)
                 map({ "q", "<Esc>" }, cancel)
                 for _, a in ipairs(opts.keys or {}) do
                     map(a.key, function()
@@ -485,11 +485,11 @@ function M.open(opts)
                     if pan.win and api.nvim_win_is_valid(pan.win) then
                         vim.wo[pan.win].number = opts.preview_numbers ~= false -- line numbers in the preview
                     end
-                    -- NORMAL-mode keys on the preview (focused via <C-l>): the buffer is read-only, so a stray
-                    -- `i`/`a` would error E21 — map them (and `/`/<Tab>) back to typing; `q`/<Esc> close,
-                    -- `<CR>` opens the focused item. (`j`/`k` scroll the file; `<C-h>` → list via the chassis.)
+                    -- NORMAL-mode keys on the preview (focused via <Tab>): the buffer is read-only, so a stray
+                    -- `i`/`a` would error E21 — map them (and `/`) back to typing; `q`/<Esc> close, `<CR>` opens
+                    -- the focused item. (`j`/`k` scroll the file; <Tab> toggles back to the list via the chassis.)
                     if map then
-                        map({ "i", "a", "/", "<Tab>", "<C-f>" }, focus_input)
+                        map({ "i", "a", "/", "<C-f>" }, focus_input)
                         map({ "q", "<Esc>" }, cancel)
                         map("<CR>", function()
                             confirm()
