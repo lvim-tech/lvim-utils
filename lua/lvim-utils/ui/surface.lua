@@ -125,7 +125,11 @@ local function build_bands(spec, footer, add_air)
     spec = spec or {}
     local bands = {}
     for _, bar in ipairs(spec.bars or {}) do
-        if bar.text ~= nil then
+        if bar.title_counter then
+            -- A title + right-aligned counter CONTENT row (title left, count right) — a dynamic `count`
+            -- function is re-evaluated on every chrome render. Passed through with its fields intact.
+            bands[#bands + 1] = bar
+        elseif bar.text ~= nil then
             bands[#bands + 1] = { meta = bar.text, hl = bar.hl or (footer and "LvimUiSubtitle" or "LvimUiPeekTitle") }
         elseif bar.input then
             -- An editable INPUT band — a focusable 1-row editable window the frame creates over this row
@@ -521,6 +525,32 @@ local function render_chrome(state, L)
 
     local function lay_band(ln, band, where)
         if band.input then -- an editable input band — its overlay window draws the row; leave it blank
+            return
+        end
+        if band.title_counter then
+            -- A title (left) + a re-evaluated COUNTER (right) — rendered THROUGH ui.bar (the title is its
+            -- left prefix, the counter a right-aligned item), so it matches the message bar exactly.
+            local cnt = band.count and tostring((type(band.count) == "function" and band.count()) or band.count) or ""
+            local items = {}
+            if cnt ~= "" then
+                items[1] = {
+                    type = "button",
+                    text = cnt,
+                    style = { text = { padding = { 1, 1 }, normal = band.count_hl or "LvimUiSubtitle" } },
+                }
+            end
+            local res = uibar.render({
+                items = items,
+                width = W,
+                align = "right",
+                title = band.text,
+                title_hl = band.hl or "LvimUiPeekTitle",
+            })
+            lines[ln] = res.line
+            placements[#placements + 1] = { ln - 1, 0, #res.line, "LvimUiBarFill", 150 } -- the continuous row strip
+            for _, sp in ipairs(res.spans) do
+                placements[#placements + 1] = { ln - 1, sp[1], sp[2], sp[3], 200 }
+            end
             return
         end
         if band.meta ~= nil then

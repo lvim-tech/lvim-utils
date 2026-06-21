@@ -216,6 +216,8 @@ function M.open(opts)
                 action = state.query,
                 subtitle = sub,
             })
+        elseif state.st and state.st.refresh_chrome then
+            state.st.refresh_chrome() -- not on the statusline: re-render the title/counter CONTENT row
         end
     end
 
@@ -711,10 +713,12 @@ function M.open(opts)
     -- Docked: borderless panels (the separator divides them) so they fill the zone edge-to-edge, like the
     -- cmdline zone. A float keeps the default per-panel border.
     local pbord = docked and "none" or nil
-    -- The surface's own border-title is shown ONLY when we're NOT publishing the title to the statusline
-    -- (else it would duplicate). `surf_title` = nil suppresses it.
-    local surf_title = (not use_status) and opts.title or nil
-    local titled = surf_title ~= nil and surf_title ~= ""
+    -- The title + match counter are drawn as a CONTENT header row (the `title_counter` band below, through
+    -- ui.bar) when NOT publishing to the statusline — consistent with the :Messages bar / the cmdline. So the
+    -- surface's own border-title is always suppressed.
+    local show_title_row = (not use_status) and opts.title ~= nil and opts.title ~= ""
+    local surf_title = nil
+    local titled = false
     local list_block = {
         id = "list",
         provider = list_provider,
@@ -906,6 +910,21 @@ function M.open(opts)
         header = {
             bars = (function()
                 local hb = {}
+                -- The title + match counter as a CONTENT row through ui.bar (title left, count right) — when
+                -- not on the statusline. Re-evaluated on every chrome refresh (move / filter / type).
+                if show_title_row then
+                    hb[#hb + 1] = {
+                        title_counter = true,
+                        text = opts.title,
+                        count = function()
+                            local t = state.filtered and #state.filtered or 0
+                            local c = state.sel or 0
+                            return (c > 0 and t > 0) and (c .. "/" .. t) or tostring(t)
+                        end,
+                        hl = hl("title", "LvimUiPeekTitle"),
+                        count_hl = hl("counter", "LvimUiSubtitle"),
+                    }
+                end
                 if filters then
                     hb[#hb + 1] = build_filter_bar() -- a real header row above the prompt
                 end

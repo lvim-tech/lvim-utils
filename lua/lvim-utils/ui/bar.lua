@@ -51,11 +51,20 @@ function M.width(items)
     return total
 end
 
----@param opts { items: LvimUiButtonSpec[], width: integer, align?: "left"|"center"|"right", chevrons?: table, sel?: integer, hover?: integer, off?: integer }
+---@param opts { items: LvimUiButtonSpec[], width: integer, align?: "left"|"center"|"right", chevrons?: table, sel?: integer, hover?: integer, off?: integer, title?: string, title_hl?: string }
 ---@return { line: string, spans: table[], chevrons: table[], items: table[], off: integer }
 function M.render(opts)
     local W = opts.width or 0
     local align = opts.align or "center"
+
+    -- An optional LEFT-anchored TITLE prefix (always visible): the items then lay out in the width AFTER it
+    -- (e.g. a "Messages"/"Diagnostics" title with the buttons/counter aligned to the right). ASCII-only, so
+    -- byte length == display width. Prepended at the very end, with all item/chevron offsets shifted by it.
+    local prefix = (opts.title and opts.title ~= "") and (" " .. opts.title .. "  ") or ""
+    local pb = #prefix
+    if pb > 0 then
+        W = math.max(1, W - pb)
+    end
 
     -- 1. Assemble the raw bar text, its hl spans and each item's raw byte range (with its spec). No
     -- inter-item gap: a `separator` item carries any spacing itself. Indices stay aligned with opts.items.
@@ -162,6 +171,24 @@ function M.render(opts)
     for i, b in ipairs(raw_items) do
         local b0, b1 = vis_bytes(b[1], b[2])
         items[i] = { c0 = b0, c1 = b1, spec = b[3], sep = b.sep }
+    end
+
+    -- Prepend the title prefix + shift every item/chevron offset by it (the title carries its own span).
+    if pb > 0 then
+        local shifted = { { 0, pb, opts.title_hl or "LvimUiPeekTitle" } }
+        for _, s in ipairs(spans) do
+            shifted[#shifted + 1] = { pb + s[1], pb + s[2], s[3] }
+        end
+        spans = shifted
+        for _, c in ipairs(chevrons) do
+            c[1], c[2] = pb + c[1], pb + c[2]
+        end
+        for _, it in ipairs(items) do
+            if it.c0 then
+                it.c0, it.c1 = pb + it.c0, pb + it.c1
+            end
+        end
+        line = prefix .. line
     end
 
     return { line = line, spans = spans, chevrons = chevrons, items = items, off = opts.off or 0 }

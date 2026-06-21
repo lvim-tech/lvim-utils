@@ -976,26 +976,22 @@ local function _history_bar(filter, opts, sel, hover)
             },
         }
     end
-    -- With a left TITLE ("Messages", shown only when NOT publishing to the statusline) the buttons stack to the
-    -- RIGHT in the remaining width; without one they sit at the left. The title is ASCII, so bytes = columns.
-    local W = opts.width or vim.o.columns
-    local prefix = (opts.title and opts.title ~= "") and (" " .. opts.title .. "  ") or ""
-    local bw = math.max(1, W - #prefix)
+    -- ui.bar draws the whole row: a left "Messages" TITLE (shown only when NOT on the statusline) with the
+    -- buttons stacked to the RIGHT in the remaining width; without a title they sit at the left.
     local res = uibar.render({
         items = items,
-        width = bw,
-        align = (prefix ~= "" and "right") or "left",
+        width = opts.width or vim.o.columns,
+        align = (opts.title and opts.title ~= "") and "right" or "left",
         sel = sel,
         hover = hover,
+        title = opts.title,
+        title_hl = "LvimUiMsgAreaTitle",
     })
-    local hls = { { eol = true, hl = "LvimUiBarFill", priority = 1 } } -- the continuous bar STRIP under the buttons
-    if prefix ~= "" then
-        hls[#hls + 1] = { c0 = 0, c1 = #prefix, hl = "LvimUiMsgAreaTitle", priority = 110 }
-    end
+    local hls = { { eol = true, hl = "LvimUiBarFill", priority = 1 } } -- the continuous bar STRIP under the row
     for _, sp in ipairs(res.spans) do
-        hls[#hls + 1] = { c0 = #prefix + sp[1], c1 = #prefix + sp[2], hl = sp[3], priority = 100 }
+        hls[#hls + 1] = { c0 = sp[1], c1 = sp[2], hl = sp[3], priority = 100 }
     end
-    return prefix .. res.line, hls
+    return res.line, hls
 end
 
 --- Render the log into the zone's "history" segment (priority 10 — below a hosted finder), optionally FOCUS
