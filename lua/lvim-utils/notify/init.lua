@@ -969,12 +969,25 @@ local function _history_bar(filter, opts, sel, hover)
             },
         }
     end
-    local res = uibar.render({ items = items, width = vim.o.columns, align = "left", sel = sel, hover = hover })
+    -- With a left TITLE ("Messages", shown only when NOT publishing to the statusline) the buttons stack to the
+    -- RIGHT in the remaining width; without one they sit at the left. The title is ASCII, so bytes = columns.
+    local prefix = (opts.title and opts.title ~= "") and (" " .. opts.title .. "  ") or ""
+    local bw = math.max(1, vim.o.columns - #prefix)
+    local res = uibar.render({
+        items = items,
+        width = bw,
+        align = (prefix ~= "" and "right") or "left",
+        sel = sel,
+        hover = hover,
+    })
     local hls = { { eol = true, hl = "LvimUiBarFill", priority = 1 } } -- the continuous bar STRIP under the buttons
-    for _, sp in ipairs(res.spans) do
-        hls[#hls + 1] = { c0 = sp[1], c1 = sp[2], hl = sp[3], priority = 100 }
+    if prefix ~= "" then
+        hls[#hls + 1] = { c0 = 0, c1 = #prefix, hl = "LvimUiMsgAreaTitle", priority = 110 }
     end
-    return res.line, hls
+    for _, sp in ipairs(res.spans) do
+        hls[#hls + 1] = { c0 = #prefix + sp[1], c1 = #prefix + sp[2], hl = sp[3], priority = 100 }
+    end
+    return prefix .. res.line, hls
 end
 
 --- Render the log into the zone's "history" segment (priority 10 — below a hosted finder), optionally FOCUS
@@ -998,6 +1011,8 @@ local function _history_zone_render(focus)
     local title_text = hcfg.title or "Messages"
     local ok_st, status = pcall(require, "lvim-utils.status")
     local use_status = ok_st and hcfg.statusline ~= false and status.is_enabled()
+    -- When NOT on the statusline, the "Messages" label sits at the LEFT of the bar (buttons then stack right).
+    opts.title = (not use_status) and title_text or nil
     local seg = ma.segment("history", { priority = 10 })
 
     -- A PASSIVE live render (a new message) while the user is BROWSING (focused) must NOT disrupt their view —
