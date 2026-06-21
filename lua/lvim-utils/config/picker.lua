@@ -7,6 +7,11 @@
 ---@module "lvim-utils.config.picker"
 
 return {
+    -- The DEFAULT layout for every finder when a call (or `:LvimPicker <finder>`) gives no explicit one:
+    -- "area" (the cmdheight/msgarea zone — the modern default) | "float" (a centred float) | "bottom" (a
+    -- bottom dock). A per-call `opts.layout` (or a `:LvimPicker <finder> <layout>` arg) overrides it.
+    layout = "area",
+
     -- Publish the finder's title + match counter + query to the bottom statusline (lvim-utils.status) for
     -- EVERY docked finder (area/bottom) — diagnostics, buffers, any plugin's picker. false = each finder draws
     -- the title/counter IN its own navigator instead. A per-call `opts.statusline` overrides this global.

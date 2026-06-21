@@ -120,6 +120,9 @@ local _current = nil
 ---@param opts LvimPickerOpts
 function M.open(opts)
     opts = opts or {}
+    -- Default the LAYOUT from `config.picker.layout` (default "area") when the caller gave none — so every
+    -- finder + `:LvimPicker <finder>` lands in the configured layout unless overridden per call.
+    opts.layout = opts.layout or (require("lvim-utils.config").picker or {}).layout or "area"
     -- A finder already open? Close it FIRST so this open() replaces it (no stacking / no stale list left behind).
     if _current and not _current.closed and _current.st and _current.st.close then
         pcall(_current.st.close)
@@ -1510,6 +1513,55 @@ function M.jumplist(opts)
         on_confirm = jump_to,
         preview = preview_location,
     }, opts or {}))
+end
+
+-- ── unified command ───────────────────────────────────────────────────────────
+-- `:LvimPicker <finder> [layout]` — one entry point for every finder above. The 2nd arg ("area"|"float"|
+-- "bottom") overrides `config.picker.layout` for this call; bare = the configured default.
+local FINDERS = {
+    "files",
+    "grep",
+    "buffers",
+    "oldfiles",
+    "git_files",
+    "directories",
+    "help_tags",
+    "commands",
+    "keymaps",
+    "marks",
+    "quickfix",
+    "jumplist",
+    "colorschemes",
+}
+local LAYOUTS = { "area", "float", "bottom" }
+
+--- Register the `:LvimPicker <finder> [layout]` user command (one finder per `M.<finder>` above).
+function M.setup_command()
+    vim.api.nvim_create_user_command("LvimPicker", function(o)
+        local finder = o.fargs[1]
+        local fn = M[finder]
+        if type(fn) ~= "function" then
+            vim.notify("LvimPicker: unknown finder '" .. tostring(finder) .. "'", vim.log.levels.ERROR)
+            return
+        end
+        fn(o.fargs[2] and { layout = o.fargs[2] } or nil)
+    end, {
+        nargs = "+",
+        complete = function(arg_lead, cmd_line, _)
+            local parts = vim.split(cmd_line, "%s+")
+            if #parts <= 2 then
+                return vim.tbl_filter(function(n)
+                    return n:find(arg_lead, 1, true) == 1
+                end, FINDERS)
+            elseif #parts == 3 then
+                return vim.tbl_filter(function(l)
+                    return l:find(arg_lead, 1, true) == 1
+                end, LAYOUTS)
+            end
+            return {}
+        end,
+        desc = "LvimPicker — open a finder (:LvimPicker <finder> [area|float|bottom])",
+    })
 end
 
 return M

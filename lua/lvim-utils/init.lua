@@ -16,6 +16,7 @@ M.cmdline = require("lvim-utils.cmdline")
 M.input = require("lvim-utils.input")
 M.msgarea = require("lvim-utils.msgarea")
 M.status = require("lvim-utils.status")
+M.picker = require("lvim-utils.picker")
 
 ---Setup lvim-utils.
 ---@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, status?: table, fuzzy?: table, picker?: table }
@@ -87,6 +88,9 @@ function M.setup(opts)
     if (M.config.status or {}).native_guard then
         M.status.native_guard()
     end
+
+    -- the unified `:LvimPicker <finder> [layout]` command (one entry point for every finder).
+    M.picker.setup_command()
 end
 
 return M
