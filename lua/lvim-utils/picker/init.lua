@@ -816,12 +816,33 @@ function M.open(opts)
         return { items = specs, align = "center" }
     end
 
+    -- (HOSTED area) When the msgarea zone is enabled, the area finder HOSTS itself in it: it reserves its rows
+    -- ABOVE the messages (priority 5) instead of growing `cmdheight` on its own, so messages compose BELOW the
+    -- finder (no longer covering its footer) and it follows the zone via `reposition` as the zone reflows. When
+    -- the zone is off, `host` is nil and the surface grows cmdheight itself (the previous behaviour).
+    local msgarea = nil
+    if area then
+        local ok_ma, m = pcall(require, "lvim-utils.msgarea")
+        if ok_ma and m.is_enabled and m.is_enabled() then
+            msgarea = m
+        end
+    end
+    local host = msgarea
+        and function(h)
+            return msgarea.segment("lvim-picker-host", { priority = 5 }):reserve(h, function(rect)
+                if state.st and state.st.reposition then
+                    state.st.reposition(rect)
+                end
+            end)
+        end
+
     surface.open({
         mode = "float",
         -- "area" sits IN the cmdline region (grows cmdheight, heirline above) like the msgarea zone; the
         -- zindex keeps it in the cmdline layer so it isn't re-anchored below the statusline. "bottom" just
-        -- floats over the bottom rows.
+        -- floats over the bottom rows. When the msgarea zone is on, `host` re-homes us INSIDE it (above msgs).
         position = area and "cmdline" or (bottom and "bottom") or nil,
+        host = host,
         zindex = area and 200 or nil,
         header_air = (docked and not titled) and false or nil,
         direction = vertical and "vertical" or nil,
@@ -907,6 +928,11 @@ function M.open(opts)
         close_keys = {}, -- the input owns <Esc>/<C-c>; the panels are not normally focused
         on_close = function()
             state.closed = true
+            if msgarea then -- release our hosted rows so the zone shrinks back (or closes if nothing else)
+                pcall(function()
+                    msgarea.segment("lvim-picker-host"):release()
+                end)
+            end
             if state.live_augroup then
                 pcall(api.nvim_del_augroup_by_id, state.live_augroup)
                 state.live_augroup = nil

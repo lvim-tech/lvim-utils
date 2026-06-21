@@ -420,7 +420,11 @@ local function open_surface()
         -- cmdline region during cmdline mode, which would cover the statusline row
         enter = false, -- never steal focus on open — the cmdline / editor owns it (M.focus enters explicitly)
         persistent = true, -- no auto-close keys; msgarea closes it when the stack empties
-        size = { height = { auto = true, max = resolve(cfg.max_height) or 10 } },
+        -- The `max_height` cap applies to the MESSAGE/completion content only (so a flood of messages can't
+        -- fill the screen), NOT to RESERVE rows — a hosted float (the area finder) must always get its full
+        -- height. So the size fn caps content + adds reserves on top; the surface `max` is left wide open and
+        -- the real ceiling is `max_cmdheight` (the room the splits leave).
+        size = { height = { auto = true, max = 9999 } },
         content = {
             blocks = {
                 {
@@ -429,8 +433,10 @@ local function open_surface()
                     provider = {
                         hide_cursor = true, -- hide the hardware cursor while the zone is the focused window
                         size = function()
-                            local lines = compose()
-                            return vim.o.columns, math.max(1, #lines)
+                            local lines, _, content_count = compose()
+                            local reserved = #lines - content_count -- host + cmdline reserve rows
+                            local cap = resolve(cfg.max_height) or 10
+                            return vim.o.columns, math.max(1, reserved + math.min(content_count, cap))
                         end,
                         render = function()
                             local lines, hls, cl = compose()
@@ -689,6 +695,14 @@ end
 function M.navigator(opts)
     local o = vim.tbl_extend("force", {}, opts or {}, { layout = "area" })
     return require("lvim-utils.picker").open(o)
+end
+
+--- True when the msgarea zone is enabled (messages / completion / cmdline route through it). An external
+--- float (the area finder) checks this to decide whether to HOST itself in the zone (reserve rows above the
+--- messages so they compose below it) instead of growing `cmdheight` on its own.
+---@return boolean
+function M.is_enabled()
+    return cfg.enable == true
 end
 
 -- ─── public segment API ─────────────────────────────────────────────────────────
