@@ -86,6 +86,10 @@ local PANEL_ORDER = {
 local _cfg = config.notify
 local _history = {}
 local _printers = {}
+-- The unified history-zone view's state, PERSISTED across the passive live render and the focused browse (so a
+-- new message arriving while you browse keeps your filter, and the focus save/restore is not clobbered).
+local _hist_filter = nil ---@type string?
+local _hist_saved = nil ---@type table?
 
 -- One panel per level: _panels[level] = { win, buf, width, height, entries }
 local _panels = {}
@@ -957,31 +961,36 @@ local function _history_bar(filter, opts)
     return text, spans
 end
 
---- Render the log into the zone's "history" segment (priority 10 — below a hosted finder) + focus it: `j`/`k`
---- scroll with the active row lit, the level keys filter (the bar shows which is active), `r` refreshes, `q`
---- dismisses. The inline recent-messages scrollback is cleared (the history wins). With `history.statusline`
---- (default true) the "Messages" title + count publish to the bottom statusline (which therefore changes with
---- focus — finder vs messages) and the bar omits the title; else the title sits in the bar.
----@param ma table  the lvim-utils.msgarea module
-local function _history_in_zone(ma)
+--- Render the log into the zone's "history" segment (priority 10 — below a hosted finder), optionally FOCUS
+--- it. This is the ONE message view: routed live (`focus=false`) it shows as clean tinted lines (the bar is
+--- `title_when_focused`), browsed (`focus=true`, via `:Messages` or a `<C-w>j` descend) it gains the coloured
+--- filter bar + `j`/`k` scroll with the active row lit + the level keys + `q`. State (`_hist_filter`,
+--- `_hist_saved`) is MODULE-level so a message arriving mid-browse keeps the filter + the focus snapshot.
+--- With `history.statusline` (default true) the "Messages" title + count publish to the bottom statusline on
+--- focus (so it changes with focus — finder vs messages) and the bar omits the title; else the title sits in
+--- the bar. Returns whether the zone took it (false ⇒ zone off, caller falls back to the cmdline pager).
+---@param focus boolean  also move focus into the zone (browse) vs just render it (passive live display)
+---@return boolean shown
+local function _history_zone_render(focus)
+    local ok_ma, ma = pcall(require, "lvim-utils.msgarea")
+    if not (ok_ma and ma.is_enabled and ma.is_enabled()) then
+        return false
+    end
     local hcfg = _cfg.history or {}
     local bcfg = hcfg.bar or {}
     local opts = { key_pad = bcfg.key_pad or { 1, 1 }, label_pad = bcfg.label_pad or { 0, 1 }, gap = bcfg.gap or 0 }
     local title_text = hcfg.title or "Messages"
     local ok_st, status = pcall(require, "lvim-utils.status")
     local use_status = ok_st and hcfg.statusline ~= false and status.is_enabled()
-
-    local filter = nil
     local seg = ma.segment("history", { priority = 10 })
-    local saved_status ---@type table?
 
     local function fcount()
-        if not filter then
+        if not _hist_filter then
             return #_history
         end
         local n = 0
         for _, it in ipairs(_history) do
-            if (LEVEL_KEY[it.level] or "info") == filter then
+            if (LEVEL_KEY[it.level] or "info") == _hist_filter then
                 n = n + 1
             end
         end
@@ -995,12 +1004,12 @@ local function _history_in_zone(ma)
     end
     local function render()
         local bopts = vim.tbl_extend("force", opts, { title = (not use_status) and title_text or nil })
-        local bar, bar_hls = _history_bar(filter, bopts)
+        local bar, bar_hls = _history_bar(_hist_filter, bopts)
         seg:configure({ title = bar, title_hls = bar_hls })
-        seg:set(_history_zone_lines(filter))
+        seg:set(_history_zone_lines(_hist_filter))
     end
     local function refilter(f) -- a filter key (fires only WHILE focused) → re-render + refresh the count
-        filter = f
+        _hist_filter = f
         render()
         publish()
     end
@@ -1032,20 +1041,22 @@ local function _history_in_zone(ma)
         -- the line now (the finder) + shows "Messages"; leaving puts it back (or clears if there was none).
         on_focus = function()
             if use_status then
-                saved_status = status.save()
+                _hist_saved = status.save()
                 publish()
             end
         end,
         on_blur = function()
             if use_status then
-                status.restore(saved_status) -- nil snapshot ⇒ clears (no prior owner)
-                saved_status = nil
+                status.restore(_hist_saved) -- nil snapshot ⇒ clears (no prior owner)
+                _hist_saved = nil
             end
         end,
     })
-    ma.clear() -- wipe the inline recent-messages scrollback (the history below supersedes it; the log persists)
     render()
-    seg:focus() -- fires on_focus → snapshot + publish
+    if focus then
+        seg:focus() -- fires on_focus → snapshot + publish + show the bar (title_when_focused)
+    end
+    return true
 end
 
 function M.history()
@@ -1053,10 +1064,8 @@ function M.history()
         M.push(vim.log.levels.INFO, "No notifications")
         return
     end
-    -- The msgarea zone (when on) is the one message space — browse the log there, below a hosted finder.
-    local ok_ma, ma = pcall(require, "lvim-utils.msgarea")
-    if ok_ma and ma.is_enabled and ma.is_enabled() then
-        _history_in_zone(ma)
+    -- The msgarea zone (when on) is the one message space — browse the log there (focused), below a finder.
+    if _history_zone_render(true) then
         return
     end
 
@@ -1218,6 +1227,8 @@ local function _attach_ui()
 
                     if behaviour == "toast" then
                         _show_toast(text, lvl, { timeout = timeout })
+                    elseif behaviour == "zone" then
+                        _history_zone_render(false) -- live passive display IN the zone (clean lines; bar on focus)
                     elseif _sinks[behaviour] then
                         _sinks[behaviour](text, lvl, { timeout = timeout })
                     end
