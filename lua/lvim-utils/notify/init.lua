@@ -911,7 +911,9 @@ local function _history_zone_lines(filter)
         end
     end
     if #lines == 0 then
-        lines, hls = { "  No " .. (_hist_cap[filter] or "") .. " records" }, { "LvimUiMsgInfo" }
+        -- the empty-filter placeholder carries THAT level's own bg tint (a red row for "No Error records", …),
+        -- so the empty state reads as belonging to the filtered colour; All (no filter) stays Info-blue.
+        lines, hls = { "  No " .. (_hist_cap[filter] or "") .. " records" }, { "LvimUiMsg" .. (_hist_cap[filter] or "Info") }
     end
     return lines, hls
 end
