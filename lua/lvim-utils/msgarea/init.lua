@@ -64,6 +64,7 @@ local content_lines = 0
 ---@field height? integer  (reserve kind) blank rows held for an external float to overlay
 ---@field line_offset? integer  (set by compose) the composed-buffer row where this segment's content starts
 ---@field on_rect? fun(rect: table?)  (reserve kind) called with the segment's CURRENT rect on every reflow
+---@field on_descend? fun(): boolean?  (reserve kind) focus the hosted float over this reserve (the finder) on a descend from above; false = declined
 ---@field render? fun(width: integer): string[], table?  (provider kind) lazy content
 ---@field on_confirm? fun(item: table?, idx: integer?)  fired on <CR> while the zone is focused (grid)
 ---@field on_move? fun(idx: integer)  fired when the selection moves while the zone is focused (grid)
@@ -757,11 +758,27 @@ function M.has_messages()
     return s ~= nil and s.lines ~= nil and #s.lines > 0
 end
 
---- Focus the FIRST non-reserve segment that has content (messages, the :Messages history, a completion grid,
---- …), by priority — so a hosted finder's "descend" reaches whatever the zone is currently showing below it,
---- not just one named segment. Returns whether it focused something (else there is nothing to descend into).
+--- DESCEND into the zone from ABOVE (the editor): focus the TOPMOST thing in it, by priority. A hosted float
+--- (a finder, whose reserve carries `on_descend`) is focused FIRST — so you land in the finder, not skip past
+--- it to the messages below; otherwise the first content segment. Returns whether it took focus.
 ---@return boolean focused
 function M.focus_content()
+    for _, s in ipairs(segments) do
+        if s.kind == "reserve" then
+            if s.on_descend and (s.height or 0) > 0 then
+                return s.on_descend() ~= false -- a hosted finder above the messages — enter IT
+            end
+        elseif seg_has_content(s) then
+            return M.focus(s.name)
+        end
+    end
+    return false
+end
+
+--- Focus the first content SEGMENT (skipping reserves / hosted floats) — used by a finder descending PAST
+--- itself into the messages below it, where `focus_content` would just re-enter the finder.
+---@return boolean focused
+function M.focus_messages()
     for _, s in ipairs(segments) do
         if s.kind ~= "reserve" and seg_has_content(s) then
             return M.focus(s.name)
@@ -909,12 +926,15 @@ end
 
 --- Configure the segment's header `title` (a row drawn above its content) and the `keys` active while it is
 --- focused (lhs → fn(handle) — e.g. the history view's level filters). Set fields are merged; nil ones keep.
----@param opts { title?: string, title_hls?: table, title_when_focused?: boolean, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?), on_focus?: fun(), on_blur?: fun() }
+---@param opts { title?: string, title_hls?: table, title_when_focused?: boolean, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?), on_focus?: fun(), on_blur?: fun(), on_descend?: fun(): boolean? }
 ---@return LvimMsgAreaHandle
 function Handle:configure(opts)
     local s = seg_get(self.name)
     if opts.on_focus ~= nil then
         s.on_focus = opts.on_focus
+    end
+    if opts.on_descend ~= nil then
+        s.on_descend = opts.on_descend
     end
     if opts.title ~= nil then
         s.title = opts.title

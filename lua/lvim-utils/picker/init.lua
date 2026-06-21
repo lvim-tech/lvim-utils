@@ -842,7 +842,16 @@ function M.open(opts)
     -- the zone is off, `host` is nil and the surface grows cmdheight itself (the previous behaviour).
     local host = msgarea
         and function(h)
-            return msgarea.segment("lvim-picker-host", { priority = 5 }):reserve(h, function(rect)
+            local seg = msgarea.segment("lvim-picker-host", { priority = 5 })
+            -- a descend from the EDITOR into the zone enters the FINDER first (it sits above the messages),
+            -- landing on the list — not skip past it to the messages below.
+            seg:configure({
+                on_descend = function()
+                    focus_list()
+                    return true
+                end,
+            })
+            return seg:reserve(h, function(rect)
                 if state.st and state.st.reposition then
                     state.st.reposition(rect)
                 end
@@ -860,9 +869,9 @@ function M.open(opts)
         -- the bottom of the finder's vertical stack (list → footer → messages). Only when there ARE messages;
         -- else the sector nav wraps as usual. The cursor lands on the first message; `<C-k>`/`q`/`<Esc>` return.
         on_escape_below = msgarea and function()
-            -- descend into whatever the zone shows below us — the inline messages OR the :Messages history
-            -- OR a completion grid — not just one named segment; false (no content) ⇒ the sector nav wraps.
-            return msgarea.focus_content()
+            -- descend PAST us into the messages BELOW (focus_messages skips reserves — using focus_content here
+            -- would re-enter US via our own host reserve's on_descend); false (no messages) ⇒ the nav wraps.
+            return msgarea.focus_messages()
         end or nil,
         -- <C-k> off the TOP sector (the header/filter bar) leaves the finder UP to the editor it opened from,
         -- instead of wrapping down to the footer.
