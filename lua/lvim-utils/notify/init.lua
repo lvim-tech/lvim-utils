@@ -957,13 +957,13 @@ local function _history_bar(filter, opts, sel)
                     padding = opts.key_pad,
                     normal = "LvimUiMsg" .. cap .. "Icon",
                     active = "LvimUiMsg" .. cap .. "Icon",
-                    hover = "LvimUiMsg" .. cap .. "Sel",
+                    hover = "LvimUiMsg" .. cap .. "Hover",
                 },
                 text = {
                     padding = opts.label_pad,
                     normal = "LvimUiMsg" .. cap .. "Text",
                     active = "LvimUiMsg" .. cap .. "Sel",
-                    hover = "LvimUiMsg" .. cap .. "Sel",
+                    hover = "LvimUiMsg" .. cap .. "Hover",
                 },
             },
         }
@@ -1317,6 +1317,9 @@ function M.msg_highlights()
         -- The ACTIVE (cursor) message row when the zone is focused: same hue, STRONGER tint (fg + a 0.4 blend
         -- + bold — the help-window active-row canon), so the focused row stands out while the cursor is hidden.
         g["LvimUiMsg" .. name .. "Sel"] = { fg = col, bg = b(col, bg, 0.4), bold = true }
+        -- HOVER (the filter bar's focused button, moved with l/h): the level fg on a uniform BLUE tint (0.05),
+        -- so the selection reads the same on every button regardless of its hue.
+        g["LvimUiMsg" .. name .. "Hover"] = { fg = col, bg = b(c.blue, bg, 0.05), bold = true }
     end
     return g
 end
