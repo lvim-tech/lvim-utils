@@ -1349,6 +1349,12 @@ local function open_windows(state)
             focus_sector(state, ci)
         end
     end
+    --- Focus a SECTOR by index (1 = the first header bar / the filter bar, … the center, … the footer). Lets a
+    --- consumer land focus on the TOP bar on a descend from above, instead of skipping into the center.
+    ---@param i integer
+    state.focus_sector = function(i)
+        focus_sector(state, i)
+    end
     --- Focus a center BLOCK by its `id` (`content.blocks[i].id`) — order-independent (no numeric index).
     ---@param id any
     state.focus_block = function(id)
@@ -1682,6 +1688,9 @@ local function open_native_split(state)
         end
     end
     state.focus_block = function()
+        state.focus_panel()
+    end
+    state.focus_sector = function()
         state.focus_panel()
     end
     state.panel = function() end

@@ -843,11 +843,15 @@ function M.open(opts)
     local host = msgarea
         and function(h)
             local seg = msgarea.segment("lvim-picker-host", { priority = 5 })
-            -- a descend from the EDITOR into the zone enters the FINDER first (it sits above the messages),
-            -- landing on the list — not skip past it to the messages below.
+            -- a descend from the EDITOR into the zone enters the FINDER at its TOP sector (the filter bar /
+            -- header) — so up/down then steps THROUGH the bar · list · footer — not skip into the list.
             seg:configure({
                 on_descend = function()
-                    focus_list()
+                    if state.st and state.st.focus_sector then
+                        state.st.focus_sector(1)
+                    else
+                        focus_list()
+                    end
                     return true
                 end,
             })
