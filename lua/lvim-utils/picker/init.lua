@@ -843,7 +843,10 @@ function M.open(opts)
         -- floats over the bottom rows. When the msgarea zone is on, `host` re-homes us INSIDE it (above msgs).
         position = area and "cmdline" or (bottom and "bottom") or nil,
         host = host,
-        zindex = area and 200 or nil,
+        -- HOSTED: float ABOVE the msgarea zone's own content panel (container 200 / panel 201) so our list /
+        -- preview aren't covered by it — our panels land at 211, the prompt at 212, all clear of the messages
+        -- that render in the zone panel BELOW us. Unhosted area stays in the cmdline layer at 200.
+        zindex = (host and 210) or (area and 200) or nil,
         header_air = (docked and not titled) and false or nil,
         direction = vertical and "vertical" or nil,
         title = surf_title,
