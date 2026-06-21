@@ -951,23 +951,23 @@ local function _history_bar(filter, opts, sel, hover)
         items[#items + 1] = {
             type = "button",
             text = b.l,
-            key = b.k, -- highlights the hotkey letter in the label …
-            key_brackets = false, -- … WITHOUT the `[ ]` brackets — just the coloured letter
+            key = b.k, -- the hotkey as its OWN badge (the LETTER box) ahead of the label — no brackets
+            key_badge = true,
             active = b.filt and (b.lvl == filter),
             style = {
-                -- the hotkey LETTER: a stronger 0.3 tint (Key); the rest of the label a light 0.1 (Text). On
-                -- HOVER the label rises to the letter's tint so the whole button reads at one level. ACTIVE
-                -- (the current filter) is the strongest (Sel, 0.4).
+                -- the hotkey LETTER badge: a stronger 0.3 tint (Key); the label a light 0.1 (Text). On HOVER, and
+                -- for the ACTIVE (current) filter, the label rises to the badge's 0.3 — so both parts read at the
+                -- one even 0.3 tint.
                 icon = {
                     padding = opts.key_pad,
                     normal = "LvimUiMsg" .. cap .. "Key",
-                    active = "LvimUiMsg" .. cap .. "Sel",
+                    active = "LvimUiMsg" .. cap .. "Key",
                     hover = "LvimUiMsg" .. cap .. "Key",
                 },
                 text = {
                     padding = opts.label_pad,
                     normal = "LvimUiMsg" .. cap .. "Text",
-                    active = "LvimUiMsg" .. cap .. "Sel",
+                    active = "LvimUiMsg" .. cap .. "Key",
                     hover = "LvimUiMsg" .. cap .. "Key",
                 },
             },
@@ -1011,7 +1011,7 @@ local function _history_zone_render(focus)
     end
     local hcfg = _cfg.history or {}
     local bcfg = hcfg.bar or {}
-    local opts = { key_pad = bcfg.key_pad or { 1, 1 }, label_pad = bcfg.label_pad or { 0, 1 }, gap = bcfg.gap or 0 }
+    local opts = { key_pad = bcfg.key_pad or { 1, 1 }, label_pad = bcfg.label_pad or { 1, 0 }, gap = bcfg.gap or 0 }
     local title_text = hcfg.title or "Messages"
     local ok_st, status = pcall(require, "lvim-utils.status")
     local use_status = ok_st and hcfg.statusline ~= false and status.is_enabled()
