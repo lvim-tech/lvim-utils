@@ -923,12 +923,12 @@ local _btn_cap = { a = "Info", e = "Error", w = "Warn", i = "Info", d = "Debug",
 -- The history filter bar's BUTTONS, in display order. Each: key (the letter + hotkey), label, lvl (the level
 -- it filters to, nil for All / actions), filt (a filter vs an action).
 local _bar_btns = {
-    { k = "a", l = "All", lvl = nil, filt = true },
-    { k = "e", l = "Error", lvl = "error", filt = true },
-    { k = "w", l = "Warn", lvl = "warn", filt = true },
-    { k = "i", l = "Info", lvl = "info", filt = true },
-    { k = "d", l = "Debug", lvl = "debug", filt = true },
-    { k = "r", l = "Refresh", lvl = nil, filt = false },
+    { k = "a", l = "all", lvl = nil, filt = true },
+    { k = "e", l = "error", lvl = "error", filt = true },
+    { k = "w", l = "warn", lvl = "warn", filt = true },
+    { k = "i", l = "info", lvl = "info", filt = true },
+    { k = "d", l = "debug", lvl = "debug", filt = true },
+    { k = "r", l = "refresh", lvl = nil, filt = false },
     { k = "q", l = "close", lvl = nil, filt = false },
 }
 
@@ -951,16 +951,14 @@ local function _history_bar(filter, opts, sel, hover)
         items[#items + 1] = {
             type = "button",
             text = b.l,
-            key = b.k, -- the hotkey as its OWN badge (the LETTER box) ahead of the label — no brackets
-            key_badge = true,
+            key = b.k, -- the hotkey letter bracketed IN the label ([A]ll) — one box, the brackets mark the key
             active = b.filt and (b.lvl == filter),
             style = {
-                -- the hotkey LETTER badge: a stronger 0.3 tint (Key); the label a light 0.1 (Text). On HOVER, and
-                -- for the ACTIVE (current) filter, the label rises to the badge's 0.3 — so both parts read at the
-                -- one even 0.3 tint.
+                -- ONE even tint across the whole button (the bracketed letter is NOT a separate stronger part):
+                -- normally 0.1 (Text); raised to 0.3 (Key) when HOVERED or the ACTIVE (current) filter.
                 icon = {
                     padding = opts.key_pad,
-                    normal = "LvimUiMsg" .. cap .. "Key",
+                    normal = "LvimUiMsg" .. cap .. "Text",
                     active = "LvimUiMsg" .. cap .. "Key",
                     hover = "LvimUiMsg" .. cap .. "Key",
                 },
