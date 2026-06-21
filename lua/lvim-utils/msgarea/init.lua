@@ -585,6 +585,29 @@ local function on_message(text, level)
     update_visibility()
 end
 
+-- ─── window-nav integration ─────────────────────────────────────────────────
+-- Make Neovim's window navigation "see" the zone as the window BELOW the editor: `<C-w>j` at the bottom edge
+-- (no real window down there) descends into the zone; the zone panel's `<C-w>k` (install_interaction) escapes
+-- back up. So ANY key the user maps to `<C-w>j` (recursively) inherits the descend — no plugin-specific
+-- keymaps. Off with `cfg.window_nav == false`.
+
+local function install_window_nav()
+    if cfg.window_nav == false then
+        return
+    end
+    pcall(vim.keymap.set, "n", "<C-w>j", function()
+        local w = api.nvim_get_current_win()
+        vim.cmd("wincmd j") -- the normal "focus window down" first
+        if api.nvim_get_current_win() == w then
+            M.focus_content() -- nothing below in the layout → the zone is what's down there
+        end
+    end, { desc = "Focus window down / descend into the message zone" })
+end
+
+local function remove_window_nav()
+    pcall(vim.keymap.del, "n", "<C-w>j") -- back to the native window-down
+end
+
 -- ─── public API ───────────────────────────────────────────────────────────────
 
 --- Turn the area ON: register the sink, route its kinds, install resize autocmd.
@@ -593,6 +616,7 @@ function M.enable()
     local notify = require("lvim-utils.notify")
     notify.register_sink("msgarea", on_message)
     notify.route_kinds(cfg.kinds or {})
+    install_window_nav()
 
     if augroup then
         pcall(api.nvim_del_augroup_by_id, augroup)
@@ -619,6 +643,7 @@ function M.disable()
     local notify = require("lvim-utils.notify")
     notify.unroute_kinds(vim.tbl_keys(cfg.kinds or {}))
     notify.register_sink("msgarea", nil)
+    remove_window_nav()
     if augroup then
         pcall(api.nvim_del_augroup_by_id, augroup)
         augroup = nil
@@ -1064,6 +1089,11 @@ local function install_interaction()
         map("<CR>", focused_confirm)
     end
     map("<Esc>", function()
+        M.blur()
+    end)
+    -- `<C-w>k` ESCAPES the zone back up to the editor — the mirror of the `<C-w>j` descend, so Neovim's window
+    -- nav treats the zone as the window below (any key mapped to `<C-w>k` inherits it).
+    map("<C-w>k", function()
         M.blur()
     end)
     -- A focused LINES/MESSAGES zone (e.g. the messages composed below a hosted finder): `<C-k>` steps back UP
