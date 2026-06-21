@@ -61,6 +61,18 @@ return {
         cancel = "<Esc>",
         close = "q",
 
+        -- ui.surface chassis NAVIGATION (the finder, the message zone, any windowed UI). Override globally,
+        -- e.g. `setup({ ui = { keys = { sector_next = "<C-Down>" } } })`; a single surface can still override
+        -- via its own `keys`. Each value is a lhs string OR a list of lhs strings.
+        sector_next = "<C-j>", -- DOWN the vertical stack: header · center · footer (and on into the zone)
+        sector_prev = "<C-k>", -- UP
+        panel_next = "<C-l>", -- next center panel (right) — e.g. list → preview
+        panel_prev = "<C-h>", -- previous center panel (left)
+        menu_prev = { "h", "<Left>" }, -- move the selection within a focused button bar
+        menu_next = { "l", "<Right>" },
+        menu_confirm = { "<CR>", "<Space>" }, -- activate the focused button
+        zone_escape = { "<C-k>", "<C-w>k" }, -- leave the message zone (blur back up) when focused in it
+
         tabs = {
             next = "l",
             prev = "h",

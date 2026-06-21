@@ -850,7 +850,10 @@ end
 --- close a modal frame from anywhere.
 ---@param state table
 local function set_keys(state)
-    local K = vim.tbl_extend("force", DEFAULT_KEYS, state.cfg.keys or {})
+    -- Precedence: the hardcoded fallback < the GLOBAL `ui.keys` config < this surface's own `cfg.keys`.
+    local ok_cfg, cfg = pcall(require, "lvim-utils.config")
+    local global_keys = (ok_cfg and cfg.ui and cfg.ui.keys) or {}
+    local K = vim.tbl_extend("force", DEFAULT_KEYS, global_keys, state.cfg.keys or {})
     local function map(buf, lhs, fn)
         for _, l in ipairs(type(lhs) == "table" and lhs or { lhs }) do
             vim.keymap.set("n", l, fn, { buffer = buf, nowait = true, silent = true })

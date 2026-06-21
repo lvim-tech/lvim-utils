@@ -1069,22 +1069,22 @@ local function install_interaction()
         end)
         map("<CR>", focused_confirm)
     end
+    -- ESCAPE the zone (blur back up): `<Esc>` always, plus the configurable `ui.keys.zone_escape` (default
+    -- `<C-k>` / `<C-w>k`) from ANY focused segment — so the window-up / stack-up key leaves the zone. Change
+    -- them globally via `setup({ ui = { keys = { zone_escape = … } } })`.
+    local ok_cfg, ucfg = pcall(require, "lvim-utils.config")
+    local escape = (ok_cfg and ucfg.ui and ucfg.ui.keys and ucfg.ui.keys.zone_escape) or { "<C-k>", "<C-w>k" }
     map("<Esc>", function()
         M.blur()
     end)
-    -- `<C-w>k` ESCAPES the zone back up to the editor — the mirror of the `<C-w>j` descend, so Neovim's window
-    -- nav treats the zone as the window below (any key mapped to `<C-w>k` inherits it).
-    map("<C-w>k", function()
-        M.blur()
-    end)
-    -- A focused LINES/MESSAGES zone (e.g. the messages composed below a hosted finder): `<C-k>` steps back UP
-    -- the stack (return to the finder's footer — symmetric with the surface's `<C-k>` sector nav); `q`
-    -- DISMISSES the content — clear the segment (the zone shrinks back, the finder above reclaims the space)
-    -- and return. A grid keeps these native; a segment with its OWN key overrides this below.
-    if s and s.kind ~= "grid" then
-        map("<C-k>", function()
+    for _, lhs in ipairs(type(escape) == "table" and escape or { escape }) do
+        map(lhs, function()
             M.blur()
         end)
+    end
+    -- `q` DISMISSES a focused LINES/MESSAGES zone's content — clear the segment (the zone shrinks back, the
+    -- finder above reclaims the space) and return. A grid keeps `q` native; a segment's OWN key overrides this.
+    if s and s.kind ~= "grid" then
         map("q", function()
             M.segment(s.name):clear()
             M.blur()
