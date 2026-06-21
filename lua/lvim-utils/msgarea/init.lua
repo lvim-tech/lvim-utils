@@ -876,6 +876,24 @@ function Handle:title(text)
     return self
 end
 
+--- Configure the segment's header `title` (a row drawn above its content) and the `keys` active while it is
+--- focused (lhs → fn(handle) — e.g. the history view's level filters). Set fields are merged; nil ones keep.
+---@param opts { title?: string, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?) }
+---@return LvimMsgAreaHandle
+function Handle:configure(opts)
+    local s = seg_get(self.name)
+    if opts.title ~= nil then
+        s.title = opts.title
+    end
+    if opts.keys ~= nil then
+        s.keys = opts.keys
+    end
+    if opts.on_confirm ~= nil then
+        s.on_confirm = opts.on_confirm
+    end
+    return self
+end
+
 --- Focus the zone for keyboard interaction with THIS segment (navigation + confirm + custom keys).
 ---@return LvimMsgAreaHandle
 function Handle:focus()

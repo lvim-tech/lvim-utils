@@ -880,9 +880,87 @@ end
 local _lvl_map = { i = "info", w = "warn", e = "error", d = "debug" }
 local _lvl_labels = { i = "Info", w = "Warn", e = "Error", d = "Debug" }
 
+-- ── history in the msgarea zone ─────────────────────────────────────────────
+-- When the msgarea zone is enabled, `:Messages` browses the log IN it (below a hosted finder) — one
+-- consistent, navigable message space — instead of the cmdline pager.
+
+local _hist_cap = { info = "Info", warn = "Warn", error = "Error", debug = "Debug" }
+
+--- The history as zone lines (newest first) + parallel whole-row level tints (which take the focused zone's
+--- active-row "Sel" boost). `filter` keeps one level, or nil for all.
+---@param filter string?
+---@return string[] lines, string[] hls
+local function _history_zone_lines(filter)
+    local lines, hls = {}, {}
+    for i = #_history, 1, -1 do
+        local item = _history[i]
+        local key = LEVEL_KEY[item.level] or "info"
+        if not filter or filter == key then
+            local icon = (_cfg.icons or {})[key]
+            local ts = os.date("%H:%M:%S", item.time) --[[@as string]]
+            local title = item.opts and item.opts.title
+            local pre = title and ("[" .. title .. "] ") or ""
+            local body = (icon and icon ~= "" and (icon .. "  ") or "") .. ts .. "  " .. pre .. item.msg:gsub("\n", " ")
+            lines[#lines + 1] = "  " .. body
+            hls[#hls + 1] = "LvimUiMsg" .. (_hist_cap[key] or "Info")
+        end
+    end
+    if #lines == 0 then
+        lines, hls = { "  No " .. (_hist_cap[filter] or "") .. " records" }, { "LvimUiMsgInfo" }
+    end
+    return lines, hls
+end
+
+--- Render the log into the zone's "history" segment (priority 10 — below a hosted finder) + focus it: `j`/`k`
+--- scroll with the active row lit, the level keys filter, `r` refreshes, `q` dismisses (the generic zone
+--- key). The inline recent-messages segment is cleared (the history supersedes it).
+---@param ma table  the lvim-utils.msgarea module
+local function _history_in_zone(ma)
+    local filter = nil
+    local seg = ma.segment("history", { priority = 10 })
+    local function render()
+        seg:set(_history_zone_lines(filter))
+    end
+    seg:configure({
+        title = "History  ·  a all  e error  w warn  i info  d debug  ·  r refresh  q close",
+        keys = {
+            a = function()
+                filter = nil
+                render()
+            end,
+            e = function()
+                filter = "error"
+                render()
+            end,
+            w = function()
+                filter = "warn"
+                render()
+            end,
+            i = function()
+                filter = "info"
+                render()
+            end,
+            d = function()
+                filter = "debug"
+                render()
+            end,
+            r = render,
+        },
+    })
+    ma.clear() -- wipe the inline recent-messages scrollback (the history below supersedes it; the log persists)
+    render()
+    seg:focus()
+end
+
 function M.history()
     if #_history == 0 then
         M.push(vim.log.levels.INFO, "No notifications")
+        return
+    end
+    -- The msgarea zone (when on) is the one message space — browse the log there, below a hosted finder.
+    local ok_ma, ma = pcall(require, "lvim-utils.msgarea")
+    if ok_ma and ma.is_enabled and ma.is_enabled() then
+        _history_in_zone(ma)
         return
     end
 
