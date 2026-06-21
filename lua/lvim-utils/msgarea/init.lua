@@ -1109,7 +1109,13 @@ function M.focus(name)
         return false
     end
     active_name = name or first_interactive()
-    prev_win = api.nvim_get_current_win()
+    -- Capture the return window only when entering from OUTSIDE the zone — a RE-focus from within (e.g. a
+    -- repeated descend key, or a content swap) must NOT clobber it with the zone's own window, else blur could
+    -- never get back out to the real editor buffer above.
+    local cur = api.nvim_get_current_win()
+    if cur ~= surf_panel.win then
+        prev_win = cur
+    end
     pcall(api.nvim_set_current_win, surf_panel.win)
     install_interaction()
     update_visibility() -- repaint with the selection highlight
