@@ -62,6 +62,8 @@ local content_lines = 0
 ---@field columns? integer  (grid kind) column count
 ---@field max_rows? integer  (grid kind) max visible rows (windowed around the selection)
 ---@field height? integer  (reserve kind) blank rows held for an external float to overlay
+---@field line_offset? integer  (set by compose) the composed-buffer row where this segment's content starts
+---@field on_rect? fun(rect: table?)  (reserve kind) called with the segment's CURRENT rect on every reflow
 ---@field render? fun(width: integer): string[], table?  (provider kind) lazy content
 ---@field on_confirm? fun(item: table?, idx: integer?)  fired on <CR> while the zone is focused (grid)
 ---@field on_move? fun(idx: integer)  fired when the selection moves while the zone is focused (grid)
@@ -354,6 +356,7 @@ local function compose()
 
         -- 3) append, offsetting the segment's selected row into the buffer
         local base = #lines
+        s.line_offset = base -- the composed-buffer row where this segment's content starts (for reserve rects)
         for i = 1, #seg_lines do
             lines[#lines + 1] = seg_lines[i]
             hls[#hls + 1] = seg_hls[i]
@@ -452,6 +455,35 @@ local function close_surface()
     surf, surf_panel = nil, nil
 end
 
+--- The editor-relative rect of segment `s`'s region within the open zone, or nil when the zone is closed.
+--- Positioned by the segment's place in the stack (`line_offset`, set by compose): a LOW-priority reserve
+--- sits at the TOP of the zone, a HIGH-priority one at the bottom — so a hosted float (the area finder above
+--- the messages, the cmdline below them) lands in the right place.
+---@param s LvimMsgAreaSegment
+---@return { win: integer, row: integer, col: integer, width: integer, height: integer }?
+local function segment_rect(s)
+    if not (surf and surf.container_win and api.nvim_win_is_valid(surf.container_win)) then
+        return nil
+    end
+    return {
+        win = surf.container_win,
+        row = api.nvim_win_get_position(surf.container_win)[1] + (s.line_offset or 0), -- zone top + segment offset
+        col = 0,
+        width = vim.o.columns,
+        height = s.height or 0,
+    }
+end
+
+--- Notify every reserve segment that registered an `on_rect` of its CURRENT rect, so a hosted float (the
+--- area finder) follows the zone as messages appear / clear and it reflows.
+local function notify_reserves()
+    for _, s in ipairs(segments) do
+        if s.kind == "reserve" and s.on_rect then
+            s.on_rect(segment_rect(s))
+        end
+    end
+end
+
 --- Re-fit + repaint the surface to the current segments. The content height changes with the segments, so
 --- relayout re-fits the geometry + cmdheight AND the panel re-renders its content (relayout only moves
 --- windows, it does not repaint a panel).
@@ -462,6 +494,7 @@ local function refresh_surface()
     if surf_panel and surf_panel.refresh then
         surf_panel.refresh()
     end
+    notify_reserves() -- hosted floats follow the reflowed zone
     -- In COMMAND-LINE mode the screen does not repaint between events, so flush now (else completion lands
     -- a cursor-blink late) — the same fix the bespoke render uses.
     if vim.fn.mode():sub(1, 1) == "c" then
@@ -722,27 +755,19 @@ function Handle:provider(fn)
     return self
 end
 
---- RESERVE `height` blank rows for an external float to overlay; returns the editor-relative rect of
---- the reserved region (flush with the screen bottom), or nil when the zone is closed. The `reserve` kind.
+--- RESERVE `height` blank rows for an external float to overlay; returns the editor-relative rect of the
+--- reserved region (positioned by the segment's priority). `on_rect` (optional) is called with the NEW rect
+--- whenever the zone reflows (messages appear/clear, resize), so the float can follow. The `reserve` kind.
 ---@param height integer
+---@param on_rect? fun(rect: { win: integer, row: integer, col: integer, width: integer, height: integer }?)
 ---@return { win: integer, row: integer, col: integer, width: integer, height: integer }?
-function Handle:reserve(height)
+function Handle:reserve(height, on_rect)
     local s = seg_get(self.name, { kind = "reserve" })
     s.kind = "reserve"
     s.height = math.max(0, height or 0)
+    s.on_rect = on_rect or s.on_rect
     update_visibility()
-    if not (surf and surf.container_win and api.nvim_win_is_valid(surf.container_win)) then
-        return nil
-    end
-    local h = s.height
-    -- The reserved rows sit flush with the screen bottom (the surface owns the cmdheight region).
-    return {
-        win = surf.container_win,
-        row = math.max(0, vim.o.lines - h),
-        col = 0,
-        width = vim.o.columns,
-        height = h,
-    }
+    return segment_rect(s)
 end
 
 --- Empty the segment's content (keep it registered) and reflow.
