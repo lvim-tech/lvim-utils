@@ -491,29 +491,45 @@ local function segment_rect(s)
 end
 
 --- Notify every reserve segment that registered an `on_rect` of its CURRENT rect, so a hosted float (the
---- area finder) follows the zone as messages appear / clear and it reflows.
+--- area finder) follows the zone as messages appear / clear and it reflows. Returns whether ANY hosted
+--- reserve exists (the caller forces a clean flush so the repositioned float paints in one frame).
+---@return boolean hosted
 local function notify_reserves()
+    local hosted = false
     for _, s in ipairs(segments) do
         if s.kind == "reserve" and s.on_rect then
+            hosted = true
             s.on_rect(segment_rect(s))
         end
     end
+    return hosted
 end
 
 --- Re-fit + repaint the surface to the current segments. The content height changes with the segments, so
 --- relayout re-fits the geometry + cmdheight AND the panel re-renders its content (relayout only moves
 --- windows, it does not repaint a panel).
 local function refresh_surface()
-    if surf and surf.relayout then
-        surf.relayout()
-    end
-    if surf_panel and surf_panel.refresh then
-        surf_panel.refresh()
-    end
-    notify_reserves() -- hosted floats follow the reflowed zone
-    -- In COMMAND-LINE mode the screen does not repaint between events, so flush now (else completion lands
-    -- a cursor-blink late) — the same fix the bespoke render uses.
-    if vim.fn.mode():sub(1, 1) == "c" then
+    -- Coalesce the whole reflow into ONE repaint. Growing `cmdheight` (inside relayout) reflows the editor and
+    -- would repaint with a hosted float still at its OLD row — before notify_reserves moves it — a visible
+    -- flicker on every new message. `lazyredraw` holds the screen until everything is placed, then we flush
+    -- once. pcall-guarded so an error can't leave `lazyredraw` stuck on (which would freeze the screen).
+    local lz = vim.o.lazyredraw
+    vim.o.lazyredraw = true
+    local hosted = false
+    pcall(function()
+        if surf and surf.relayout then
+            surf.relayout()
+        end
+        if surf_panel and surf_panel.refresh then
+            surf_panel.refresh()
+        end
+        hosted = notify_reserves()
+    end)
+    vim.o.lazyredraw = lz
+    -- Flush one clean frame when nothing else will: COMMAND-LINE mode (the screen doesn't repaint between
+    -- cmdline events — else completion lands a cursor-blink late) or a HOSTED float (it repositioned, and the
+    -- coalesced reflow above must now paint as a single frame).
+    if hosted or vim.fn.mode():sub(1, 1) == "c" then
         pcall(api.nvim__redraw, { flush = true })
     end
 end
