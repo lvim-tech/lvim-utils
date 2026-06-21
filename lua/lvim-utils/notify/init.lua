@@ -956,18 +956,18 @@ local function _history_bar(filter, opts, sel, hover)
             active = b.filt and (b.lvl == filter),
             style = {
                 -- TWO parts: the hotkey LETTER badge at 0.2 (Icon), the NAME at 0.1 (Text). When HOVERED or the
-                -- ACTIVE (current) filter, EACH part brightens by +0.1 — badge 0.2 → 0.3 (Key), name 0.1 → 0.2.
+                -- ACTIVE (current) filter, EACH part brightens by +0.2 — badge 0.2 → 0.4 (Sel), name 0.1 → 0.3.
                 icon = {
                     padding = opts.key_pad,
                     normal = "LvimUiMsg" .. cap .. "Icon",
-                    active = "LvimUiMsg" .. cap .. "Key",
-                    hover = "LvimUiMsg" .. cap .. "Key",
+                    active = "LvimUiMsg" .. cap .. "Sel",
+                    hover = "LvimUiMsg" .. cap .. "Sel",
                 },
                 text = {
                     padding = opts.label_pad,
                     normal = "LvimUiMsg" .. cap .. "Text",
-                    active = "LvimUiMsg" .. cap .. "Icon",
-                    hover = "LvimUiMsg" .. cap .. "Icon",
+                    active = "LvimUiMsg" .. cap .. "Key",
+                    hover = "LvimUiMsg" .. cap .. "Key",
                 },
             },
         }
