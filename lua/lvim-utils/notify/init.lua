@@ -984,6 +984,17 @@ local function _history_zone_render(focus)
     local use_status = ok_st and hcfg.statusline ~= false and status.is_enabled()
     local seg = ma.segment("history", { priority = 10 })
 
+    -- A PASSIVE live render (a new message) while the user is BROWSING (focused) must NOT disrupt their view —
+    -- the message is in _history and shows on a refresh (`r`) / re-focus.
+    if not focus and ma.is_focused and ma.is_focused("history") then
+        return true
+    end
+    -- The passive live display always shows ALL: a new message must appear regardless of a stale browse filter
+    -- (e.g. one left on "Error" after a previous `:Messages` was closed). The focused browse keeps its filter.
+    if not focus then
+        _hist_filter = nil
+    end
+
     local function fcount()
         if not _hist_filter then
             return #_history

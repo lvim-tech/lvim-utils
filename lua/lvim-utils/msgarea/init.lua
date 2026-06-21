@@ -750,6 +750,14 @@ function M.is_enabled()
     return cfg.enable == true
 end
 
+--- True when a segment (any, or a NAMED one) currently has focused interaction — so a passive live re-render
+--- can avoid disrupting a browse in progress.
+---@param name? string  check a specific segment; nil = any
+---@return boolean
+function M.is_focused(name)
+    return active_name ~= nil and (name == nil or active_name == name)
+end
+
 --- True when the messages segment currently holds content — so a hosted finder knows there is something
 --- BELOW it to descend into (and only then focuses the zone).
 ---@return boolean
