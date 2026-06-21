@@ -67,6 +67,7 @@ local content_lines = 0
 ---@field render? fun(width: integer): string[], table?  (provider kind) lazy content
 ---@field on_confirm? fun(item: table?, idx: integer?)  fired on <CR> while the zone is focused (grid)
 ---@field on_move? fun(idx: integer)  fired when the selection moves while the zone is focused (grid)
+---@field on_focus? fun()  fired when focus ENTERS this segment (e.g. to publish its statusline)
 ---@field on_blur? fun()  fired when focus leaves this segment (e.g. to restore the statusline it published)
 ---@field keys? table<string, fun(handle: table)>  custom keymaps active while this segment is focused
 ---@field title? string  an optional header row drawn above this segment's content (separates owners)
@@ -743,6 +744,19 @@ function M.has_messages()
     return s ~= nil and s.lines ~= nil and #s.lines > 0
 end
 
+--- Focus the FIRST non-reserve segment that has content (messages, the :Messages history, a completion grid,
+--- …), by priority — so a hosted finder's "descend" reaches whatever the zone is currently showing below it,
+--- not just one named segment. Returns whether it focused something (else there is nothing to descend into).
+---@return boolean focused
+function M.focus_content()
+    for _, s in ipairs(segments) do
+        if s.kind ~= "reserve" and seg_has_content(s) then
+            return M.focus(s.name)
+        end
+    end
+    return false
+end
+
 -- ─── public segment API ─────────────────────────────────────────────────────────
 -- The seam every plugin uses to put content into the zone. `M.segment(name)` returns a HANDLE to a
 -- named segment (get-or-create); its methods mutate that segment and reflow. The built-in messages /
@@ -882,10 +896,13 @@ end
 
 --- Configure the segment's header `title` (a row drawn above its content) and the `keys` active while it is
 --- focused (lhs → fn(handle) — e.g. the history view's level filters). Set fields are merged; nil ones keep.
----@param opts { title?: string, title_hls?: table, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?), on_blur?: fun() }
+---@param opts { title?: string, title_hls?: table, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?), on_focus?: fun(), on_blur?: fun() }
 ---@return LvimMsgAreaHandle
 function Handle:configure(opts)
     local s = seg_get(self.name)
+    if opts.on_focus ~= nil then
+        s.on_focus = opts.on_focus
+    end
     if opts.title ~= nil then
         s.title = opts.title
     end
@@ -1075,16 +1092,21 @@ function M.focus(name)
     pcall(api.nvim_set_current_win, surf_panel.win)
     install_interaction()
     update_visibility() -- repaint with the selection highlight
-    -- Land on the focused segment's FIRST content row (compose set `line_offset`), not the top of the zone —
-    -- which, under a hosted finder, is the finder's reserve rows hidden behind it. So `j`/`k` scroll the
-    -- messages from their top instead of from inside the reserve.
+    -- Where to land the cursor on descend. A segment with a TITLE (the history's filter bar) lands on the
+    -- TITLE row — so the BUTTONS are the first stop, then `j` moves down into the messages; otherwise the first
+    -- CONTENT row (not the top of the zone, which under a hosted finder is its hidden reserve rows). The
+    -- active-row boost skips the bar (it carries span hls), so only the message rows light up.
     local s = active_seg()
-    if s and s.line_offset and api.nvim_win_is_valid(surf_panel.win) then
-        pcall(api.nvim_win_set_cursor, surf_panel.win, { s.line_offset + 1, 0 })
+    local row = (s and s.line_offset or 0) + 1
+    if s and s.title then
+        row = math.max(1, s.line_offset)
+    end
+    if s and api.nvim_win_is_valid(surf_panel.win) then
+        pcall(api.nvim_win_set_cursor, surf_panel.win, { math.max(1, row), 0 })
     end
     -- Track the cursor row (the render boosts it to the "Sel" tint) + repaint on every move, so the active
     -- message row follows the hidden cursor.
-    active_row = (s and s.line_offset) or 0
+    active_row = math.max(0, row - 1)
     if cursor_au then
         pcall(api.nvim_del_autocmd, cursor_au)
     end
@@ -1101,6 +1123,9 @@ function M.focus(name)
     })
     if surf_panel.refresh then
         surf_panel.refresh() -- paint the initial active-row boost
+    end
+    if s and s.on_focus then
+        pcall(s.on_focus) -- e.g. the history publishes "Messages" to the statusline (restored on blur)
     end
     return true
 end

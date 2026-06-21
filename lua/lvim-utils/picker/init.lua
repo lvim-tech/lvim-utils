@@ -859,11 +859,9 @@ function M.open(opts)
         -- the bottom of the finder's vertical stack (list → footer → messages). Only when there ARE messages;
         -- else the sector nav wraps as usual. The cursor lands on the first message; `<C-k>`/`q`/`<Esc>` return.
         on_escape_below = msgarea and function()
-            if msgarea.has_messages() then
-                msgarea.focus("messages")
-                return true
-            end
-            return false
+            -- descend into whatever the zone shows below us — the inline messages OR the :Messages history
+            -- OR a completion grid — not just one named segment; false (no content) ⇒ the sector nav wraps.
+            return msgarea.focus_content()
         end or nil,
         -- HOSTED: float ABOVE the msgarea zone's own content panel (container 200 / panel 201) so our list /
         -- preview aren't covered by it — our panels land at 211, the prompt at 212, all clear of the messages

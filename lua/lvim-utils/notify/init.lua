@@ -988,53 +988,63 @@ local function _history_in_zone(ma)
         return n
     end
 
+    local function publish() -- the statusline reflects the focused "Messages" context (+ its filtered count)
+        if use_status then
+            status.set({ title = title_text, total = fcount(), current = 0 })
+        end
+    end
     local function render()
         local bopts = vim.tbl_extend("force", opts, { title = (not use_status) and title_text or nil })
         local bar, bar_hls = _history_bar(filter, bopts)
         seg:configure({ title = bar, title_hls = bar_hls })
         seg:set(_history_zone_lines(filter))
-        if use_status then -- the statusline reflects the focused "Messages" context (+ its count)
-            status.set({ title = title_text, total = fcount(), current = 0 })
-        end
+    end
+    local function refilter(f) -- a filter key (fires only WHILE focused) → re-render + refresh the count
+        filter = f
+        render()
+        publish()
     end
 
     seg:configure({
         keys = {
             a = function()
-                filter = nil
-                render()
+                refilter(nil)
             end,
             e = function()
-                filter = "error"
-                render()
+                refilter("error")
             end,
             w = function()
-                filter = "warn"
-                render()
+                refilter("warn")
             end,
             i = function()
-                filter = "info"
-                render()
+                refilter("info")
             end,
             d = function()
-                filter = "debug"
-                render()
+                refilter("debug")
             end,
-            r = render,
+            r = function()
+                render()
+                publish()
+            end,
         },
-        on_blur = function() -- leaving the history → put the prior owner's statusline (the finder) back, or clear
+        -- The statusline is FOCUS-driven (so it is right even on re-descend): entering snapshots whoever owns
+        -- the line now (the finder) + shows "Messages"; leaving puts it back (or clears if there was none).
+        on_focus = function()
+            if use_status then
+                saved_status = status.save()
+                publish()
+            end
+        end,
+        on_blur = function()
             if use_status then
                 status.restore(saved_status) -- nil snapshot ⇒ clears (no prior owner)
                 saved_status = nil
             end
         end,
     })
-    if use_status then
-        saved_status = status.save() -- snapshot whoever owns the line now (e.g. an open finder), restore on blur
-    end
     ma.clear() -- wipe the inline recent-messages scrollback (the history below supersedes it; the log persists)
     render()
-    seg:focus()
+    seg:focus() -- fires on_focus → snapshot + publish
 end
 
 function M.history()
