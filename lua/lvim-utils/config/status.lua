@@ -9,6 +9,11 @@ return {
     -- statusline; when false NOTHING uses it (each falls back to drawing its own badge/title in place). The
     -- per-caller flags (cmdline.statusline, the picker `statusline` opt) only fine-tune WITHIN this.
     enabled = true,
+    -- NATIVE statusline guard (for `laststatus=3` on the bare neovim statusline, no statusline plugin): when
+    -- true, drive `vim.o.statusline` with a minimal default-style line (path · [+] · line,col) that, while one
+    -- of our UI FLOATS (the msgarea zone / a picker) is focused, shows the LAST REGULAR window instead of the
+    -- float's "[Scratch]" buffer. DEFAULT OFF — leave the statusline to your plugin (heirline, …).
+    native_guard = false,
     -- Show the typed STRING (search pattern / command / navigator query) as the left action segment.
     -- DEFAULT OFF — the string lives only where you type it (the float / navigator input), the truer
     -- Emacs-minibuffer model where the mode-line does not echo the input. Set true to also echo it here.

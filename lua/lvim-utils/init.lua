@@ -15,6 +15,7 @@ M.notify = require("lvim-utils.notify")
 M.cmdline = require("lvim-utils.cmdline")
 M.input = require("lvim-utils.input")
 M.msgarea = require("lvim-utils.msgarea")
+M.status = require("lvim-utils.status")
 
 ---Setup lvim-utils.
 ---@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, status?: table, fuzzy?: table, picker?: table }
@@ -80,6 +81,11 @@ function M.setup(opts)
     -- Runs AFTER notify.setup so its sink/routing land on the live notify config.
     if opts.msgarea ~= false then
         M.msgarea.setup(M.config.msgarea)
+    end
+
+    -- native statusline guard (bare `laststatus=3`, no statusline plugin) — opt-in via `status.native_guard`.
+    if (M.config.status or {}).native_guard then
+        M.status.native_guard()
     end
 end
 

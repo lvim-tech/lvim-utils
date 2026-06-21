@@ -230,4 +230,61 @@ function M.is_enabled()
     return cfg.enabled ~= false
 end
 
+-- ── native default-statusline guard ──────────────────────────────────────────────────────────────────
+-- For the BARE neovim statusline (`laststatus=3`): focusing one of OUR UI floats (the msgarea zone / a
+-- picker) makes the global line show that float's buffer ("[Scratch]"). The guard tracks the last regular
+-- window and drives a minimal default-style line (path · [+] · line,col) that, while a UI float is current,
+-- renders the LAST REGULAR window instead — so the file you were editing stays on the line.
+
+local api = vim.api
+---@type integer?  the last window that was NOT one of our UI floats
+local last_regular = nil
+
+--- True when `win` is one of our UI floats — a FLOATING window over a special (non-file) buffer (the zone /
+--- a picker are `nofile`/`prompt`). A real-file float (buftype "") is left as a normal window.
+---@param win integer
+---@return boolean
+local function is_ui_float(win)
+    if not api.nvim_win_is_valid(win) or api.nvim_win_get_config(win).relative == "" then
+        return false
+    end
+    return vim.bo[api.nvim_win_get_buf(win)].buftype ~= ""
+end
+
+--- The native statusline string — built for the current window, or the LAST REGULAR one when the current is
+--- a UI float. Minimal default style: relative path · `[+]` (modified) · `line,col` (right-aligned).
+---@return string
+function M.native()
+    local cur = api.nvim_get_current_win()
+    local win = (is_ui_float(cur) and last_regular and api.nvim_win_is_valid(last_regular)) and last_regular or cur
+    local buf = api.nvim_win_get_buf(win)
+    local name = api.nvim_buf_get_name(buf)
+    local path = name ~= "" and vim.fn.fnamemodify(name, ":~:.") or "[No Name]"
+    local mod = vim.bo[buf].modified and " [+]" or ""
+    local ro = vim.bo[buf].readonly and " [RO]" or ""
+    local ok, pos = pcall(api.nvim_win_get_cursor, win)
+    local lc = ok and ("%d,%d"):format(pos[1], pos[2] + 1) or ""
+    return (" %s%s%s%%=%s "):format(path, mod, ro, lc)
+end
+
+--- Install the guard: track the last regular window + drive `vim.o.statusline` with `M.native()`, so a UI
+--- float never replaces the file info with "[Scratch]". Idempotent.
+function M.native_guard()
+    if not is_ui_float(api.nvim_get_current_win()) then
+        last_regular = api.nvim_get_current_win()
+    end
+    local grp = api.nvim_create_augroup("LvimUtilsStatusNativeGuard", { clear = true })
+    api.nvim_create_autocmd({ "WinEnter", "BufWinEnter" }, {
+        group = grp,
+        callback = function()
+            local w = api.nvim_get_current_win()
+            if not is_ui_float(w) then
+                last_regular = w
+            end
+            repaint()
+        end,
+    })
+    vim.o.statusline = "%!v:lua.require'lvim-utils.status'.native()"
+end
+
 return M
