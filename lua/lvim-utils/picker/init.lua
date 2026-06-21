@@ -113,9 +113,18 @@ end
 --- scrollable preview beside it. INSERT prompt: type to filter (fzf), `<C-j>/<C-k>` move, `<C-d>/<C-u>`
 --- scroll the preview, `<CR>` confirms, `<C-c>` cancels, `<Esc>`/`<C-f>` → NORMAL. NORMAL list: `j`/`k`
 --- move, `<C-d>/<C-u>` scroll preview, `<C-l>`/`<C-h>` panel nav, filter hotkeys, `q` close, `/` → typing.
+---@type table?  the currently-open finder's state — a NEW open() closes it first, so re-opening REPLACES the
+--- content instead of stacking a second finder over the stale one.
+local _current = nil
+
 ---@param opts LvimPickerOpts
 function M.open(opts)
     opts = opts or {}
+    -- A finder already open? Close it FIRST so this open() replaces it (no stacking / no stale list left behind).
+    if _current and not _current.closed and _current.st and _current.st.close then
+        pcall(_current.st.close)
+    end
+    _current = nil
     local surface = require("lvim-utils.ui.surface")
     local items = normalize(opts.items, opts.format)
     local maxr = opts.max_rows or 15
@@ -898,7 +907,7 @@ function M.open(opts)
         -- preview aren't covered by it — our panels land at 211, the prompt at 212, all clear of the messages
         -- that render in the zone panel BELOW us. Unhosted area stays in the cmdline layer at 200.
         zindex = (host and 210) or (area and 200) or nil,
-        header_air = (docked and not titled) and false or nil,
+        header_air = false, -- no LEADING air row; the title_counter bar (or the filter/input) is the top row
         direction = vertical and "vertical" or nil,
         title = surf_title,
         -- Docked: a native top-border TITLE when there IS a title (the canon — a top " " border, no ring +
@@ -924,9 +933,11 @@ function M.open(opts)
                         hl = hl("title", "LvimUiPeekTitle"),
                         count_hl = hl("counter", "LvimUiSubtitle"),
                     }
+                    hb[#hb + 1] = { text = "" } -- 1 blank air row under the title/counter bar
                 end
                 if filters then
                     hb[#hb + 1] = build_filter_bar() -- a real header row above the prompt
+                    hb[#hb + 1] = { text = "" } -- 1 blank air row under the filter (button) bar
                 end
                 hb[#hb + 1] = {
                     input = true,
@@ -997,6 +1008,9 @@ function M.open(opts)
         close_keys = {}, -- the input owns <Esc>/<C-c>; the panels are not normally focused
         on_close = function()
             state.closed = true
+            if _current == state then
+                _current = nil -- forget the current finder once it closes (only if it is still us)
+            end
             if msgarea then -- release our hosted rows so the zone shrinks back (or closes if nothing else)
                 pcall(function()
                     msgarea.segment("lvim-picker-host"):release()
@@ -1008,6 +1022,8 @@ function M.open(opts)
             end
         end,
     })
+
+    _current = state -- track THIS finder as the open one (its surface is now live)
 
     -- initial: show all, select the first, preview it (fetch + fit + render)
     rerender()
