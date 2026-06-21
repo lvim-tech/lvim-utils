@@ -90,6 +90,7 @@ local _printers = {}
 -- new message arriving while you browse keeps your filter, and the focus save/restore is not clobbered).
 local _hist_filter = nil ---@type string?
 local _hist_saved = nil ---@type table?
+local _hist_sel = 1 ---@type integer  the focused filter-bar button (l/h move it; <CR> activates it)
 
 -- One panel per level: _panels[level] = { win, buf, width, height, entries }
 local _panels = {}
@@ -919,46 +920,60 @@ end
 -- close YELLOW (the two extra hues added to msg_highlights).
 local _btn_cap = { a = "Info", e = "Error", w = "Warn", i = "Info", d = "Debug", r = "Refresh", q = "Close" }
 
--- The history filter bar as the segment's TITLE row: an optional left "Messages" title, then a coloured badge
--- + label per button (the ACTIVE filter bold via the "Sel" tint). `opts` = `{ key_pad = {l,r}, label_pad =
--- {l,r}, gap, title? }` — the key badge + the label each get their OWN configurable padding; `gap` separates
--- buttons; `title` (shown only when NOT published to the statusline) is the left label.
+-- The history filter bar's BUTTONS, in display order. Each: key (the letter + hotkey), label, lvl (the level
+-- it filters to, nil for All / actions), filt (a filter vs an action).
+local _bar_btns = {
+    { k = "a", l = "All", lvl = nil, filt = true },
+    { k = "e", l = "Error", lvl = "error", filt = true },
+    { k = "w", l = "Warn", lvl = "warn", filt = true },
+    { k = "i", l = "Info", lvl = "info", filt = true },
+    { k = "d", l = "Debug", lvl = "debug", filt = true },
+    { k = "r", l = "Refresh", lvl = nil, filt = false },
+    { k = "q", l = "close", lvl = nil, filt = false },
+}
+
+-- The history filter bar rendered THROUGH ui.bar — so it gets real button navigation (`l`/`h` move the
+-- selection, the `sel` one lit) + overflow CHEVRONS, like the finder bars. Returns the row text + the per-cell
+-- hls (msgarea span format), with the active FILTER bold and the SELECTED button (cursor) lit.
 ---@param filter string?  the active level filter (nil = All)
----@param opts table
+---@param opts table  `{ key_pad = {l,r}, label_pad = {l,r}, gap }`
+---@param sel? integer  the focused button index (lit via the hover state); nil = none
 ---@return string text, table spans
-local function _history_bar(filter, opts)
-    local kp, lp, gap = opts.key_pad, opts.label_pad, opts.gap
-    local btns = {
-        { k = "a", l = "All", lvl = nil, filt = true },
-        { k = "e", l = "Error", lvl = "error", filt = true },
-        { k = "w", l = "Warn", lvl = "warn", filt = true },
-        { k = "i", l = "Info", lvl = "info", filt = true },
-        { k = "d", l = "Debug", lvl = "debug", filt = true },
-        { k = "r", l = "Refresh", lvl = nil, filt = false },
-        { k = "q", l = "close", lvl = nil, filt = false },
-    }
-    local text = ""
-    local spans = { { eol = true, hl = "LvimUiMsgAreaNormal", priority = 1 } } -- the row's own bg
-    if opts.title and opts.title ~= "" then
-        local t0 = #text
-        text = text .. " " .. opts.title .. "  "
-        spans[#spans + 1] = { c0 = t0, c1 = #text, hl = "LvimUiMsgAreaTitle", priority = 110 }
-    end
-    for _, b in ipairs(btns) do
-        local cap = _btn_cap[b.k]
-        local active = b.filt and (b.lvl == filter)
-        local k0 = #text
-        text = text .. (" "):rep(kp[1]) .. b.k .. (" "):rep(kp[2]) -- the key badge, its own padding
-        spans[#spans + 1] = { c0 = k0, c1 = #text, hl = "LvimUiMsg" .. cap .. "Icon", priority = 120 }
-        local l0 = #text
-        text = text .. (" "):rep(lp[1]) .. b.l .. (" "):rep(lp[2]) -- the label, its own padding
-        spans[#spans + 1] =
-            { c0 = l0, c1 = #text, hl = "LvimUiMsg" .. cap .. (active and "Sel" or "Text"), priority = 110 }
-        if gap > 0 then
-            text = text .. (" "):rep(gap)
+local function _history_bar(filter, opts, sel)
+    local uibar = require("lvim-utils.ui.bar")
+    local items = {}
+    for bi, b in ipairs(_bar_btns) do
+        if bi > 1 and (opts.gap or 0) > 0 then
+            items[#items + 1] = { type = "separator", text = (" "):rep(opts.gap) }
         end
+        local cap = _btn_cap[b.k]
+        items[#items + 1] = {
+            type = "button",
+            text = b.l,
+            key = b.k, -- ui.button brackets the hotkey letter
+            active = b.filt and (b.lvl == filter),
+            style = {
+                icon = {
+                    padding = opts.key_pad,
+                    normal = "LvimUiMsg" .. cap .. "Icon",
+                    active = "LvimUiMsg" .. cap .. "Icon",
+                    hover = "LvimUiMsg" .. cap .. "Sel",
+                },
+                text = {
+                    padding = opts.label_pad,
+                    normal = "LvimUiMsg" .. cap .. "Text",
+                    active = "LvimUiMsg" .. cap .. "Sel",
+                    hover = "LvimUiMsg" .. cap .. "Sel",
+                },
+            },
+        }
     end
-    return text, spans
+    local res = uibar.render({ items = items, width = vim.o.columns, align = "left", sel = sel, hover = sel })
+    local hls = { { eol = true, hl = "LvimUiMsgAreaNormal", priority = 1 } } -- the row bg under the buttons
+    for _, sp in ipairs(res.spans) do
+        hls[#hls + 1] = { c0 = sp[1], c1 = sp[2], hl = sp[3], priority = 100 }
+    end
+    return res.line, hls
 end
 
 --- Render the log into the zone's "history" segment (priority 10 — below a hosted finder), optionally FOCUS
@@ -1014,8 +1029,7 @@ local function _history_zone_render(focus)
         end
     end
     local function render()
-        local bopts = vim.tbl_extend("force", opts, { title = (not use_status) and title_text or nil })
-        local bar, bar_hls = _history_bar(_hist_filter, bopts)
+        local bar, bar_hls = _history_bar(_hist_filter, opts, _hist_sel)
         seg:configure({ title = bar, title_hls = bar_hls })
         seg:set(_history_zone_lines(_hist_filter))
     end
@@ -1023,6 +1037,20 @@ local function _history_zone_render(focus)
         _hist_filter = f
         render()
         publish()
+    end
+    local function run_btn(b) -- activate a bar button (a hotkey, or <CR> on the focused one)
+        if not b then
+            return
+        end
+        if b.filt then
+            refilter(b.lvl) -- a level filter (All / Error / …)
+        elseif b.k == "r" then
+            render()
+            publish() -- Refresh
+        elseif b.k == "q" then
+            seg:clear()
+            ma.blur() -- close
+        end
     end
 
     seg:configure({
@@ -1046,6 +1074,18 @@ local function _history_zone_render(focus)
             r = function()
                 render()
                 publish()
+            end,
+            -- BAR navigation: `l`/`h` move the focused button, `<CR>` activates it (chevrons scroll-follow it)
+            l = function()
+                _hist_sel = math.min(#_bar_btns, _hist_sel + 1)
+                render()
+            end,
+            h = function()
+                _hist_sel = math.max(1, _hist_sel - 1)
+                render()
+            end,
+            ["<CR>"] = function()
+                run_btn(_bar_btns[_hist_sel])
             end,
         },
         -- The statusline is FOCUS-driven (so it is right even on re-descend): entering snapshots whoever owns
