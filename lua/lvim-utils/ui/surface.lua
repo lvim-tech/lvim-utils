@@ -24,6 +24,12 @@
 -- NOT a float — for a persistent NAVIGABLE side panel like the lsp outline, so `<C-w>` nav and buffer
 -- redraw behave natively; title = winbar, no bars).
 --
+-- A `position = "cmdline"` float OWNS the command-line region (grows `cmdheight` so heirline / a global
+-- statusline stay above it, floats over those rows). Optionally HOSTED: pass `host = fn(height) -> rect` and
+-- the surface, instead of growing cmdheight itself, reserves `height` rows in that host zone (the msgarea,
+-- which owns cmdheight) and lays out over the returned rect — so the host composes other content (messages)
+-- BELOW it in the same region. Wire the host segment's reflow to `st.reposition(rect)` so the surface follows.
+--
 ---@module "lvim-utils.ui.surface"
 
 local uibar = require("lvim-utils.ui.bar")
@@ -914,49 +920,12 @@ local function set_keys(state)
     state.map_hotkeys(state.container_buf, reserved)
 end
 
---- Re-fit the floating panels to the container's CURRENT size and re-render the chrome. Called when the
---- docked split is resized (or the editor on `VimResized`): the header/footer bands keep their fixed
---- heights, so the CENTER absorbs the change, and the panel floats follow instead of staying put.
+--- Move the center panels + editable input bands to a computed layout `L`, then repaint the chrome. NO
+--- container/cmdheight side effects — the caller has already placed the container — so it is safe to call on
+--- a host-zone reflow (`reposition`) without re-reserving (which would loop).
 ---@param state table
-local function relayout(state)
-    if state._closed or not (state.container_win and api.nvim_win_is_valid(state.container_win)) then
-        return
-    end
-    local L
-    if state.cfg.mode == "split" then
-        -- The split was resized by the user. `compute_geom` floors the center at `min_content_height`
-        -- VISIBLE rows and reports the matching minimum container height — if the user shrank below it,
-        -- snap the split back up so the center keeps its rows, then re-fit.
-        local function geom()
-            local pos = api.nvim_win_get_position(state.container_win)
-            return compute_geom(state, {
-                row = pos[1],
-                col = pos[2],
-                W = api.nvim_win_get_width(state.container_win),
-                H = api.nvim_win_get_height(state.container_win),
-            })
-        end
-        L = geom()
-        if api.nvim_win_get_height(state.container_win) < L.min_h then
-            pcall(api.nvim_win_set_height, state.container_win, L.min_h)
-            L = geom()
-        end
-    else
-        -- A float reflows to the (possibly resized) screen; move the container float too.
-        L = compute_geom(state)
-        if state.cfg.position == "cmdline" then
-            -- Grow the cmdline region to the content; the helper clamps to the room the splits leave + steps
-            -- down on a stray E36 (`L.H` is already clamped in compute_geom, so it normally sets as-is).
-            set_cmdheight(L.H)
-        end
-        pcall(api.nvim_win_set_config, state.container_win, {
-            relative = "editor",
-            width = L.W,
-            height = L.H,
-            row = L.row,
-            col = L.col,
-        })
-    end
+---@param L table
+local function place_panels(state, L)
     state._geom = L
     for i, pan in ipairs(state.panels) do
         local pl = L.panels[i]
@@ -995,6 +964,95 @@ local function relayout(state)
         end
     end
     render_chrome(state, L)
+end
+
+--- Resolve the geometry of a `cmdline`-position surface, growing the command-line region to fit it. Two
+--- modes: UNHOSTED grows OUR `cmdheight` (saving the user's once, to restore on close) and floats over those
+--- rows. HOSTED (`cfg.host`) instead reserves `L.H` rows in a host zone (the msgarea, which owns cmdheight)
+--- and re-lays-out over the rect it hands back — so the host can compose messages BELOW us in the same
+--- region. Returns the (possibly re-placed) layout.
+---@param state table
+---@param L table
+---@return table
+local function host_geom(state, L)
+    if state.cfg.host then
+        local rect = state.cfg.host(L.H) -- reserve L.H rows; the host grows ITS cmdheight + returns our rect
+        if rect then
+            return compute_geom(state, { row = rect.row, col = rect.col, W = rect.width, H = L.H })
+        end
+        return L
+    end
+    if state.base_cmdheight == nil then
+        state.base_cmdheight = vim.o.cmdheight -- save the user's cmdheight once, to restore on close
+    end
+    -- Grow the cmdline region to the content; the helper clamps to the room the splits leave + steps down on
+    -- a stray E36 (`L.H` is already clamped in compute_geom, so it normally sets as-is).
+    set_cmdheight(L.H)
+    return L
+end
+
+--- (HOSTED) Re-place the surface over a NEW host-zone rect (the msgarea handed us a fresh one because it
+--- reflowed — a message appeared / cleared below us). Lays out over the rect WITHOUT re-reserving, so it
+--- cannot trigger another reflow (which would loop). No-op unless the surface is open.
+---@param state table
+---@param rect table?  { win, row, col, width, height }
+local function reposition(state, rect)
+    if state._closed or not rect or not (state.container_win and api.nvim_win_is_valid(state.container_win)) then
+        return
+    end
+    local L = compute_geom(state, { row = rect.row, col = rect.col, W = rect.width, H = rect.height })
+    pcall(api.nvim_win_set_config, state.container_win, {
+        relative = "editor",
+        width = L.W,
+        height = L.H,
+        row = L.row,
+        col = L.col,
+    })
+    place_panels(state, L)
+end
+
+--- Re-fit the floating panels to the container's CURRENT size and re-render the chrome. Called when the
+--- docked split is resized (or the editor on `VimResized`): the header/footer bands keep their fixed
+--- heights, so the CENTER absorbs the change, and the panel floats follow instead of staying put.
+---@param state table
+local function relayout(state)
+    if state._closed or not (state.container_win and api.nvim_win_is_valid(state.container_win)) then
+        return
+    end
+    local L
+    if state.cfg.mode == "split" then
+        -- The split was resized by the user. `compute_geom` floors the center at `min_content_height`
+        -- VISIBLE rows and reports the matching minimum container height — if the user shrank below it,
+        -- snap the split back up so the center keeps its rows, then re-fit.
+        local function geom()
+            local pos = api.nvim_win_get_position(state.container_win)
+            return compute_geom(state, {
+                row = pos[1],
+                col = pos[2],
+                W = api.nvim_win_get_width(state.container_win),
+                H = api.nvim_win_get_height(state.container_win),
+            })
+        end
+        L = geom()
+        if api.nvim_win_get_height(state.container_win) < L.min_h then
+            pcall(api.nvim_win_set_height, state.container_win, L.min_h)
+            L = geom()
+        end
+    else
+        -- A float reflows to the (possibly resized) screen; move the container float too.
+        L = compute_geom(state)
+        if state.cfg.position == "cmdline" then
+            L = host_geom(state, L) -- HOSTED: reserve our rows in the host zone (it owns cmdheight); else grow it
+        end
+        pcall(api.nvim_win_set_config, state.container_win, {
+            relative = "editor",
+            width = L.W,
+            height = L.H,
+            row = L.row,
+            col = L.col,
+        })
+    end
+    place_panels(state, L)
 end
 
 -- ─── open / close ─────────────────────────────────────────────────────────────
@@ -1042,12 +1100,11 @@ local function open_windows(state)
         end
     else
         L = compute_geom(state)
-        -- A `cmdline` surface OWNS the command-line region: grow `cmdheight` to its height so the editor
-        -- (and heirline / a global statusline) reflow ABOVE it, then float over those rows. Save the user's
-        -- cmdheight to restore on close.
+        -- A `cmdline` surface OWNS the command-line region: UNHOSTED grows `cmdheight` to its height so the
+        -- editor (and heirline / a global statusline) reflow ABOVE it, then floats over those rows; HOSTED
+        -- reserves its rows in the host zone (which owns the cmdheight) so messages compose below it.
         if state.cfg.position == "cmdline" then
-            state.base_cmdheight = vim.o.cmdheight
-            set_cmdheight(L.H) -- clamped to the room the splits leave (no E36)
+            L = host_geom(state, L)
         end
         -- The brand is the window's TOP-border title (needs a top border, ct > 0), built from the `title`
         -- box (icon box + text box, each its own padding + colour). `title_pos` must only be set WITH a
@@ -1219,6 +1276,11 @@ local function open_windows(state)
     -- auto-sized frame whose content changed at runtime (e.g. a tab switch swapping the form's row count).
     state.relayout = function()
         relayout(state)
+    end
+    -- (HOSTED) Re-place over a fresh host-zone rect WITHOUT re-reserving (the host called us because it
+    -- reflowed). Wired by the caller as the host segment's `on_rect`, so the surface follows the zone.
+    state.reposition = function(rect)
+        reposition(state, rect)
     end
     state.sectors = build_sectors(state)
     state.center_panel = 1
