@@ -481,13 +481,18 @@ local function segment_rect(s)
 end
 
 --- Notify every reserve segment that registered an `on_rect` of its CURRENT rect, so a hosted float (the
---- area finder) follows the zone as messages appear / clear and it reflows.
+--- area finder) follows the zone as messages appear / clear and it reflows. Returns whether ANY such hosted
+--- reserve exists (the caller flushes the redraw so the repositioned float actually repaints).
+---@return boolean hosted
 local function notify_reserves()
+    local hosted = false
     for _, s in ipairs(segments) do
         if s.kind == "reserve" and s.on_rect then
+            hosted = true
             s.on_rect(segment_rect(s))
         end
     end
+    return hosted
 end
 
 --- Re-fit + repaint the surface to the current segments. The content height changes with the segments, so
@@ -500,10 +505,12 @@ local function refresh_surface()
     if surf_panel and surf_panel.refresh then
         surf_panel.refresh()
     end
-    notify_reserves() -- hosted floats follow the reflowed zone
-    -- In COMMAND-LINE mode the screen does not repaint between events, so flush now (else completion lands
-    -- a cursor-blink late) — the same fix the bespoke render uses.
-    if vim.fn.mode():sub(1, 1) == "c" then
+    local hosted = notify_reserves() -- hosted floats follow the reflowed zone
+    -- Flush the redraw when nothing else will repaint the moved windows: COMMAND-LINE mode (the screen does
+    -- not repaint between cmdline events — else completion lands a cursor-blink late) OR a HOSTED float (the
+    -- area finder repositions OUTSIDE the event loop — during its synchronous open and on async message
+    -- reflows — so without a flush its panels stay stale/blank until the next keystroke).
+    if hosted or vim.fn.mode():sub(1, 1) == "c" then
         pcall(api.nvim__redraw, { flush = true })
     end
 end

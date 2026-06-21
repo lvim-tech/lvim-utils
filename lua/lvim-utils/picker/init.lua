@@ -942,6 +942,12 @@ function M.open(opts)
 
     -- initial: show all, select the first, preview it (fetch + fit + render)
     rerender()
+    -- (HOSTED) the open + first render run synchronously, before any event-loop repaint; flush so the finder
+    -- paints immediately instead of staying blank until the first keystroke (the same reason the msgarea zone
+    -- flushes after a hosted reflow).
+    if msgarea then
+        pcall(api.nvim__redraw, { flush = true })
+    end
 
     -- LIVE refresh: re-fetch the static items on `opts.refresh_events` (e.g. "DiagnosticChanged") via
     -- `opts.refresh()`, then re-narrow (filters) + re-fuzzy + re-render. Coalesce a burst into ONE reload.
