@@ -72,6 +72,7 @@ local content_lines = 0
 ---@field keys? table<string, fun(handle: table)>  custom keymaps active while this segment is focused
 ---@field title? string  an optional header row drawn above this segment's content (separates owners)
 ---@field title_hls? table  span list styling the title row per-cell (e.g. the history filter-bar badges)
+---@field title_when_focused? boolean  show the title row ONLY while this segment is focused (e.g. the bar)
 
 ---@type LvimMsgAreaSegment[]  the stack, kept sorted by priority
 local segments = {}
@@ -357,8 +358,14 @@ local function compose()
 
         -- 2) a title header row above the content (only when the segment actually has content, never a reserve).
         -- `title_hls` (a span list) styles it per-cell — e.g. the history's coloured filter-bar badges; else the
-        -- whole row is the plain title tint.
-        if s.title and #seg_lines > 0 and s.kind ~= "reserve" then
+        -- whole row is the plain title tint. `title_when_focused` hides it unless this segment is FOCUSED — so
+        -- the messages read as clean tinted lines passively, and the filter bar appears only while browsing.
+        if
+            s.title
+            and #seg_lines > 0
+            and s.kind ~= "reserve"
+            and (not s.title_when_focused or active_name == s.name)
+        then
             lines[#lines + 1] = s.title_hls and s.title or (" " .. s.title)
             hls[#hls + 1] = s.title_hls or "LvimUiMsgAreaTitle"
         end
@@ -896,7 +903,7 @@ end
 
 --- Configure the segment's header `title` (a row drawn above its content) and the `keys` active while it is
 --- focused (lhs → fn(handle) — e.g. the history view's level filters). Set fields are merged; nil ones keep.
----@param opts { title?: string, title_hls?: table, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?), on_focus?: fun(), on_blur?: fun() }
+---@param opts { title?: string, title_hls?: table, title_when_focused?: boolean, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?), on_focus?: fun(), on_blur?: fun() }
 ---@return LvimMsgAreaHandle
 function Handle:configure(opts)
     local s = seg_get(self.name)
@@ -908,6 +915,9 @@ function Handle:configure(opts)
     end
     if opts.title_hls ~= nil then
         s.title_hls = opts.title_hls
+    end
+    if opts.title_when_focused ~= nil then
+        s.title_when_focused = opts.title_when_focused
     end
     if opts.keys ~= nil then
         s.keys = opts.keys

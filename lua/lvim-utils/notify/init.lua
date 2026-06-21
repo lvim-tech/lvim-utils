@@ -1006,6 +1006,7 @@ local function _history_in_zone(ma)
     end
 
     seg:configure({
+        title_when_focused = true, -- the filter bar shows only while browsing (focused); else clean tinted lines
         keys = {
             a = function()
                 refilter(nil)
