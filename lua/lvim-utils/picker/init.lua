@@ -192,8 +192,14 @@ function M.open(opts)
     -- own border title. `statusline = false` keeps the title/counter IN the navigator. Only the DOCKED
     -- navigator (the area/minibuffer model) uses it; a centred float always shows its own title.
     local docked_layout = opts.layout == "bottom" or opts.layout == "area"
+    -- opt-in resolves as: a per-call `opts.statusline` wins; else the GLOBAL `config.picker.statusline`
+    -- (default true) — so one switch turns it off for every finder across all plugins.
+    local sl = opts.statusline
+    if sl == nil then
+        sl = (require("lvim-utils.config").picker or {}).statusline ~= false
+    end
     -- the global echo master switch (config.status.enabled) AND this picker opting in
-    local use_status = docked_layout and status.is_enabled() and opts.statusline ~= false
+    local use_status = docked_layout and status.is_enabled() and sl
     local function publish_status()
         if use_status then
             -- a per-selection subtitle (e.g. the focused file name) shown after the title in the statusline

@@ -7,6 +7,11 @@
 ---@module "lvim-utils.config.picker"
 
 return {
+    -- Publish the finder's title + match counter + query to the bottom statusline (lvim-utils.status) for
+    -- EVERY docked finder (area/bottom) — diagnostics, buffers, any plugin's picker. false = each finder draws
+    -- the title/counter IN its own navigator instead. A per-call `opts.statusline` overrides this global.
+    statusline = true,
+
     -- The PROMPT badge shown before the typed query: an icon and/or label (either may be "" — icon only /
     -- text only / icon + text). A per-call `opts.prompt` string overrides it.
     prompt = {
