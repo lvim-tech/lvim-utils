@@ -955,13 +955,13 @@ local function _history_bar(filter, opts, sel, hover)
             key_badge = true,
             active = b.filt and (b.lvl == filter),
             style = {
-                -- TWO parts: the hotkey LETTER badge always at 0.2 (Icon); the NAME at 0.1 (Text) normally,
-                -- rising to 0.2 (Icon) when HOVERED or the ACTIVE (current) filter — so both parts then match.
+                -- TWO parts: the hotkey LETTER badge at 0.2 (Icon), the NAME at 0.1 (Text). When HOVERED or the
+                -- ACTIVE (current) filter, EACH part brightens by +0.1 — badge 0.2 → 0.3 (Key), name 0.1 → 0.2.
                 icon = {
                     padding = opts.key_pad,
                     normal = "LvimUiMsg" .. cap .. "Icon",
-                    active = "LvimUiMsg" .. cap .. "Icon",
-                    hover = "LvimUiMsg" .. cap .. "Icon",
+                    active = "LvimUiMsg" .. cap .. "Key",
+                    hover = "LvimUiMsg" .. cap .. "Key",
                 },
                 text = {
                     padding = opts.label_pad,
@@ -1353,6 +1353,8 @@ function M.msg_highlights()
         -- The ACTIVE (cursor) message row when the zone is focused: same hue, STRONGER tint (fg + a 0.4 blend
         -- + bold — the help-window active-row canon), so the focused row stands out while the cursor is hidden.
         g["LvimUiMsg" .. name .. "Sel"] = { fg = col, bg = b(col, bg, 0.4), bold = true }
+        -- 0.3 tint — the filter bar's hotkey badge when its button is HOVERED / the ACTIVE filter (badge 0.2 → 0.3).
+        g["LvimUiMsg" .. name .. "Key"] = { fg = col, bg = b(col, bg, 0.3), bold = true }
     end
     return g
 end
