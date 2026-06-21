@@ -926,13 +926,13 @@ local _btn_cap = { a = "Info", e = "Error", w = "Warn", i = "Info", d = "Debug",
 -- The history filter bar's BUTTONS, in display order. Each: key (the letter + hotkey), label, lvl (the level
 -- it filters to, nil for All / actions), filt (a filter vs an action).
 local _bar_btns = {
-    { k = "a", l = "All", lvl = nil, filt = true },
-    { k = "e", l = "Error", lvl = "error", filt = true },
-    { k = "w", l = "Warn", lvl = "warn", filt = true },
-    { k = "i", l = "Info", lvl = "info", filt = true },
-    { k = "d", l = "Debug", lvl = "debug", filt = true },
-    { k = "r", l = "Refresh", lvl = nil, filt = false },
-    { k = "q", l = "Close", lvl = nil, filt = false },
+    { id = "all", k = "a", l = "All", lvl = nil, filt = true },
+    { id = "error", k = "e", l = "Error", lvl = "error", filt = true },
+    { id = "warn", k = "w", l = "Warn", lvl = "warn", filt = true },
+    { id = "info", k = "i", l = "Info", lvl = "info", filt = true },
+    { id = "debug", k = "d", l = "Debug", lvl = "debug", filt = true },
+    { id = "refresh", k = "r", l = "Refresh", lvl = nil, filt = false },
+    { id = "close", k = "q", l = "Close", lvl = nil, filt = false },
 }
 
 -- The history filter bar rendered THROUGH ui.bar — so it gets real button navigation (`l`/`h` move the
@@ -945,6 +945,7 @@ local _bar_btns = {
 ---@return string text, table spans
 local function _history_bar(filter, opts, sel, hover)
     local uibar = require("lvim-utils.ui.bar")
+    local labels = ((_cfg.history or {}).bar or {}).labels or {}
     local items = {}
     for bi, b in ipairs(_bar_btns) do
         if bi > 1 and (opts.gap or 0) > 0 then
@@ -953,24 +954,24 @@ local function _history_bar(filter, opts, sel, hover)
         local cap = _btn_cap[b.k]
         items[#items + 1] = {
             type = "button",
-            text = b.l,
+            text = labels[b.id] or b.l, -- a config label override, else the default name
             key = b.k, -- the lowercase hotkey (a/e/w/…) as its OWN badge box ahead of the name — no brackets
             key_badge = true,
             active = b.filt and (b.lvl == filter),
             style = {
-                -- TWO parts: the hotkey LETTER badge at 0.2 (Icon), the NAME at 0.1 (Text). When HOVERED or the
-                -- ACTIVE (current) filter, EACH part brightens by +0.2 — badge 0.2 → 0.4 (Sel), name 0.1 → 0.3.
+                -- TWO parts (each tint config-driven, history.bar.tints): the hotkey LETTER badge (Badge), the
+                -- NAME (Name). When HOVERED or the ACTIVE filter, each brightens to its "A" (active) tint.
                 icon = {
                     padding = opts.key_pad,
-                    normal = "LvimUiMsg" .. cap .. "Icon",
-                    active = "LvimUiMsg" .. cap .. "Sel",
-                    hover = "LvimUiMsg" .. cap .. "Sel",
+                    normal = "LvimUiMsg" .. cap .. "BadgeN",
+                    active = "LvimUiMsg" .. cap .. "BadgeA",
+                    hover = "LvimUiMsg" .. cap .. "BadgeA",
                 },
                 text = {
                     padding = opts.label_pad,
-                    normal = "LvimUiMsg" .. cap .. "Text",
-                    active = "LvimUiMsg" .. cap .. "Key",
-                    hover = "LvimUiMsg" .. cap .. "Key",
+                    normal = "LvimUiMsg" .. cap .. "NameN",
+                    active = "LvimUiMsg" .. cap .. "NameA",
+                    hover = "LvimUiMsg" .. cap .. "NameA",
                 },
             },
         }
@@ -1350,6 +1351,11 @@ function M.msg_highlights()
     local g = {}
     -- the level tints + two extra hues for the history bar's action buttons (Refresh green, Close yellow)
     local msg = { Error = c.red, Warn = c.orange, Info = c.blue, Debug = c.purple, Refresh = c.green, Close = c.yellow }
+    -- the filter bar's per-part tint strengths come from config (history.bar.tints) — fully customisable.
+    local bt = ((_cfg.history or {}).bar or {}).tints or {}
+    local badge_t, name_t = bt.badge or {}, bt.name or {}
+    local bn, ba = badge_t.normal or 0.2, badge_t.active or 0.4
+    local nn, na = name_t.normal or 0.1, name_t.active or 0.3
     for name, col in pairs(msg) do
         g["LvimUiMsg" .. name] = { fg = col, bg = b(col, bg, 0.1) }
         g["LvimUiMsg" .. name .. "Text"] = { fg = col, bg = b(col, bg, 0.1) }
@@ -1358,8 +1364,11 @@ function M.msg_highlights()
         -- The ACTIVE (cursor) message row when the zone is focused: same hue, STRONGER tint (fg + a 0.4 blend
         -- + bold — the help-window active-row canon), so the focused row stands out while the cursor is hidden.
         g["LvimUiMsg" .. name .. "Sel"] = { fg = col, bg = b(col, bg, 0.4), bold = true }
-        -- 0.3 tint — the filter bar's hotkey badge when its button is HOVERED / the ACTIVE filter (badge 0.2 → 0.3).
-        g["LvimUiMsg" .. name .. "Key"] = { fg = col, bg = b(col, bg, 0.3), bold = true }
+        -- The filter bar's two button parts, each in a NORMAL + ACTIVE/hover tint (config-driven).
+        g["LvimUiMsg" .. name .. "BadgeN"] = { fg = col, bg = b(col, bg, bn), bold = true }
+        g["LvimUiMsg" .. name .. "BadgeA"] = { fg = col, bg = b(col, bg, ba), bold = true }
+        g["LvimUiMsg" .. name .. "NameN"] = { fg = col, bg = b(col, bg, nn) }
+        g["LvimUiMsg" .. name .. "NameA"] = { fg = col, bg = b(col, bg, na), bold = true }
     end
     return g
 end

@@ -74,4 +74,34 @@ return {
         warn = "Warn",
         error = "Error",
     },
+
+    -- ── Message history / :Messages zone ─────────────────────────────────────────────────────────────
+    -- The styled message panel (lvim-utils.msgarea) + its filter bar. Fully customisable here.
+    history = {
+        target = "cmdline", -- fallback pager when the zone is off: "cmdline" | "split"
+        title = "Messages", -- the panel label
+        statusline = true, -- true: publish the title + count to the statusline; false: show the title at the LEFT of the bar
+        -- The focused filter bar (rendered through ui.bar — navigable buttons + overflow chevrons).
+        bar = {
+            key_pad = { 1, 1 }, -- the hotkey BADGE padding { front, back }
+            label_pad = { 1, 1 }, -- the NAME padding { front, back }
+            gap = 0, -- extra spacing inserted between buttons
+            -- Background-tint strength (blend toward the bg) per part + state. The two parts brighten together
+            -- when a button is HOVERED or is the ACTIVE filter.
+            tints = {
+                badge = { normal = 0.2, active = 0.4 }, -- the hotkey letter
+                name = { normal = 0.1, active = 0.3 }, -- the name
+            },
+            -- Per-button label override (keyed by id: all/error/warn/info/debug/refresh/close). nil = default.
+            labels = {
+                all = "All",
+                error = "Error",
+                warn = "Warn",
+                info = "Info",
+                debug = "Debug",
+                refresh = "Refresh",
+                close = "Close",
+            },
+        },
+    },
 }
