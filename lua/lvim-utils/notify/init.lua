@@ -911,11 +911,19 @@ local function _history_zone_lines(filter)
     return lines, hls
 end
 
--- The history filter bar as the segment's TITLE row: a coloured badge + label per button — All / per-level
--- (in its level colour, ACTIVE one bold via the "Sel" tint) / Refresh / close — over the zone bg.
+-- Each history-bar button's hl prefix: a / All is blue (Info), the levels their own colour, Refresh GREEN,
+-- close YELLOW (the two extra hues added to msg_highlights).
+local _btn_cap = { a = "Info", e = "Error", w = "Warn", i = "Info", d = "Debug", r = "Refresh", q = "Close" }
+
+-- The history filter bar as the segment's TITLE row: an optional left "Messages" title, then a coloured badge
+-- + label per button (the ACTIVE filter bold via the "Sel" tint). `opts` = `{ key_pad = {l,r}, label_pad =
+-- {l,r}, gap, title? }` — the key badge + the label each get their OWN configurable padding; `gap` separates
+-- buttons; `title` (shown only when NOT published to the statusline) is the left label.
 ---@param filter string?  the active level filter (nil = All)
+---@param opts table
 ---@return string text, table spans
-local function _history_bar(filter)
+local function _history_bar(filter, opts)
+    local kp, lp, gap = opts.key_pad, opts.label_pad, opts.gap
     local btns = {
         { k = "a", l = "All", lvl = nil, filt = true },
         { k = "e", l = "Error", lvl = "error", filt = true },
@@ -925,44 +933,71 @@ local function _history_bar(filter)
         { k = "r", l = "Refresh", lvl = nil, filt = false },
         { k = "q", l = "close", lvl = nil, filt = false },
     }
-    local text = " "
+    local text = ""
     local spans = { { eol = true, hl = "LvimUiMsgAreaNormal", priority = 1 } } -- the row's own bg
+    if opts.title and opts.title ~= "" then
+        local t0 = #text
+        text = text .. " " .. opts.title .. "  "
+        spans[#spans + 1] = { c0 = t0, c1 = #text, hl = "LvimUiMsgAreaTitle", priority = 110 }
+    end
     for _, b in ipairs(btns) do
+        local cap = _btn_cap[b.k]
         local active = b.filt and (b.lvl == filter)
-        local badge_hl, label_hl
-        if b.lvl then -- a level: coloured badge + label (bold "Sel" when it is the active filter)
-            local cap = _hist_cap[b.lvl]
-            badge_hl = "LvimUiMsg" .. cap .. "Icon"
-            label_hl = "LvimUiMsg" .. cap .. (active and "Sel" or "Text")
-        elseif b.filt then -- All: bright when active, dim otherwise
-            badge_hl = active and "LvimUiMsgAreaTitle" or "LvimUiMsgAreaItemSource"
-            label_hl = badge_hl
-        else -- Refresh / close (actions, not filters)
-            badge_hl, label_hl = "LvimUiMsgAreaItem", "LvimUiMsgAreaItem"
+        local k0 = #text
+        text = text .. (" "):rep(kp[1]) .. b.k .. (" "):rep(kp[2]) -- the key badge, its own padding
+        spans[#spans + 1] = { c0 = k0, c1 = #text, hl = "LvimUiMsg" .. cap .. "Icon", priority = 120 }
+        local l0 = #text
+        text = text .. (" "):rep(lp[1]) .. b.l .. (" "):rep(lp[2]) -- the label, its own padding
+        spans[#spans + 1] =
+            { c0 = l0, c1 = #text, hl = "LvimUiMsg" .. cap .. (active and "Sel" or "Text"), priority = 110 }
+        if gap > 0 then
+            text = text .. (" "):rep(gap)
         end
-        local p0 = #text
-        text = text .. " " .. b.k .. " " -- the key badge
-        spans[#spans + 1] = { c0 = p0, c1 = #text, hl = badge_hl, priority = 120 }
-        local p1 = #text
-        text = text .. b.l .. " " -- the label
-        spans[#spans + 1] = { c0 = p1, c1 = #text, hl = label_hl, priority = 110 }
-        text = text .. "  " -- gap between buttons
     end
     return text, spans
 end
 
 --- Render the log into the zone's "history" segment (priority 10 — below a hosted finder) + focus it: `j`/`k`
---- scroll with the active row lit, the level keys filter (a styled bar shows which is active), `r` refreshes,
---- `q` dismisses (the generic zone key). The inline recent-messages scrollback is cleared (history wins).
+--- scroll with the active row lit, the level keys filter (the bar shows which is active), `r` refreshes, `q`
+--- dismisses. The inline recent-messages scrollback is cleared (the history wins). With `history.statusline`
+--- (default true) the "Messages" title + count publish to the bottom statusline (which therefore changes with
+--- focus — finder vs messages) and the bar omits the title; else the title sits in the bar.
 ---@param ma table  the lvim-utils.msgarea module
 local function _history_in_zone(ma)
+    local hcfg = _cfg.history or {}
+    local bcfg = hcfg.bar or {}
+    local opts = { key_pad = bcfg.key_pad or { 1, 1 }, label_pad = bcfg.label_pad or { 0, 1 }, gap = bcfg.gap or 0 }
+    local title_text = hcfg.title or "Messages"
+    local ok_st, status = pcall(require, "lvim-utils.status")
+    local use_status = ok_st and hcfg.statusline ~= false and status.is_enabled()
+
     local filter = nil
     local seg = ma.segment("history", { priority = 10 })
+    local saved_status ---@type table?
+
+    local function fcount()
+        if not filter then
+            return #_history
+        end
+        local n = 0
+        for _, it in ipairs(_history) do
+            if (LEVEL_KEY[it.level] or "info") == filter then
+                n = n + 1
+            end
+        end
+        return n
+    end
+
     local function render()
-        local bar, bar_hls = _history_bar(filter) -- the filter bar (title row), re-styled for the active level
+        local bopts = vim.tbl_extend("force", opts, { title = (not use_status) and title_text or nil })
+        local bar, bar_hls = _history_bar(filter, bopts)
         seg:configure({ title = bar, title_hls = bar_hls })
         seg:set(_history_zone_lines(filter))
+        if use_status then -- the statusline reflects the focused "Messages" context (+ its count)
+            status.set({ title = title_text, total = fcount(), current = 0 })
+        end
     end
+
     seg:configure({
         keys = {
             a = function()
@@ -987,7 +1022,16 @@ local function _history_in_zone(ma)
             end,
             r = render,
         },
+        on_blur = function() -- leaving the history → put the prior owner's statusline (the finder) back, or clear
+            if use_status then
+                status.restore(saved_status) -- nil snapshot ⇒ clears (no prior owner)
+                saved_status = nil
+            end
+        end,
     })
+    if use_status then
+        saved_status = status.save() -- snapshot whoever owns the line now (e.g. an open finder), restore on blur
+    end
     ma.clear() -- wipe the inline recent-messages scrollback (the history below supersedes it; the log persists)
     render()
     seg:focus()
@@ -1190,7 +1234,8 @@ function M.msg_highlights()
     local c = colors
     local b, bg = c.blend, c.bg
     local g = {}
-    local msg = { Error = c.red, Warn = c.orange, Info = c.blue, Debug = c.purple }
+    -- the level tints + two extra hues for the history bar's action buttons (Refresh green, Close yellow)
+    local msg = { Error = c.red, Warn = c.orange, Info = c.blue, Debug = c.purple, Refresh = c.green, Close = c.yellow }
     for name, col in pairs(msg) do
         g["LvimUiMsg" .. name] = { fg = col, bg = b(col, bg, 0.1) }
         g["LvimUiMsg" .. name .. "Text"] = { fg = col, bg = b(col, bg, 0.1) }

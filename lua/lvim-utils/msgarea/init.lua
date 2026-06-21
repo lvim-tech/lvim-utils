@@ -67,6 +67,7 @@ local content_lines = 0
 ---@field render? fun(width: integer): string[], table?  (provider kind) lazy content
 ---@field on_confirm? fun(item: table?, idx: integer?)  fired on <CR> while the zone is focused (grid)
 ---@field on_move? fun(idx: integer)  fired when the selection moves while the zone is focused (grid)
+---@field on_blur? fun()  fired when focus leaves this segment (e.g. to restore the statusline it published)
 ---@field keys? table<string, fun(handle: table)>  custom keymaps active while this segment is focused
 ---@field title? string  an optional header row drawn above this segment's content (separates owners)
 ---@field title_hls? table  span list styling the title row per-cell (e.g. the history filter-bar badges)
@@ -881,7 +882,7 @@ end
 
 --- Configure the segment's header `title` (a row drawn above its content) and the `keys` active while it is
 --- focused (lhs → fn(handle) — e.g. the history view's level filters). Set fields are merged; nil ones keep.
----@param opts { title?: string, title_hls?: table, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?) }
+---@param opts { title?: string, title_hls?: table, keys?: table<string, fun(handle: LvimMsgAreaHandle)>, on_confirm?: fun(item: table?, idx: integer?), on_blur?: fun() }
 ---@return LvimMsgAreaHandle
 function Handle:configure(opts)
     local s = seg_get(self.name)
@@ -896,6 +897,9 @@ function Handle:configure(opts)
     end
     if opts.on_confirm ~= nil then
         s.on_confirm = opts.on_confirm
+    end
+    if opts.on_blur ~= nil then
+        s.on_blur = opts.on_blur
     end
     return self
 end
@@ -1104,6 +1108,7 @@ end
 --- Leave focused interaction: drop the interaction keymaps and return focus to the previous window (the
 --- zone stays open). An `on_confirm` that opens something should call this first.
 function M.blur()
+    local s = active_seg() -- capture before clearing, to fire its on_blur (e.g. restore the statusline)
     remove_interaction()
     if cursor_au then
         pcall(api.nvim_del_autocmd, cursor_au)
@@ -1111,6 +1116,9 @@ function M.blur()
     end
     active_row = nil
     active_name = nil
+    if s and s.on_blur then
+        pcall(s.on_blur)
+    end
     if prev_win and api.nvim_win_is_valid(prev_win) then
         pcall(api.nvim_set_current_win, prev_win)
     end
