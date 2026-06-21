@@ -86,34 +86,43 @@ function M.render(opts)
         local ltxt, lsp = button.render(lspec, "normal")
         local rtxt, rsp = button.render(rspec, "normal")
         local lw, rw = vim.fn.strdisplaywidth(ltxt), vim.fn.strdisplaywidth(rtxt)
-        local inner = math.max(1, W - lw - rw)
 
-        -- Default anchor by alignment, then keep the focused item visible.
-        local off = opts.off
-        if off == nil then
-            off = (align == "right" and (tw - inner)) or (align == "center" and math.floor((tw - inner) / 2)) or 0
-        end
-        local selitem = opts.sel and raw_items[opts.sel]
-        if selitem then
-            local s0 = vim.fn.strchars(string.sub(t, 1, selitem[1]))
-            local s1 = vim.fn.strchars(string.sub(t, 1, selitem[2]))
-            if s0 < off then
-                off = s0
-            elseif s1 > off + inner then
-                off = s1 - inner
+        -- Resolve the scroll offset AND which chevrons show TOGETHER: a chevron reserves its width ONLY on a
+        -- side that is actually clipped, so the content GLUES to its alignment edge (right-align → flush right,
+        -- left → flush left, centre → equal margins) with no reserved gap. A side turning on/off changes the
+        -- inner width, so iterate to a stable set (settles in ≤ 3).
+        local show_left, show_right, off, inner = false, false, 0, W
+        for _ = 1, 3 do
+            inner = math.max(1, W - (show_left and lw or 0) - (show_right and rw or 0))
+            off = opts.off
+            if off == nil then -- anchor by alignment when the caller does not persist a scroll position
+                off = (align == "right" and (tw - inner)) or (align == "center" and math.floor((tw - inner) / 2)) or 0
             end
+            local selitem = opts.sel and raw_items[opts.sel]
+            if selitem then -- keep the focused item visible
+                local s0 = vim.fn.strchars(string.sub(t, 1, selitem[1]))
+                local s1 = vim.fn.strchars(string.sub(t, 1, selitem[2]))
+                if s0 < off then
+                    off = s0
+                elseif s1 > off + inner then
+                    off = s1 - inner
+                end
+            end
+            off = math.max(0, math.min(off, tw - inner))
+            local nl, nr = off > 0, (off + inner) < tw
+            if nl == show_left and nr == show_right then
+                break
+            end
+            show_left, show_right = nl, nr
         end
-        off = math.max(0, math.min(off, tw - inner))
         opts.off = off
 
-        local show_left = off > 0
-        local show_right = (off + inner) < tw
-        local left_str = show_left and ltxt or string.rep(" ", lw)
-        local right_str = show_right and rtxt or string.rep(" ", rw)
+        local left_str = show_left and ltxt or ""
+        local right_str = show_right and rtxt or ""
         local vis = vim.fn.strcharpart(t, off, inner)
         vis = vis .. string.rep(" ", math.max(0, inner - vim.fn.strchars(vis)))
         line = left_str .. vis .. right_str
-        shift, lo, hi = lw - off, off, off + inner
+        shift, lo, hi = (show_left and lw or 0) - off, off, off + inner
 
         -- Chevron boxes carry their OWN colour: emit their spans (byte-based, no char shift) + ranges.
         if show_left then
