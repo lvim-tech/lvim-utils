@@ -63,17 +63,18 @@ return {
     title = "Messages",
 
     -- ── Routing ─────────────────────────────────────────────────────────────────────────────────
-    -- Which message KINDS land in the zone. Folded into notify's `ext_kinds` when enabled (and
-    -- restored on disable). A kind set to "msgarea" is rendered here instead of toast/cmdline.
+    -- Which message KINDS land in the zone. Folded into notify's `ext_kinds` when enabled (and restored on
+    -- disable). "zone" renders them in the STYLED history view (clean tinted lines; the filter bar appears when
+    -- focused) — one consistent message panel. ("msgarea" is the older BARE display, no bar.)
     kinds = {
-        lua_error = "msgarea",
-        emsg = "msgarea",
-        echoerr = "msgarea",
-        echomsg = "msgarea",
-        echo = "msgarea",
-        wmsg = "msgarea",
-        shell_out = "msgarea",
-        shell_err = "msgarea",
+        lua_error = "zone",
+        emsg = "zone",
+        echoerr = "zone",
+        echomsg = "zone",
+        echo = "zone",
+        wmsg = "zone",
+        shell_out = "zone",
+        shell_err = "zone",
     },
 
     -- ── Integrations ─────────────────────────────────────────────────────────────────────────────
