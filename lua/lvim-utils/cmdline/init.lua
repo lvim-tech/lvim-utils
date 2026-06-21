@@ -23,6 +23,9 @@ local _blink ---@type uv.uv_timer_t?
 local _msg_timer ---@type uv.uv_timer_t?
 local _cursor_on = true
 local _active = false
+---@type LvimStatusState?  the statusline owner (e.g. an open finder) snapshotted when the cmdline opens OVER
+--- it, put back on close so its title/counter survive instead of being cleared.
+local _saved_status = nil
 
 ---@type { content: table[], pos: integer, firstc: string, prompt: string, level: integer, block: table[], special: string? }
 local state = { content = {}, pos = 0, firstc = ":", prompt = "", level = 1, block = {}, special = nil }
@@ -91,7 +94,8 @@ end
 local function close()
     _active = false
     if _cfg and status.is_enabled() and _cfg.statusline ~= false then
-        status.clear() -- drop the mode + counter from the statusline
+        status.restore(_saved_status) -- put the prior owner's status (the finder) back, or clear if none
+        _saved_status = nil
     end
     stop_blink()
     if _msg_timer then
@@ -428,6 +432,11 @@ function M.setup(cfg)
     vim.ui_attach(ui_ns, { ext_cmdline = true }, function(event, ...)
         local a = { ... }
         if event == "cmdline_show" then
+            if not _active then
+                -- Opening OVER whatever owns the statusline (e.g. an active finder hosted in the zone below):
+                -- snapshot it so close() restores its title/counter instead of clearing the line.
+                _saved_status = (_cfg and status.is_enabled() and _cfg.statusline ~= false) and status.save() or nil
+            end
             _active = true
             state.content = a[1] or {}
             state.pos = a[2] or 0

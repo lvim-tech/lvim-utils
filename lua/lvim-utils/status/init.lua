@@ -192,6 +192,36 @@ function M.get()
     return state
 end
 
+--- Snapshot the current status (or nil when inactive) so a TRANSIENT owner — the command-line opening over
+--- an already-active finder — can overlay its own and put the previous one back on close instead of clearing
+--- it (which would lose the finder's title/counter). Pair with `M.restore`.
+---@return LvimStatusState?
+function M.save()
+    return state.active and vim.deepcopy(state) or nil
+end
+
+--- Re-apply a snapshot from `M.save` (or `M.clear` when it was inactive / nil). The line expression is
+--- already installed by whoever first owned the line, so this just restores the fields and repaints.
+---@param snap LvimStatusState?
+function M.restore(snap)
+    if not (snap and snap.active) then
+        M.clear()
+        return
+    end
+    -- Assign every field explicitly (NOT `for k in pairs`): a field the snapshot left nil — e.g. `action` —
+    -- must be CLEARED, not kept from the transient owner that just released the line.
+    state.active = true
+    state.title, state.title_hl = snap.title, snap.title_hl
+    state.icon, state.icon_hl = snap.icon, snap.icon_hl
+    state.current, state.total = snap.current or 0, snap.total or 0
+    state.action, state.subtitle = snap.action, snap.subtitle
+    if native and saved == nil then
+        saved = vim.o.statusline
+        vim.o.statusline = "%!v:lua.require'lvim-utils.status'.render()"
+    end
+    repaint()
+end
+
 --- The master switch — true when the statusline echo model is enabled (`config.status.enabled`). Callers
 --- check this to decide whether to publish to the line or draw their own badge/title in place.
 ---@return boolean
