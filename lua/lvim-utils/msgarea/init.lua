@@ -458,11 +458,19 @@ local function open_surface()
                         render = function()
                             local lines, hls, cl = compose()
                             content_lines = cl -- exported for cmdline_host
-                            -- Boost the cursor row of a FOCUSED lines zone (the messages) to its stronger
-                            -- "Sel" tint, so the active row stands out while the hardware cursor is hidden.
+                            -- Boost the cursor row of a FOCUSED zone so it stands out while the hardware cursor
+                            -- is hidden: a message row (whole-row string hl) → its stronger "Sel" tint; a styled
+                            -- BAR row (the filter bar, a span list) → a fill bg UNDER its buttons (so it is clear
+                            -- you are ON the bar). Copies the span list so the segment's title_hls is untouched.
                             local base = active_name and active_row and hls[active_row + 1]
                             if type(base) == "string" and base:match("^LvimUiMsg") and not base:match("Sel$") then
                                 hls[active_row + 1] = base .. "Sel"
+                            elseif type(base) == "table" then
+                                local boosted = { { eol = true, hl = "LvimUiMsgAreaTitleFill", priority = 2 } }
+                                for _, sp in ipairs(base) do
+                                    boosted[#boosted + 1] = sp
+                                end
+                                hls[active_row + 1] = boosted
                             end
                             return lines, to_surface_hls(hls)
                         end,
