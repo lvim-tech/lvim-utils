@@ -1118,6 +1118,23 @@ local function install_interaction()
             M.blur()
         end)
     end
+    -- A titled LINES zone (the history + its filter BAR): floor `k`/`<Up>` at the first content row, so they
+    -- move UP through the messages but never climb onto the bar — that is navigated with `l`/`h` (the buttons)
+    -- and left with `<C-k>`. At the floor `k` is a no-op (the move keys handle it, not an after-the-fact clamp).
+    if s and s.kind ~= "grid" and s.title then
+        local function up()
+            if not (surf_panel and surf_panel.win and api.nvim_win_is_valid(surf_panel.win)) then
+                return
+            end
+            local cur = api.nvim_win_get_cursor(surf_panel.win)
+            local floor = ((active_seg() or {}).line_offset or 0) + 1
+            if cur[1] > floor then
+                pcall(api.nvim_win_set_cursor, surf_panel.win, { cur[1] - 1, cur[2] })
+            end
+        end
+        map("k", up)
+        map("<Up>", up)
+    end
     -- `q` DISMISSES a focused LINES/MESSAGES zone's content — clear the segment (the zone shrinks back, the
     -- finder above reclaims the space) and return. A grid keeps `q` native; a segment's OWN key overrides this.
     if s and s.kind ~= "grid" then
@@ -1155,15 +1172,12 @@ function M.focus(name)
     pcall(api.nvim_set_current_win, surf_panel.win)
     install_interaction()
     update_visibility() -- repaint with the selection highlight
-    -- Where to land the cursor on descend. A segment with a TITLE (the history's filter bar) lands on the
-    -- TITLE row — so the BUTTONS are the first stop, then `j` moves down into the messages; otherwise the first
-    -- CONTENT row (not the top of the zone, which under a hosted finder is its hidden reserve rows). The
-    -- active-row boost skips the bar (it carries span hls), so only the message rows light up.
+    -- Land the cursor on the first CONTENT row (not the top of the zone, which under a hosted finder is its
+    -- hidden reserve rows). For a segment with a TITLE (the history's filter BAR) this is the row BELOW the
+    -- bar: the bar is NOT a cursor stop — it is navigated with `l`/`h` (the buttons) and left with `<C-k>`, so
+    -- plain `k`/`j` stay in the messages. The CursorMoved floor below keeps `k` from climbing onto the bar.
     local s = active_seg()
     local row = (s and s.line_offset or 0) + 1
-    if s and s.title then
-        row = math.max(1, s.line_offset)
-    end
     if s and api.nvim_win_is_valid(surf_panel.win) then
         pcall(api.nvim_win_set_cursor, surf_panel.win, { math.max(1, row), 0 })
     end
