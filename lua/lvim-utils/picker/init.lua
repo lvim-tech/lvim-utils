@@ -120,6 +120,7 @@ function M.open(opts)
     local items = normalize(opts.items, opts.format)
     local maxr = opts.max_rows or 15
     local state = { filtered = items, sel = 1, list_pan = nil, preview_pan = nil, st = nil, closed = false, query = "" }
+    local opener = api.nvim_get_current_win() -- the editor window the finder opened from (for the top-edge escape)
     ---@type table?  the msgarea module when this finder HOSTS in its zone (area + zone enabled); else nil. Set
     --- below at open; the NORMAL-mode list `<C-j>` uses it to descend into the messages composed below us.
     local msgarea = nil
@@ -863,6 +864,13 @@ function M.open(opts)
             -- OR a completion grid — not just one named segment; false (no content) ⇒ the sector nav wraps.
             return msgarea.focus_content()
         end or nil,
+        -- <C-k> off the TOP sector (the header/filter bar) leaves the finder UP to the editor it opened from,
+        -- instead of wrapping down to the footer.
+        on_escape_above = function()
+            if opener and api.nvim_win_is_valid(opener) then
+                api.nvim_set_current_win(opener)
+            end
+        end,
         -- HOSTED: float ABOVE the msgarea zone's own content panel (container 200 / panel 201) so our list /
         -- preview aren't covered by it — our panels land at 211, the prompt at 212, all clear of the messages
         -- that render in the zone panel BELOW us. Unhosted area stays in the cmdline layer at 200.

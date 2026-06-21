@@ -795,6 +795,12 @@ local function sector_cycle(state, dir)
         if dir > 0 and state.cfg.on_escape_below and state.cfg.on_escape_below() then
             return
         end
+        -- Top edge → hand focus UP to the editor above (the mirror of on_escape_below): stop here instead of
+        -- WRAPPING down to the footer. Without a handler we still stop (no wrap) rather than jump to the bottom.
+        if dir < 0 and state.cfg.on_escape_above then
+            state.cfg.on_escape_above()
+            return
+        end
     end
     focus_sector(state, ((cur - 1 + dir) % n) + 1)
 end
