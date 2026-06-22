@@ -86,6 +86,9 @@ function M.update(root)
             tag = { name = tag_name, distance = tonumber(tag_distance), oid = tag_oid },
         },
     }
+    -- Signal the chrome statusline to invalidate its git/hunks cache (heirline-style: an event drives the
+    -- re-eval). The poller's own redrawstatus then repaints from the now-fresh data.
+    pcall(vim.api.nvim_exec_autocmds, "User", { pattern = "LvimUiChromeGit", modeline = false })
 end
 
 --- Start (or restart) the poller for the cwd. Clears the cache + stops the poller outside a repo; otherwise

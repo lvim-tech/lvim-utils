@@ -101,17 +101,24 @@ local function apply_window(win)
     local buf = api.nvim_win_get_buf(win)
     local excluded = parts.excluded(buf) or api.nvim_win_get_config(win).relative ~= ""
     -- only assign when the value actually changes — re-setting a window option forces a redraw, so a guard
-    -- here avoids needless flicker on every WinEnter.
+    -- here avoids needless flicker on every WinEnter. On an EXCLUDED window we clear ONLY our own winbar /
+    -- statuscolumn — never wipe a foreign one the window set itself (e.g. neo-tree's source-selector winbar).
     if cfg.winbar.enabled then
-        local target = (not excluded) and WINBAR or ""
-        if vim.wo[win].winbar ~= target then
-            vim.wo[win].winbar = target
+        if not excluded then
+            if vim.wo[win].winbar ~= WINBAR then
+                vim.wo[win].winbar = WINBAR
+            end
+        elseif vim.wo[win].winbar == WINBAR then
+            vim.wo[win].winbar = ""
         end
     end
     if cfg.statuscolumn.enabled then
-        local target = (not excluded) and STATUSCOLUMN or ""
-        if vim.wo[win].statuscolumn ~= target then
-            vim.wo[win].statuscolumn = target
+        if not excluded then
+            if vim.wo[win].statuscolumn ~= STATUSCOLUMN then
+                vim.wo[win].statuscolumn = STATUSCOLUMN
+            end
+        elseif vim.wo[win].statuscolumn == STATUSCOLUMN then
+            vim.wo[win].statuscolumn = ""
         end
     end
 end
@@ -134,55 +141,43 @@ function M.setup()
         if not cfg.tabline.enabled then
             return
         end
-        local target = parts.excluded(api.nvim_get_current_buf()) and 0 or (cfg.tabline.showtabline or 2)
+        -- The tabline is GLOBAL, so its visibility must NOT depend on which window is focused (a transient float
+        -- / picker / side panel must never collapse it — that was the "shows, hides, shows" instability). Hide
+        -- ONLY when the current tab holds NO real file window (the dashboard); otherwise show.
+        local has_real = false
+        for _, w in ipairs(api.nvim_tabpage_list_wins(api.nvim_get_current_tabpage())) do
+            if api.nvim_win_get_config(w).relative == "" and not parts.excluded(api.nvim_win_get_buf(w)) then
+                has_real = true
+                break
+            end
+        end
+        local target = has_real and (cfg.tabline.showtabline or 2) or 0
         if vim.o.showtabline ~= target then
             vim.o.showtabline = target
         end
     end
 
-    -- the EXPENSIVE LSP segment is recomputed + cached only when it can change (clients / buffer / filetype)
-    api.nvim_create_autocmd({ "LspAttach", "LspDetach", "BufWinEnter", "FileType" }, {
-        group = grp,
-        callback = function(args)
-            M.statusline.refresh_lsp(args.buf)
-            pcall(vim.cmd, "redrawstatus")
-        end,
-    })
-    api.nvim_create_autocmd("BufWipeout", {
-        group = grp,
-        callback = function(args)
-            M.statusline.forget(args.buf)
-        end,
-    })
+    -- ── statusline ───────────────────────────────────────────────────────────────────
+    -- The component installs its OWN per-segment invalidation autocmds — derived from each segment's `events`
+    -- via the shared engine (cursor / text events only invalidate; everything else forces one redraw) — plus
+    -- its side effects (git poller restart on DirChanged, dynamic-hl reset on ColorScheme).
+    M.statusline.install_autocmds(grp)
 
-    -- cheap statusline nudges ONLY for events Neovim does not auto-redraw the line for (mode pill / diagnostic
-    -- counts / macro). Cursor-move + buffer-switch redraws are native — forcing them caused the flicker.
-    api.nvim_create_autocmd(
-        { "ModeChanged", "CmdlineEnter", "CmdlineLeave", "DiagnosticChanged", "RecordingEnter", "RecordingLeave" },
-        {
-            group = grp,
-            callback = function()
-                pcall(vim.cmd, "redrawstatus")
-            end,
-        }
-    )
-
-    -- per-window winbar/statuscolumn + tabline state + the float guard. `redrawtabline` keeps the active-window
-    -- highlight + the window/tab list current on focus/buffer/tab/close changes (it is otherwise stale).
+    -- the float guard (the last regular window, for the statusline) + the winbar / tabline / statuscolumn — the
+    -- LATTER only while their component is enabled, so an only-statusline setup does NOT re-apply windows on
+    -- every window event. NO explicit `redrawtabline`: the `%!` tabline is re-evaluated by Neovim's native
+    -- redraw on these events, so forcing a second repaint only flickered (on cmdline / float close / :e).
+    -- `apply_tabline` just keeps `showtabline` right (a change there triggers its own redraw).
     api.nvim_create_autocmd({ "WinEnter", "BufWinEnter", "FileType", "WinNew", "WinClosed", "TabEnter", "TabClosed" }, {
         group = grp,
         callback = function()
             M.statusline.track_window()
-            apply_window(api.nvim_get_current_win())
-            apply_tabline()
-            pcall(vim.cmd, "redrawtabline")
-        end,
-    })
-
-    api.nvim_create_autocmd("DirChanged", {
-        group = grp,
-        callback = function()
-            git.start((cfg.git or {}).poll_ms or 1000)
+            if cfg.winbar.enabled or cfg.statuscolumn.enabled then
+                apply_window(api.nvim_get_current_win())
+            end
+            if cfg.tabline.enabled then
+                apply_tabline()
+            end
         end,
     })
 

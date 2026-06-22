@@ -1,61 +1,43 @@
--- lvim-utils.chrome.tabline: the top tabline, a `%!`-evaluated expression modelled on the user's tabby setup
--- (NOT heirline): a vim logo, the current tab's windows (unique names, excluded fts skipped), a `%=` spacer,
--- then lvim-space's tabs · workspace · project.
+-- lvim-utils.chrome.tabline: the top tabline GLUE — it ships NO predefined sections (like the statusline).
+-- All sections live in the user's config; this module only resolves that segment list and runs it through the
+-- shared engine (a `%!`-evaluated, GLOBAL `tabline`). The instance is `volatile` (the tabline is redrawn on
+-- window / tab / buffer changes by the chrome autocmds via `redrawtabline`, and each redraw recomputes). The
+-- sections compose from the helpers — chrome.parts (seg / icons / excluded / unique_name) — never reimplemented
+-- here.
 --
--- Workspace data comes from `require("lvim-space.pub").get_tab_info()` (pcall-guarded; skipped when absent or
--- "Unknown"/""). Windows are listed via the tabpage API + the self-contained uniquifier (no tabby). Visual
--- only — window/tab switching by click is not reproduced (a small, deliberate deviation).
+-- The segment list is `config.chrome.tabline.segments`: a LIST of segment specs, OR a FUNCTION returning one.
 --
 ---@module "lvim-utils.chrome.tabline"
 
 local api = vim.api
-local parts = require("lvim-utils.chrome.parts")
+local engine = require("lvim-utils.chrome.engine")
 
 local M = {}
 
---- The `%!`-evaluated tabline string.
+--- This component's engine instance — `volatile` (recomputed each redraw, since the tabline is per-tab state);
+--- the gap wears the bar fill (LvimUiChromeFill), like the statusline.
+---@type LvimChromeEngine
+local inst = engine.new({ volatile = true, fill = "LvimUiChromeFill" })
+
+--- The configured tabline section list — a LIST of specs, or a FUNCTION returning one (resolved here). No
+--- predefined sections: unset / empty / failing config yields a blank tabline.
+---@return LvimChromeSegment[]
+local function active_segments()
+    local segs = (require("lvim-utils.config").chrome.tabline or {}).segments
+    if type(segs) == "function" then
+        local ok, res = pcall(segs)
+        segs = ok and res or nil
+    end
+    return type(segs) == "table" and segs or {}
+end
+
+--- The `%!`-evaluated tabline string. The engine renders the config's sections.
 ---@return string
 function M.render()
-    local cfg = require("lvim-utils.config").chrome.tabline or {}
-    local ic = parts.icons()
-    local out = { parts.seg("TabLogo", " " .. ic.vim .. " ") }
-
-    -- current-tab windows (skip floats + excluded fts)
-    local tab = api.nvim_get_current_tabpage()
-    local top = api.nvim_tabpage_get_win(tab)
-    for _, w in ipairs(api.nvim_tabpage_list_wins(tab)) do
-        if api.nvim_win_get_config(w).relative == "" then
-            local buf = api.nvim_win_get_buf(w)
-            if not parts.excluded(buf) then
-                local grp = (w == top) and "TabActive" or "TabInactive"
-                out[#out + 1] = parts.seg(grp, "  " .. parts.unique_name(w) .. "  ")
-            end
-        end
-    end
-
-    out[#out + 1] = "%#LvimUiChromeFill#%="
-
-    -- lvim-space tabs / workspace / project
-    if cfg.lvim_space ~= false then
-        local ok, pub = pcall(require, "lvim-space.pub")
-        if ok and pub.get_tab_info then
-            local info = pub.get_tab_info() or {}
-            for _, t in ipairs(info.tabs or {}) do
-                local grp = t.active and "TabActive" or "TabInactive"
-                out[#out + 1] = parts.seg(grp, "  " .. tostring(t.name) .. "  ")
-            end
-            local ws = info.workspace_name
-            if ws and ws ~= "Unknown" and ws ~= "" then
-                out[#out + 1] = parts.seg("TabWorkspace", "  " .. ws .. "  ")
-            end
-            local proj = info.project_name
-            if proj and proj ~= "Unknown" and proj ~= "" then
-                out[#out + 1] = parts.seg("TabProject", "  " .. proj .. "  ")
-            end
-        end
-    end
-
-    return table.concat(out)
+    local win = api.nvim_get_current_win()
+    ---@type LvimChromeCtx
+    local ctx = { buf = api.nvim_win_get_buf(win), win = win }
+    return inst.render(active_segments(), ctx)
 end
 
 return M

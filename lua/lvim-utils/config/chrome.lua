@@ -19,77 +19,53 @@ end
 
 return {
     -- ── statusline ────────────────────────────────────────────────────────────
-    -- The 16-segment bottom line. Each segment can be turned off without touching the others.
+    -- The bottom line, rendered by lvim-utils.chrome.engine. There are NO predefined segments (like heirline) —
+    -- YOU define them all in your config. `segments` is a LIST of specs, OR a FUNCTION returning one (resolved
+    -- lazily at render time, so no eager require). Each spec:
+    --   { name, content = fn(ctx) -> str, hl?, when?, events?, click?, buf?, align? }   (see chrome.engine)
+    -- Compose from the helpers — chrome.parts (seg / icons / devicon), chrome.utils, chrome.git. Unset / empty
+    -- ⇒ a blank line.
     statusline = {
         enabled = true,
-        segments = {
-            mode = true, -- the vi-mode pill (mode-coloured)
-            cwd = true, -- folder + ~-collapsed working directory
-            file = true, -- name + devicon + size + readonly/modified flags
-            git = true, -- branch + (abbrev) + added/removed/changed line counts
-            hunks = true, -- current git-hunk position (N[,M]/Total)
-            macro = true, -- macro recording register ([q], only when cmdheight==0)
-            diagnostics = true, -- error / warn / info / hint counts
-            lsp = true, -- attached LSP servers + EFM linters/formatters
-            filetype = true, -- uppercase filetype
-            encoding = true, -- file encoding (UTF-8 …)
-            fileformat = true, -- line-ending format (unix/dos/mac)
-            spell = true, -- active spell language (via lvim-linguistics, optional)
-            wordcount = true, -- word count (visual/total in visual mode)
-            ruler = true, -- line/total:col percentage
-            scrollbar = true, -- single block-char scroll position
-        },
+        ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
+        segments = nil,
     },
 
     -- ── winbar ────────────────────────────────────────────────────────────────
     -- Per-window top line: terminal label / inactive filename / active filename + breadcrumb.
     winbar = {
         enabled = true,
-        breadcrumb = true, -- the nvim-navic code-context trail (optional; needs navic)
+        -- The per-window top line, rendered by lvim-utils.chrome.engine. NO predefined sections (like heirline)
+        -- — YOU define them in your config. `segments` = a LIST of specs, OR a FUNCTION returning one; each
+        -- section's `content = fn(ctx)` gets ctx = { buf, win, active } and gates with `when`. Compose from
+        -- chrome.parts (devicon / unique_name / seg / icons) + chrome.utils. Unset ⇒ a blank winbar.
+        ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
+        segments = nil,
     },
 
     -- ── tabline ───────────────────────────────────────────────────────────────
     -- vim logo · current-tab windows · `%=` · lvim-space tabs · workspace · project.
     tabline = {
         enabled = true,
-        lvim_space = true, -- pull tabs/workspace/project from lvim-space.pub (optional)
         showtabline = 2, -- 0 never / 1 when ≥2 tabpages / 2 always
+        -- The top tabline, rendered by lvim-utils.chrome.engine. NO predefined sections (like heirline) — YOU
+        -- define them in your config. `segments` = a LIST of specs, OR a FUNCTION returning one. Compose from
+        -- chrome.parts (seg / icons / excluded / unique_name) + `engine.click_region(key, fn, text)` for
+        -- clickable window / tab CELLS (tabby's functionality). Unset ⇒ a blank tabline.
+        ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
+        segments = nil,
     },
 
     -- ── statuscolumn ──────────────────────────────────────────────────────────
     -- other-sign · diagnostic-sign · `%=` · line numbers (+marks) · git gutter.
     statuscolumn = {
         enabled = true,
-        git_gutter = true, -- the mini.diff-coloured vertical bar (optional; needs mini.diff)
-        marks = true, -- substitute a mark letter for the number on marked lines
-        -- Click handlers, keyed by a Lua pattern matched against the clicked sign name. Each pcall-guards its
-        -- plugin so lvim-utils ships no hard dependency. Override / extend freely.
-        handlers = {
-            ["Neotest.*"] = function()
-                pcall(function()
-                    require("neotest").run.run()
-                end)
-            end,
-            ["DiagnosticSign.*"] = function()
-                pcall(vim.cmd, "Trouble diagnostics")
-            end,
-            ["MiniDiffSign.*"] = function()
-                pcall(function()
-                    require("mini.diff").toggle_overlay()
-                end)
-            end,
-            ["Dap.*"] = function()
-                pcall(function()
-                    require("dap").continue()
-                end)
-            end,
-        },
-        -- Clicking a line number (no sign) — default: toggle a DAP breakpoint.
-        number_click = function()
-            pcall(function()
-                require("dap").toggle_breakpoint()
-            end)
-        end,
+        -- The per-line gutter, rendered by lvim-utils.chrome.engine. NO predefined sections (like heirline) —
+        -- YOU define them in your config. `segments` = a LIST of specs, OR a FUNCTION returning one; each
+        -- section's `content = fn(ctx)` gets ctx = { buf, win, lnum, relnum, virtnum }. Compose from
+        -- chrome.gutter (signs / diag_icon / mark_letter / sign_at_mouse) + chrome.parts. Unset ⇒ blank gutter.
+        ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
+        segments = nil,
     },
 
     -- ── transient finder / echo overlay (ex config.status) ──────────────────────
