@@ -427,10 +427,15 @@ local function _render_prog_channel(id, win_w)
     end
 end
 
---- Coalesce redraw requests into ONE light `:redraw` per event-loop tick. Replaces a per-update `redraw!`
+--- Coalesce redraw requests into ONE light repaint per event-loop tick. Replaces a per-update `redraw!`
 --- (a full-screen CLEAR + redraw) that flickered the WHOLE screen on every progress/notify change — LSP
 --- `$/progress` fires often, so that was the main editing flicker. `:redraw` (no `!`) repaints the dirty
 --- regions (the floats) without the screen-clear; the pending flag collapses a burst into a single repaint.
+---
+--- `:redraw` repaints only the DIRTY regions (the panels), so the STATUSLINE — which a panel may overlap, and
+--- whose `%!` expression is otherwise not re-evaluated mid-burst — is left on a stale frame (visible at startup
+--- while `$/progress` runs). `redrawstatus` after it keeps the line current; it is cheap (a cached chrome line)
+--- and repaints identical content, so it cannot flicker.
 local _redraw_pending = false
 local function flush_redraw()
     if _redraw_pending then
@@ -440,6 +445,7 @@ local function flush_redraw()
     vim.schedule(function()
         _redraw_pending = false
         pcall(vim.cmd, "redraw")
+        pcall(vim.cmd, "redrawstatus")
     end)
 end
 
