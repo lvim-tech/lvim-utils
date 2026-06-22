@@ -117,7 +117,12 @@ local function refresh()
             m.clear_completion()
             return
         end
-        sel = 1
+        -- Preselect the best match ONLY while a token is being TYPED (so <CR> completes a partial command /
+        -- option, e.g. `:LvimPick`→`LvimPicker`). After a SPACE (the token is empty — the previous word is
+        -- finished and the next arg is OPTIONAL, e.g. `:LvimInstaller ` offering its subcommands) preselect
+        -- NOTHING, so <CR> runs the bare command instead of auto-accepting the first subcommand. <Tab> still
+        -- selects from here either way.
+        sel = (token == "") and 0 or 1
         m.set_completion(items, sel)
     end)
 end
