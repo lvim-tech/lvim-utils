@@ -14,6 +14,7 @@ local api = vim.api
 local fuzzy = require("lvim-utils.fuzzy")
 local utils = require("lvim-utils.utils")
 local status = require("lvim-utils.chrome.overlay")
+local ui_filters = require("lvim-utils.ui.filters")
 
 local NS = api.nvim_create_namespace("lvim-utils-picker")
 
@@ -810,61 +811,24 @@ function M.open(opts)
     -- The header FILTER bar: a centred button bar (one button per filter, `●` between groups). Each button
     -- shows a live count (items passing it + the OTHER groups), highlights when active, and toggles its
     -- group on press. Built from `opts.filters`.
+    -- The header FILTER bar, built through the SHARED filter-group model (lvim-utils.ui.filters) — identical to
+    -- the one ui.tabs uses. The picker only supplies the SEMANTICS: the live count (items passing the OTHER
+    -- groups AND this button's predicate) and the activation (set_filter). Colours default to LvimUiPeekFilter*.
     local function build_filter_bar()
-        local specs = {}
-        for gi, g in ipairs(filters or {}) do
-            if gi > 1 then
-                specs[#specs + 1] =
-                    { type = "separator", text = "●", style = { padding = { 3, 3 }, hl = "LvimUiPeekFilterSep" } }
-            end
-            for _, b in ipairs(g.buttons) do
-                local accent = b.hl_active or "LvimUiPeekFilterActive"
-                local dim = b.hl or "LvimUiPeekFilterInactive"
-                -- hover_active (the cursor ON the active filter): the button's own group, else nil → ui.button
-                -- degrades it to plain hover (the previous behaviour).
-                local ha = b.hl_hover_active
-                specs[#specs + 1] = {
-                    type = "button",
-                    text = b.label,
-                    key = b.key, -- brackets the key letter; the bracket takes the accent colour
-                    accent = accent,
-                    _gi = gi, -- so sync_filter can re-evaluate `active` after a toggle
-                    _id = b.id,
-                    count = function()
-                        local n = 0
-                        for _, it in ipairs(items) do
-                            if passes_filters(it._src, g) and (not b.predicate or b.predicate(it._src)) then
-                                n = n + 1
-                            end
-                        end
-                        return n
-                    end,
-                    active = b.id == g.active,
-                    run = function()
-                        set_filter(gi, b.id)
-                    end,
-                    style = {
-                        icon = {
-                            padding = { 0, 0 },
-                            normal = accent,
-                            active = accent,
-                            hover = accent,
-                            hover_active = ha,
-                        },
-                        text = { padding = { 1, 1 }, normal = dim, active = accent, hover = accent, hover_active = ha },
-                    },
-                }
-            end
-        end
-        -- keep the specs' `active` flags in step with the groups when a filter toggles (set_filter calls it)
-        state.sync_filter = function()
-            for _, s in ipairs(specs) do
-                if s._gi and filters and filters[s._gi] then
-                    s.active = filters[s._gi].active == s._id
+        local fb = ui_filters.bar(filters, {
+            count = function(g, b)
+                local n = 0
+                for _, it in ipairs(items) do
+                    if passes_filters(it._src, g) and (not b.predicate or b.predicate(it._src)) then
+                        n = n + 1
+                    end
                 end
-            end
-        end
-        return { items = specs, align = "center" }
+                return n
+            end,
+            on_select = set_filter,
+        })
+        state.sync_filter = fb.sync
+        return fb.band
     end
 
     -- (HOSTED area) When the msgarea zone is enabled, the area finder HOSTS itself in it: it reserves its rows

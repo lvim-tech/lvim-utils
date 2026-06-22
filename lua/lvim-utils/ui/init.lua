@@ -42,6 +42,7 @@ local M = {}
 ---@field position? string           -- "cursor" (anchor at the cursor) | "win" | "bottom" | "top" | nil (centred)
 ---@field layout? string             -- tabs: "float" (default centred) | "area" (cmdline/minibuffer dock) | "bottom"
 ---@field tab_selector? integer|string -- tabs: initial active tab — an index or a tab `name`
+---@field title_count? fun(): integer|table  -- tabs (docked): a title counter — a total `number` or `{ current, total }`, shown on the statusline overlay next to the title (the picker's title_counter equivalent)
 ---@field max_items? integer         -- tabs (docked): cap the content rows (it scrolls past the cap)
 ---@field area_height? integer       -- tabs (docked): the docked content row budget (default AREA_CAP); scrolls past it
 ---@field enter? boolean             -- false → open without focusing (cursor stays in the editor, e.g. hover)
@@ -548,6 +549,7 @@ function M.tabs(opts)
     -- C-j/C-k, like the picker's filter bar). The TITLE is the frame's border-title, not a header bar.
     local static_bars = {} -- the per-surface prefix (subtitle + tab bar + air); per-TAB bars are appended
     local set_active_tab -- (multi-tab) switch to a tab; shared by the tab bar and the body l/h keymaps
+    local publish_title -- forward decl: refresh the docked title (+ counter) on the overlay (assigned post-open)
     local tab_bar, tab_btns
     for _, b in ipairs(subtitle_bars(opts.subtitle)) do
         static_bars[#static_bars + 1] = b
@@ -609,6 +611,9 @@ function M.tabs(opts)
                 st.set_header(header_spec())
             elseif st.relayout then
                 st.relayout()
+            end
+            if publish_title then
+                publish_title() -- refresh the title counter for the new tab
             end
         end
         tab_bar.on_change = function(spec, st)
@@ -700,13 +705,27 @@ function M.tabs(opts)
         end,
     })
 
-    -- Docked: publish the title to the statusline overlay (the echo/info area), like the area finder — the
-    -- bottom line shows it while the panel owns the zone.
-    if docked and opts.title and opts.title ~= "" then
+    -- Docked: publish the title (+ an optional counter — the picker's `title_counter`, here on the statusline
+    -- overlay) to the echo area. `opts.title_count` is a fn returning a total `number` or `{ current, total }`;
+    -- re-published on recalc so the count tracks the content (filter / tab change).
+    publish_title = function()
+        if not (docked and opts.title and opts.title ~= "") then
+            return
+        end
+        local cur, tot
+        if opts.title_count then
+            local r = opts.title_count()
+            if type(r) == "table" then
+                cur, tot = r.current, r.total
+            elseif type(r) == "number" then
+                tot = r
+            end
+        end
         pcall(function()
-            require("lvim-utils.chrome.overlay").set({ title = opts.title })
+            require("lvim-utils.chrome.overlay").set({ title = opts.title, current = cur or 0, total = tot or 0 })
         end)
     end
+    publish_title()
 
     -- After-open hook: hand the content buffer/window to the consumer (e.g. the installer's per-row action
     -- keymaps r/u/d/b). The content panel is the first frame panel.
@@ -761,6 +780,7 @@ function M.tabs(opts)
             elseif st and st.relayout then
                 st.relayout()
             end
+            publish_title() -- refresh the title counter for the rebuilt content
         end,
         --- The `name` of the row under the cursor.
         ---@return string?
