@@ -13,8 +13,9 @@ return {
     max_width = 100,
     -- Horizontal padding inside the panel
     padding = 1,
-    -- Rows from the bottom of the editor
-    bottom_margin = 1,
+    -- Gap (rows) ABOVE the statusline: the toast stack is anchored over `cmdheight` + the statusline, so it
+    -- sits above the statusline and rides up when the msgarea / cmdline area grows `cmdheight`. 0 = adjacent.
+    bottom_margin = 0,
     -- Rows between stacked level panels
     panel_gap = 0,
     -- Floating window border (passed to nvim_open_win)

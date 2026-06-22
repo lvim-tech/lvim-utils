@@ -149,10 +149,20 @@ local function _close_panel(level)
     _panels[level] = nil
 end
 
---- Reposition all open panels so they stack from bottom_margin upward.
+--- Rows of screen below the toast stack: the command-line (`cmdheight` — which GROWS when the msgarea zone /
+--- cmdline area opens below the statusline) + the global statusline (1 row when shown) + the configured
+--- `bottom_margin` gap. The stack is anchored this many rows up from the bottom, so it sits ABOVE the
+--- statusline and RIDES UP with it as the area grows `cmdheight` (and back down when the area closes).
+---@return integer
+local function _bottom_offset()
+    local statusline = (vim.o.laststatus >= 2) and 1 or 0
+    return vim.o.cmdheight + statusline + (_cfg.bottom_margin or 1)
+end
+
+--- Reposition all open panels so they stack from the bottom offset upward.
 --- Progress channels are at the bottom (in registration order); level panels stack above.
 local function _restack()
-    local offset = _cfg.bottom_margin or 2
+    local offset = _bottom_offset()
 
     for _, id in ipairs(_prog_order) do
         local ch = _prog_channels[id]
@@ -291,7 +301,7 @@ local function _rebuild_panel(level, win_w)
         relative = "editor",
         width = win_w,
         height = h,
-        row = math.max(0, vim.o.lines - (_cfg.bottom_margin or 2) - h),
+        row = math.max(0, vim.o.lines - _bottom_offset() - h),
         col = win_col,
     })
 end
@@ -373,7 +383,7 @@ local function _render_prog_channel(id, win_w)
         api.nvim_set_option_value("filetype", "lvim-utils-notify", { buf = buf })
         local win = api.nvim_open_win(buf, false, {
             relative = "editor",
-            row = math.max(0, vim.o.lines - (_cfg.bottom_margin or 2) - h),
+            row = math.max(0, vim.o.lines - _bottom_offset() - h),
             col = win_col,
             width = win_w,
             height = h,
@@ -421,7 +431,7 @@ local function _render_prog_channel(id, win_w)
             relative = "editor",
             width = win_w,
             height = h,
-            row = math.max(0, vim.o.lines - (_cfg.bottom_margin or 2) - h),
+            row = math.max(0, vim.o.lines - _bottom_offset() - h),
             col = win_col,
         })
     end
@@ -472,6 +482,21 @@ api.nvim_create_autocmd("VimResized", {
     callback = function()
         if next(_panels) or next(_prog_channels) then
             _rebuild_all()
+        end
+    end,
+})
+
+-- Re-anchor the stack whenever `cmdheight` changes: the msgarea zone / cmdline area opens by GROWING
+-- `cmdheight` (pushing the statusline up), so the toast stack — anchored above the statusline via
+-- `_bottom_offset()` — must ride up with it (and back down when the area closes). A move-only `_restack`
+-- (no content rebuild); a no-op when nothing is on screen.
+api.nvim_create_autocmd("OptionSet", {
+    pattern = "cmdheight",
+    group = api.nvim_create_augroup("LvimUtilsNotifyCmdheight", { clear = true }),
+    callback = function()
+        if next(_panels) or next(_prog_channels) then
+            _restack()
+            flush_redraw()
         end
     end,
 })
@@ -547,7 +572,7 @@ local function _show_toast(msg, level, opts)
         api.nvim_set_option_value("filetype", "lvim-utils-notify", { buf = buf })
         local win = api.nvim_open_win(buf, false, {
             relative = "editor",
-            row = math.max(0, vim.o.lines - (_cfg.bottom_margin or 2) - 2),
+            row = math.max(0, vim.o.lines - _bottom_offset() - 2),
             col = win_col,
             width = entry.natural_w,
             height = 1,
