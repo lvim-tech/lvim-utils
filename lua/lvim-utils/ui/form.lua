@@ -11,6 +11,7 @@
 
 local rows = require("lvim-utils.ui.rows")
 local util = require("lvim-utils.ui.util")
+local bar = require("lvim-utils.ui.bar")
 
 local api = vim.api
 
@@ -50,11 +51,63 @@ function M.new(opts)
         end
     end
 
+    --- If the cursor sits on a `bar` row, move its focused button by `delta` (wrapping, skipping separators)
+    --- and refresh; return true (handled). Else return false so the caller can act (e.g. switch tabs on h/l).
+    ---@param delta integer
+    ---@return boolean
+    local function bar_nav(delta)
+        local row = flat()[cur_line()]
+        if not (row and row.type == "bar") then
+            return false
+        end
+        local items = row.items or {}
+        local n = #items
+        if n == 0 then
+            return true
+        end
+        -- Start from the keyboard cursor, or (first move) from the currently-active button.
+        local i = row._sel
+        if i == nil then
+            i = 1
+            for j, it in ipairs(items) do
+                if it.active then
+                    i = j
+                end
+            end
+        end
+        for _ = 1, n do
+            i = (i + delta - 1) % n + 1
+            if (items[i].type or "button") ~= "separator" then
+                break
+            end
+        end
+        row._sel = i
+        refresh()
+        return true
+    end
+
     --- Act on the focused row by type. `st` is the frame state (for action rows that close).
     ---@param st table
     local function activate(st)
         local row = flat()[cur_line()]
         if not row then
+            return
+        end
+        if row.type == "bar" then
+            -- Run the keyboard-focused button (h/l / ←/→), or the active one if not navigated yet.
+            local sel = row._sel
+            if sel == nil then
+                sel = 1
+                for j, it in ipairs(row.items or {}) do
+                    if it.active then
+                        sel = j
+                    end
+                end
+            end
+            local btn = (row.items or {})[sel]
+            if btn and btn.run then
+                btn.run()
+            end
             return
         end
         local t = row.type
@@ -129,7 +182,42 @@ function M.new(opts)
             local lines, hls = {}, {}
             for i, r in ipairs(fr) do
                 local disp = rows.row_display(r, ico)
-                if not rows.is_selectable(r) then
+                if r.type == "bar" then
+                    -- A toolbar row rendered through the SHARED ui.bar: centered button boxes that own their
+                    -- overflow chevrons (so a wide bar scrolls instead of clipping). Three button states:
+                    -- NORMAL, ACTIVE (the applied button — `active=true`), and HOVER (the keyboard cursor
+                    -- `_sel`, shown ONLY while the cursor is on THIS row, so off the bar only `active` shows).
+                    -- `_cells` (per-button byte ranges) is stashed for the click handler.
+                    local items = r.items or {}
+                    local active_idx
+                    for j, it in ipairs(items) do
+                        if it.active then
+                            active_idx = j
+                        end
+                    end
+                    -- While the cursor is on this row, the HOVER follows `_sel` (the navigated button), or — if
+                    -- it hasn't been navigated yet (e.g. just after activating: the rebuild resets `_sel`) —
+                    -- the ACTIVE button, so the just-applied button reads as hover_active (cursor on active).
+                    local focused = cur_line() == i
+                    local res = bar.render({
+                        items = items,
+                        width = width,
+                        align = r.align or "center",
+                        sel = r._sel or active_idx, -- scroll-anchor (keep the cursor / active button in view)
+                        hover = focused and (r._sel or active_idx) or nil,
+                        off = r._off,
+                    })
+                    r._off = res.off
+                    r._cells = res.items
+                    lines[i] = res.line
+                    -- A continuous full-width bg strip under the bar — what the surface paints under header
+                    -- bands (LvimUiBarFill) but which ui.bar itself does NOT emit; at a lower priority so the
+                    -- button spans (incl. a hover_active bg) read on top.
+                    hls[#hls + 1] = { i - 1, 0, -1, "LvimUiBarFill", 150 }
+                    for _, s in ipairs(res.spans) do
+                        hls[#hls + 1] = { i - 1, s[1], s[2], s[3] }
+                    end
+                elseif not rows.is_selectable(r) then
                     lines[i] = r.center and util.center(disp, width) or util.lpad(disp, width, 2)
                     -- A spacer / divider row (the `──────` between groups) takes the separator colour.
                     if r.type == "spacer" or r.type == "spacer_line" then
@@ -153,6 +241,8 @@ function M.new(opts)
             vim.schedule(function()
                 if p.win and api.nvim_win_is_valid(p.win) then
                     pcall(api.nvim_win_set_cursor, p.win, { first, 0 })
+                    local r0 = flat()[first]
+                    vim.wo[p.win].cursorline = not (r0 ~= nil and r0.type == "bar")
                 end
             end)
             map({ "j", "<Down>" }, function()
@@ -164,6 +254,56 @@ function M.new(opts)
             map({ "<CR>", "<Space>" }, function()
                 activate(st)
             end)
+            -- ←/→ move the focused button when the cursor is on a toolbar `bar` row (no-op elsewhere).
+            map({ "<Left>" }, function()
+                bar_nav(-1)
+            end)
+            map({ "<Right>" }, function()
+                bar_nav(1)
+            end)
+            -- Click a toolbar (`type="bar"`) button: hit-test the click column against the row's rendered
+            -- button cells and run that button. Any other click falls back to plain cursor positioning.
+            map({ "<LeftMouse>" }, function()
+                local mp = vim.fn.getmousepos()
+                if mp.winid ~= p.win or mp.line < 1 then
+                    return
+                end
+                local r = flat()[mp.line]
+                if r and r.type == "bar" and r._cells then
+                    local col0 = mp.column - 1
+                    for _, cell in ipairs(r._cells) do
+                        if cell.c0 and cell.c1 and col0 >= cell.c0 and col0 < cell.c1 then
+                            if cell.spec and cell.spec.run then
+                                cell.spec.run()
+                            end
+                            return
+                        end
+                    end
+                    return
+                end
+                if r and rows.is_selectable(r) and p.win and api.nvim_win_is_valid(p.win) then
+                    pcall(api.nvim_win_set_cursor, p.win, { mp.line, math.max(0, mp.column - 1) })
+                end
+            end)
+            -- On a `bar` row, suppress the full-row cursorline (only the button HOVER should read) and
+            -- re-render so the hover follows the cursor; off a bar row, restore cursorline. Refresh only on a
+            -- boundary cross, so plain list navigation stays cheap.
+            local was_bar = false
+            api.nvim_create_autocmd("CursorMoved", {
+                buffer = p.buf,
+                callback = function()
+                    if not (pan and pan.win and api.nvim_win_is_valid(pan.win)) then
+                        return
+                    end
+                    local r = flat()[cur_line()]
+                    local is_bar = r ~= nil and r.type == "bar"
+                    vim.wo[pan.win].cursorline = not is_bar
+                    if is_bar or was_bar then
+                        was_bar = is_bar
+                        refresh()
+                    end
+                end,
+            })
         end,
         --- Swap the row set in place (tab switch) and re-render; land the cursor on the first selectable
         --- row of the new set (else it lingers on a now-stale / non-selectable line).
@@ -174,6 +314,75 @@ function M.new(opts)
             if pan and pan.win and api.nvim_win_is_valid(pan.win) then
                 pcall(api.nvim_win_set_cursor, pan.win, { rows.first_selectable(flat()) or 1, 0 })
             end
+        end,
+        --- The `name` of the row under the cursor (nil for an unnamed / empty row). A consumer handle uses
+        --- it to dispatch actions on the focused row.
+        ---@return string?
+        cursor_name = function()
+            local r = flat()[cur_line()]
+            return r and r.name or nil
+        end,
+        --- The 1-based window line of the cursor — a stable index to restore after a rebuild.
+        ---@return integer
+        cursor_index = function()
+            return cur_line()
+        end,
+        --- Move the cursor to the FIRST row whose `name` matches, expanding the target's collapsed ancestors
+        --- so a nested (e.g. detail / action) row becomes visible first.
+        ---@param name string
+        ---@return boolean
+        focus_name = function(name)
+            if not (pan and pan.win and api.nvim_win_is_valid(pan.win)) then
+                return false
+            end
+            -- Expand the ancestor chain of the target (each parent on the path to a matching descendant).
+            local function expand_to(list)
+                for _, r in ipairs(list) do
+                    if r.name == name then
+                        return true
+                    end
+                    if r.children and expand_to(r.children) then
+                        r.expanded = true
+                        return true
+                    end
+                end
+                return false
+            end
+            if expand_to(model) then
+                refresh()
+            end
+            for i, r in ipairs(flat()) do
+                if r.name == name then
+                    pcall(api.nvim_win_set_cursor, pan.win, { i, 0 })
+                    return true
+                end
+            end
+            return false
+        end,
+        --- Move the cursor to (a clamped) window line `i`.
+        ---@param i integer
+        ---@return boolean
+        focus_index = function(i)
+            if not (pan and pan.win and api.nvim_win_is_valid(pan.win)) then
+                return false
+            end
+            local n = #flat()
+            if n == 0 then
+                return false
+            end
+            pcall(api.nvim_win_set_cursor, pan.win, { math.max(1, math.min(i, n)), 0 })
+            return true
+        end,
+        --- Re-paint the current rows in place (after a consumer mutated row values, without changing the set).
+        rerender = function()
+            refresh()
+        end,
+        --- Move a focused toolbar's button when the cursor is on a `bar` row; return true if handled (so a
+        --- caller's own h/l — e.g. a tab switch — is suppressed while on a bar row).
+        ---@param delta integer
+        ---@return boolean
+        bar_nav = function(delta)
+            return bar_nav(delta)
         end,
     }
 end

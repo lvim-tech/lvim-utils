@@ -13,7 +13,7 @@
 local api = vim.api
 local fuzzy = require("lvim-utils.fuzzy")
 local utils = require("lvim-utils.utils")
-local status = require("lvim-utils.status")
+local status = require("lvim-utils.chrome.overlay")
 
 local NS = api.nvim_create_namespace("lvim-utils-picker")
 
@@ -101,7 +101,7 @@ end
 ---@field statusline? boolean  (docked layouts) publish title/counter/query to the bottom statusline (default true); false = draw them in the navigator
 ---@field prompt? string  the query prompt prefix (default "➤ ")
 ---@field keys? { key: string, name?: string, run: fun(item: any, close: fun()) }[]  extra row actions (split, code action…); `name` adds a footer hint
----@field filters? table[]  header filter button GROUPS — each `{ active = id, buttons = { { id, label, key?, predicate?(src), hl?, hl_active? }, … } }`; activate a filter by its key in NORMAL mode
+---@field filters? table[]  header filter button GROUPS — each `{ active = id, buttons = { { id, label, key?, predicate?(src), hl?, hl_active?, hl_hover_active? }, … } }`; activate a filter by its key in NORMAL mode
 ---@field refresh? fun(): any[]  re-fetch the static items live (e.g. on DiagnosticChanged) — see refresh_events
 ---@field refresh_events? string[]  autocmd events that trigger a refresh
 ---@field close_on_empty? boolean  dismiss the finder when a refresh leaves no items (e.g. all diagnostics fixed)
@@ -200,7 +200,7 @@ function M.open(opts)
     end
 
     -- statusline integration (default ON): publish the title + match counter + query to the bottom
-    -- statusline (lvim-utils.status) so it shows the current action, instead of the navigator drawing its
+    -- statusline (lvim-utils.chrome.overlay) so it shows the current action, instead of the navigator drawing its
     -- own border title. `statusline = false` keeps the title/counter IN the navigator. Only the DOCKED
     -- navigator (the area/minibuffer model) uses it; a centred float always shows its own title.
     local docked_layout = opts.layout == "bottom" or opts.layout == "area"
@@ -210,7 +210,7 @@ function M.open(opts)
     if sl == nil then
         sl = (require("lvim-utils.config").picker or {}).statusline ~= false
     end
-    -- the global echo master switch (config.status.enabled) AND this picker opting in
+    -- the global echo master switch (config.chrome.overlay.enabled) AND this picker opting in
     local use_status = docked_layout and status.is_enabled() and sl
     local function publish_status()
         if use_status then
@@ -820,6 +820,9 @@ function M.open(opts)
             for _, b in ipairs(g.buttons) do
                 local accent = b.hl_active or "LvimUiPeekFilterActive"
                 local dim = b.hl or "LvimUiPeekFilterInactive"
+                -- hover_active (the cursor ON the active filter): the button's own group, else nil → ui.button
+                -- degrades it to plain hover (the previous behaviour).
+                local ha = b.hl_hover_active
                 specs[#specs + 1] = {
                     type = "button",
                     text = b.label,
@@ -841,8 +844,14 @@ function M.open(opts)
                         set_filter(gi, b.id)
                     end,
                     style = {
-                        icon = { padding = { 0, 0 }, normal = accent, active = accent, hover = accent },
-                        text = { padding = { 1, 1 }, normal = dim, active = accent, hover = accent },
+                        icon = {
+                            padding = { 0, 0 },
+                            normal = accent,
+                            active = accent,
+                            hover = accent,
+                            hover_active = ha,
+                        },
+                        text = { padding = { 1, 1 }, normal = dim, active = accent, hover = accent, hover_active = ha },
                     },
                 }
             end

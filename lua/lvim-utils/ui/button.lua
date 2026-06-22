@@ -21,13 +21,15 @@
 
 local M = {}
 
----@alias LvimUiButtonState "normal"|"active"|"hover"
+---@alias LvimUiButtonState "normal"|"active"|"hover"|"hover_active"
 
 ---@class LvimUiBoxStyle
 ---@field padding? integer|integer[]  -- { front, back } (or a number = symmetric)
 ---@field normal? string              -- per-state colour (interactive boxes)
 ---@field active? string
 ---@field hover? string
+---@field hover_active? string        -- the cursor (hover) ON the active button — distinct from plain hover so
+---                                    --   landing on the active button still reads (falls back to hover)
 ---@field hl? string                  -- single colour (static boxes: separator / chevron / title)
 
 ---@class LvimUiButtonSpec
@@ -78,7 +80,12 @@ local function box_hl(bs, state)
     if not bs then
         return nil
     end
-    if state and (bs.normal or bs.active or bs.hover) then
+    if state and (bs.normal or bs.active or bs.hover or bs.hover_active) then
+        -- `hover_active` (the cursor on the active button) degrades gracefully to plain hover, then active,
+        -- then normal — so a style that doesn't define it behaves exactly as before.
+        if state == "hover_active" then
+            return bs.hover_active or bs.hover or bs.active or bs.normal
+        end
         return bs[state] or bs.normal
     end
     return bs.hl or bs.normal

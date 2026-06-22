@@ -1133,6 +1133,11 @@ local function relayout(state)
         })
     end
     place_panels(state, L)
+    -- place_panels re-rendered only the chrome bands; a width change must ALSO re-flow each content panel
+    -- provider (e.g. a toolbar `ui.bar` recomputing its overflow chevrons), so re-render them too.
+    for i = 1, #state.panels do
+        render_panel(state, i)
+    end
 end
 
 -- ─── open / close ─────────────────────────────────────────────────────────────
@@ -1357,6 +1362,33 @@ local function open_windows(state)
     -- Re-fit the frame to its providers' CURRENT content size (auto width/height) and re-centre — for an
     -- auto-sized frame whose content changed at runtime (e.g. a tab switch swapping the form's row count).
     state.relayout = function()
+        relayout(state)
+    end
+    --- Swap the HEADER bands at runtime — a tabbed surface changing a tab's toolbar bars (each becomes its own
+    --- C-j/C-k sector). Regular bar bands are container LINES (not windows), so this just re-derives the band +
+    --- sector lists and relayouts (recomputes the header height, repositions the content, re-renders). When a
+    --- BAR sector is focused, it is re-established on the rebuilt band (its `_sel` lands on the active button,
+    --- so a just-applied filter reads as hover_active); a center focus needs nothing (the center persists).
+    ---@param spec table  the new `header` spec ({ bars = { … } })
+    state.set_header = function(spec)
+        local on_bar = state.focus and state.focus.kind == "bar"
+        state.header_bands = build_bands(spec, false, state.cfg.header_air)
+        state.sectors = build_sectors(state)
+        if on_bar then
+            local fi = math.max(1, math.min(state.focus_idx or 1, #state.sectors))
+            local sec = state.sectors[fi]
+            if sec and sec.kind == "bar" then
+                local as = 1
+                for bi, b in ipairs(sec.band.buttons or {}) do
+                    if b.active then
+                        as = bi
+                    end
+                end
+                sec.band._sel = as
+                state.focus_idx = fi
+                state.focus = { kind = "bar", band = sec.band, where = sec.where }
+            end
+        end
         relayout(state)
     end
     -- (HOSTED) Re-place over a fresh host-zone rect WITHOUT re-reserving (the host called us because it

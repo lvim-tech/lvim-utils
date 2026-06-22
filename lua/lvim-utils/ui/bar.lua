@@ -8,7 +8,7 @@
 -- Chevrons are the bar's OWN job: it ships default chevron boxes (glyph + padding + hl), reserves their
 -- measured width on each side, draws them only on the side that actually overflows, and the caller may
 -- override the glyph / padding / colour per bar. Each item's STATE is chosen here:
--- hover (opts.hover == i) > active (spec.active) > normal.
+-- hover_active (hover ON the active button) > hover (opts.hover == i) > active (spec.active) > normal.
 --
 -- Returns the line plus, in BYTE columns of that line, the hl spans (incl. the chevrons' own colours),
 -- the chevron ranges, and per-item visible ranges ({ c0, c1, spec }; c0/c1 nil = scrolled out) so the
@@ -71,7 +71,10 @@ function M.render(opts)
     -- inter-item gap: a `separator` item carries any spacing itself. Indices stay aligned with opts.items.
     local t, raw_spans, raw_items = "", {}, {}
     for i, spec in ipairs(opts.items or {}) do
-        local state = (opts.hover == i and "hover") or (spec.active and "active") or "normal"
+        local state = (opts.hover == i and spec.active and "hover_active")
+            or (opts.hover == i and "hover")
+            or (spec.active and "active")
+            or "normal"
         local itxt, ispans = button.render(spec, state)
         local base = #t
         for _, s in ipairs(ispans) do

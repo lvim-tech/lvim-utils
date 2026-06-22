@@ -8,7 +8,7 @@
 ---@module "lvim-utils.cmdline"
 
 local colors = require("lvim-utils.colors")
-local status = require("lvim-utils.status")
+local status = require("lvim-utils.chrome.overlay")
 local M = {}
 
 local api = vim.api
@@ -23,7 +23,7 @@ local _blink ---@type uv.uv_timer_t?
 local _msg_timer ---@type uv.uv_timer_t?
 local _cursor_on = true
 local _active = false
----@type LvimStatusState?  the statusline owner (e.g. an open finder) snapshotted when the cmdline opens OVER
+---@type LvimChromeOverlayState?  the statusline owner (e.g. an open finder) snapshotted when the cmdline opens OVER
 --- it, put back on close so its title/counter survive instead of being cleared.
 local _saved_status = nil
 
@@ -140,7 +140,7 @@ local function render()
     -- wins; otherwise the per-mode static label ("Command", "Search ↓", …).
     local label = (prompt ~= "" and prompt) or (mode.label or "")
     local badge
-    -- Publish to the statusline only when the global echo model is on (config.status.enabled) AND this
+    -- Publish to the statusline only when the global echo model is on (config.chrome.overlay.enabled) AND this
     -- cmdline opts in (cmdline.statusline). Either off ⇒ the float keeps its own mode badge.
     local to_statusline = status.is_enabled() and _cfg.statusline ~= false
     if to_statusline then

@@ -427,6 +427,22 @@ local function _render_prog_channel(id, win_w)
     end
 end
 
+--- Coalesce redraw requests into ONE light `:redraw` per event-loop tick. Replaces a per-update `redraw!`
+--- (a full-screen CLEAR + redraw) that flickered the WHOLE screen on every progress/notify change — LSP
+--- `$/progress` fires often, so that was the main editing flicker. `:redraw` (no `!`) repaints the dirty
+--- regions (the floats) without the screen-clear; the pending flag collapses a burst into a single repaint.
+local _redraw_pending = false
+local function flush_redraw()
+    if _redraw_pending then
+        return
+    end
+    _redraw_pending = true
+    vim.schedule(function()
+        _redraw_pending = false
+        pcall(vim.cmd, "redraw")
+    end)
+end
+
 --- Master rebuild: one global width for ALL panels (notify levels + progress channels).
 _rebuild_all = function()
     local win_w = _global_max_w()
@@ -439,9 +455,7 @@ _rebuild_all = function()
         _render_prog_channel(id, win_w)
     end
     _restack()
-    vim.schedule(function()
-        vim.cmd("redraw!")
-    end)
+    flush_redraw()
 end
 
 -- Reflow the notification stack on terminal/window resize: each panel's right-edge column comes
@@ -1013,7 +1027,7 @@ local function _history_zone_render(focus)
     local bcfg = hcfg.bar or {}
     local opts = { key_pad = bcfg.key_pad or { 1, 1 }, label_pad = bcfg.label_pad or { 1, 1 }, gap = bcfg.gap or 0 }
     local title_text = hcfg.title or "Messages"
-    local ok_st, status = pcall(require, "lvim-utils.status")
+    local ok_st, status = pcall(require, "lvim-utils.chrome.overlay")
     local use_status = ok_st and hcfg.statusline ~= false and status.is_enabled()
     -- When NOT on the statusline, the "Messages" label sits at the LEFT of the bar (buttons then stack right).
     opts.title = (not use_status) and title_text or nil

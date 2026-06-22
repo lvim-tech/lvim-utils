@@ -15,11 +15,11 @@ M.notify = require("lvim-utils.notify")
 M.cmdline = require("lvim-utils.cmdline")
 M.input = require("lvim-utils.input")
 M.msgarea = require("lvim-utils.msgarea")
-M.status = require("lvim-utils.status")
+M.chrome = require("lvim-utils.chrome")
 M.picker = require("lvim-utils.picker")
 
 ---Setup lvim-utils.
----@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, status?: table, fuzzy?: table, picker?: table }
+---@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table }
 function M.setup(opts)
     opts = opts or {}
 
@@ -37,7 +37,7 @@ function M.setup(opts)
         cmdline = opts.cmdline,
         input = opts.input,
         msgarea = opts.msgarea,
-        status = opts.status,
+        chrome = opts.chrome,
         fuzzy = opts.fuzzy,
         picker = opts.picker,
     })
@@ -84,9 +84,10 @@ function M.setup(opts)
         M.msgarea.setup(M.config.msgarea)
     end
 
-    -- native statusline guard (bare `laststatus=3`, no statusline plugin) — opt-in via `status.native_guard`.
-    if (M.config.status or {}).native_guard then
-        M.status.native_guard()
+    -- editor chrome: statusline / winbar / tabline / statuscolumn + the folded transient finder/echo overlay.
+    -- The float guard (last regular buffer while a UI float is focused) is built into the statusline now.
+    if opts.chrome ~= false then
+        M.chrome.setup()
     end
 
     -- the unified `:LvimPicker <finder> [layout]` command (one entry point for every finder).

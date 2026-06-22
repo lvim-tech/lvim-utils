@@ -15,7 +15,7 @@
 
 local api = vim.api
 local levels = vim.log.levels
-local status = require("lvim-utils.status")
+local status = require("lvim-utils.chrome.overlay")
 
 --- Publish the completion match counter to the statusline — but ONLY when a transient action already owns
 --- it (the cmdline published its mode), so this never activates the line on its own (it respects the

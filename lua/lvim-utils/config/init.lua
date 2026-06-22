@@ -16,12 +16,12 @@ M.notify = vim.deepcopy(require("lvim-utils.config.notify"))
 M.cmdline = vim.deepcopy(require("lvim-utils.config.cmdline"))
 M.input = vim.deepcopy(require("lvim-utils.config.input"))
 M.msgarea = vim.deepcopy(require("lvim-utils.config.msgarea"))
-M.status = vim.deepcopy(require("lvim-utils.config.status"))
+M.chrome = vim.deepcopy(require("lvim-utils.config.chrome"))
 M.fuzzy = vim.deepcopy(require("lvim-utils.config.fuzzy"))
 M.picker = vim.deepcopy(require("lvim-utils.config.picker"))
 
 ---Merge user-provided options into each module's config.
----@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, status?: table, fuzzy?: table, picker?: table }
+---@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table }
 function M.setup(opts)
     opts = opts or {}
     if opts.ui then
@@ -45,8 +45,9 @@ function M.setup(opts)
     if opts.msgarea then
         M.msgarea = vim.tbl_deep_extend("force", M.msgarea, opts.msgarea)
     end
-    if opts.status then
-        M.status = vim.tbl_deep_extend("force", M.status, opts.status)
+    if opts.chrome then
+        -- utils.merge replaces LIST values wholesale (so a user `exclude.filetype` overrides, not index-merges).
+        require("lvim-utils.utils").merge(M.chrome, opts.chrome)
     end
     if opts.fuzzy then
         -- `sort` may be a string OR a list OR a function — replace it wholesale (deep_extend would merge a

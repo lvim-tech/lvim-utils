@@ -17,7 +17,7 @@ return {
         dismiss_keys = { "<Esc>" },
     },
     -- Statusline integration (default on): publish the cmdline MODE (label + glyph) and the completion
-    -- match counter to the bottom statusline (lvim-utils.status), so the line shows the current action like
+    -- match counter to the bottom statusline (lvim-utils.chrome.overlay), so the line shows the current action like
     -- the navigator. The float then keeps only the glyph as a compact prompt prefix (the static label moves
     -- to the statusline). false = keep the full mode label badge in the float, nothing in the statusline.
     statusline = true,

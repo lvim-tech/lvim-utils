@@ -8,7 +8,7 @@ local M = {}
 
 -- ─── type annotations ─────────────────────────────────────────────────────────
 
----@alias RowType "bool"|"boolean"|"select"|"int"|"integer"|"float"|"number"|"string"|"text"|"action"|"spacer"|"spacer_line"
+---@alias RowType "bool"|"boolean"|"select"|"int"|"integer"|"float"|"number"|"string"|"text"|"action"|"spacer"|"spacer_line"|"bar"|"segmented"
 
 --- Flat highlight definition: a named hl group string or an inline nvim hl attr table.
 --- { bg?, fg?, bold?, italic?, sp?, underline?, ... }
@@ -32,6 +32,11 @@ local M = {}
 ---@field option_icons? table<string, string>
 ---@field bracket_key?  boolean
 ---@field center?       boolean   center the row text instead of left-padding
+---@field items?         table[]   bar rows: the ui.bar button / separator specs
+---@field align?         string    bar rows: "left" | "center" (default) | "right"
+---@field _off?          integer   bar rows: persisted horizontal scroll offset (internal)
+---@field _sel?          integer   bar rows: the keyboard-focused button index (internal)
+---@field _cells?        table[]   bar rows: rendered per-button byte ranges for click hit-testing (internal)
 
 --- Per-item hl state: either a flat HlDef (whole line) or split parts.
 ---@alias ItemHlState HlDef | { checkbox?: HlDef, icon?: HlDef, text?: HlDef }

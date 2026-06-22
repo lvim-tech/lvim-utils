@@ -40,6 +40,10 @@ local M = {}
 ---@field max_width? number          -- auto-fit cap (fraction ≤1 or count)
 ---@field max_height? number         -- auto-fit cap (fraction ≤1 or count)
 ---@field position? string           -- "cursor" (anchor at the cursor) | "win" | "bottom" | "top" | nil (centred)
+---@field layout? string             -- tabs: "float" (default centred) | "area" (cmdline/minibuffer dock) | "bottom"
+---@field tab_selector? integer|string -- tabs: initial active tab — an index or a tab `name`
+---@field max_items? integer         -- tabs (docked): cap the content rows (it scrolls past the cap)
+---@field area_height? integer       -- tabs (docked): the docked content row budget (default AREA_CAP); scrolls past it
 ---@field enter? boolean             -- false → open without focusing (cursor stays in the editor, e.g. hover)
 ---@field border? any                -- frame border override
 ---@field close_keys? string[]       -- keys that close the frame
@@ -57,6 +61,11 @@ local M = {}
 -- the LEFT and RIGHT (no bottom, no ring) so the content breathes off the window edges. Titles are always
 -- border-titles, blue-tinted — the diagnostics-panel approach. (resolve_border fills the two top corners.)
 local FRAME_BORDER = { "", " ", "", " ", "", "", "", " " }
+
+-- Docked (area / bottom) tabs cap their content to this many rows (it scrolls past the cap) when the consumer
+-- gives no `area_height` — the cmdline zone grows `cmdheight`, so an unbounded accordion can't drive it (and a
+-- float's `max_items` scroll cap is irrelevant to a dock). A compact minibuffer height, like the area finder.
+local AREA_CAP = 16
 
 --- Pick one item from a list — a 1-panel `frame` (the list) + a confirm/cancel footer. `<C-j>`
 --- descends into the footer (which scrolls to follow the selection on a narrow popup); the list shows
@@ -435,22 +444,66 @@ function M.tabs(opts)
     local active = 1
     local done = false
 
-    -- Split a tab's rows into content (form center) and action rows (footer buttons).
+    -- Layout: "float" (default centred modal) | "area" (the Emacs-minibuffer cmdline zone, like the area
+    -- finder + the fzf pickers) | "bottom" (a bottom dock). Docked layouts publish their title to the
+    -- statusline overlay, render the bars centered, and (area) host themselves in the msgarea zone.
+    local layout = opts.layout or "float"
+    local area = layout == "area"
+    local bottom = layout == "bottom"
+    local docked = area or bottom
+    -- The window the panel opened from — docked layouts return to it on an escape-up.
+    local opener = vim.api.nvim_get_current_win()
+    -- Initial active tab: a `tab_selector` index (number) or a tab `name` (string).
+    if type(opts.tab_selector) == "number" then
+        active = math.max(1, math.min(opts.tab_selector --[[@as integer]], #tabset))
+    elseif type(opts.tab_selector) == "string" then
+        for i, t in ipairs(tabset) do
+            if t.name == opts.tab_selector then
+                active = i
+                break
+            end
+        end
+    end
+    -- (HOSTED area) When the msgarea zone is on, an `area` panel HOSTS in it (reserves rows above the messages
+    -- instead of growing cmdheight itself) — the same wiring the area finder uses.
+    local msgarea = nil
+    if area then
+        local ok_ma, m = pcall(require, "lvim-utils.msgarea")
+        if ok_ma and m.is_enabled and m.is_enabled() then
+            msgarea = m
+        end
+    end
+
+    -- Split a tab's rows into content (form center) and action rows (footer buttons). An `action` row that
+    -- owns `children` is an expandable accordion SECTION, not a leaf button — it stays in the content body
+    -- (its caret + label render in place and its children flatten under it). Only childless action rows are
+    -- footer buttons.
     local function split(ti)
-        local content, actions = {}, {}
+        local content, actions, bars = {}, {}, {}
         for _, r in ipairs((tabset[ti] or {}).rows or {}) do
-            if r.type == "action" then
+            if r.type == "bar" then
+                -- A TOP-LEVEL toolbar bar becomes its own header-band SECTOR (reached with C-j/C-k), like the
+                -- picker's filter bar. (Nested bar rows — e.g. a per-item action bar — stay in the content.)
+                bars[#bars + 1] = r
+            elseif r.type == "action" and not r.children then
                 actions[#actions + 1] = r
             else
                 content[#content + 1] = r
             end
         end
-        -- Drop trailing spacer / divider rows from the body: they separated the fields from the action
-        -- rows, which now live in the FOOTER, so otherwise they dangle (a stray ────── at the bottom).
-        while #content > 0 and (content[#content].type == "spacer" or content[#content].type == "spacer_line") do
+        -- Drop trailing AND leading spacer / divider rows from the body: they separated the fields from the
+        -- action rows (now in the FOOTER) and from the toolbar bars (now in the HEADER), so otherwise they
+        -- dangle (a stray ────── at the top / bottom of the content).
+        local function is_spacer(r)
+            return r and (r.type == "spacer" or r.type == "spacer_line")
+        end
+        while #content > 0 and is_spacer(content[#content]) do
             content[#content] = nil
         end
-        return content, actions
+        while #content > 0 and is_spacer(content[1]) do
+            table.remove(content, 1)
+        end
+        return content, actions, bars
     end
     -- Typed-row values of the active tab, keyed by name (the callback result).
     local function collect()
@@ -463,7 +516,7 @@ function M.tabs(opts)
         return res
     end
 
-    local content1, actions1 = split(1)
+    local content1, actions1 = split(active)
     local form_p = form.new({ rows = content1, on_change = opts.on_change })
 
     local function action_specs(actions)
@@ -490,22 +543,39 @@ function M.tabs(opts)
         return specs
     end
 
-    -- Header bars: an optional subtitle text bar + a tab bar (live switch) when more than one tab. The
-    -- TITLE is the frame's border-title, not a header bar.
-    local bars = {}
+    -- Header bars: an optional subtitle text bar + a tab bar (live switch) when more than one tab, then the
+    -- ACTIVE tab's toolbar bars — each `type="bar"` row becomes its OWN header-band SECTOR (reached with
+    -- C-j/C-k, like the picker's filter bar). The TITLE is the frame's border-title, not a header bar.
+    local static_bars = {} -- the per-surface prefix (subtitle + tab bar + air); per-TAB bars are appended
     local set_active_tab -- (multi-tab) switch to a tab; shared by the tab bar and the body l/h keymaps
+    local tab_bar, tab_btns
     for _, b in ipairs(subtitle_bars(opts.subtitle)) do
-        bars[#bars + 1] = b
+        static_bars[#static_bars + 1] = b
     end
+
+    -- The full header spec for the CURRENT active tab: the static prefix + the active tab's bar rows as bands.
+    -- Re-evaluated on every tab switch / content rebuild and applied via `st.set_header`.
+    local function header_spec()
+        local hb = {}
+        for _, b in ipairs(static_bars) do
+            hb[#hb + 1] = b
+        end
+        local _, _, tbars = split(active)
+        for _, br in ipairs(tbars) do
+            hb[#hb + 1] = { items = br.items, align = br.align or "center" }
+        end
+        return { bars = hb }
+    end
+
     if #tabset > 1 then
-        local tab_btns = {}
+        tab_btns = {}
         for i, t in ipairs(tabset) do
             tab_btns[i] = {
                 type = "button",
                 icon = t.icon,
                 text = t.label or ("Tab " .. i),
                 _tab = i,
-                active = (i == 1),
+                active = (i == active),
                 style = {
                     icon = {
                         padding = { 2, 2 },
@@ -522,7 +592,7 @@ function M.tabs(opts)
                 },
             }
         end
-        local tab_bar = { items = tab_btns }
+        tab_bar = { items = tab_btns, align = "center" }
         set_active_tab = function(st, i)
             i = math.max(1, math.min(i, #tabset))
             if i == active then
@@ -534,37 +604,94 @@ function M.tabs(opts)
                 b.active = (b._tab == active)
             end
             form_p.set_rows((split(active)))
-            -- Re-fit to the new tab's content (dynamic height) + re-render chrome.
-            if st.relayout then
+            -- Rebuild the header with the NEW tab's toolbar bars (+ re-fit). set_header relayouts.
+            if st.set_header then
+                st.set_header(header_spec())
+            elseif st.relayout then
                 st.relayout()
-            else
-                st.refresh_chrome()
             end
         end
         tab_bar.on_change = function(spec, st)
             set_active_tab(st, spec._tab)
         end
-        bars[#bars + 1] = tab_bar
-        bars[#bars + 1] = { text = "" } -- 1 blank "air" row between the tab bar and the content
+        static_bars[#static_bars + 1] = tab_bar
+        static_bars[#static_bars + 1] = { text = "" } -- 1 blank "air" row between the tab bar and the toolbars
     end
 
-    local st = frame.open({
+    -- (HOSTED area) reserve our rows ABOVE the messages in the msgarea zone (priority 5) — the host grows ITS
+    -- cmdheight and hands us the rect; we follow it via `reposition`. Else the surface grows cmdheight itself.
+    -- `st` is forward-declared so these deferred callbacks can reach the frame state once `frame.open` returns.
+    local st
+    local host = msgarea
+            and function(h)
+                local seg = msgarea.segment("lvim-utils-tabs-host", { priority = 5 })
+                seg:configure({
+                    on_descend = function()
+                        if st and st.focus_sector then
+                            st.focus_sector(1)
+                        end
+                        return true
+                    end,
+                })
+                return seg:reserve(h, function(rect)
+                    if st and st.reposition then
+                        st.reposition(rect)
+                    end
+                end)
+            end
+        or nil
+
+    st = frame.open({
         mode = "float",
-        border = opts.border or FRAME_BORDER,
-        title = opts.title, -- border-title, blue-tinted (LvimUiPeekTitle)
+        -- Docked: "area" sits IN the cmdline region (grows cmdheight, chrome above), "bottom" floats over the
+        -- bottom rows; `host` re-homes an area panel INSIDE the msgarea zone (above the messages). Float = nil.
+        position = area and "cmdline" or (bottom and "bottom") or nil,
+        host = host,
+        zindex = (host and 210) or (area and 200) or nil,
+        header_air = docked and false or nil,
+        -- Docked: no border-title (it goes to the statusline overlay); the centered tab bar is the visible
+        -- header. Float: the canonical blue-tinted border-title on the ringed border.
+        border = docked and "none" or (opts.border or FRAME_BORDER),
+        title = (not docked) and opts.title or nil,
         close_keys = opts.close_keys,
         keymaps = opts.keymaps,
         panel_border = "none",
-        -- A given `width` is FIXED (e.g. the per-server form at 0.8); otherwise the frame auto-fits the
-        -- content (capped at 0.7). Height is always dynamic (fits the active tab), capped at `height` ⊕ 0.9.
-        size = {
+        -- Docked: <C-k> off the top sector returns to the opener window; <C-j> off the bottom descends into
+        -- the messages composed below (hosted area only).
+        on_escape_above = docked and function()
+            if opener and vim.api.nvim_win_is_valid(opener) then
+                vim.api.nvim_set_current_win(opener)
+            end
+        end or nil,
+        on_escape_below = (area and msgarea) and function()
+            return msgarea.focus_messages()
+        end or nil,
+        -- Float: a given `width` is FIXED (e.g. the per-server form at 0.8); else auto-fit (cap 0.7); height
+        -- auto-fits the active tab (cap `height` ⊕ 0.9). Docked: the area grows cmdheight, so cap the content
+        -- to a row budget (`max_items`/`height`/AREA_CAP) — it scrolls past the cap.
+        size = docked and {
+            height = { auto = true, max = opts.area_height or AREA_CAP },
+        } or {
             width = opts.width and { fixed = opts.width } or { auto = true, max = 0.7 },
             height = { auto = true, max = opts.height or 0.9 },
         },
-        header = (#bars > 0) and { bars = bars } or nil,
+        header = (#header_spec().bars > 0) and header_spec() or nil,
         content = { blocks = { { id = "form", provider = form_p } } },
-        footer = (#actions1 > 0) and { bars = { { items = action_specs(actions1) } } } or nil,
+        footer = (#actions1 > 0) and { bars = { { items = action_specs(actions1), align = "center" } } } or nil,
         on_close = function()
+            if docked then
+                pcall(function()
+                    require("lvim-utils.chrome.overlay").clear()
+                end)
+            end
+            -- (HOSTED area) release our reserved rows so the msgarea zone shrinks back / closes — else the
+            -- area stays open after the content is gone (the surface only restores cmdheight for the UNHOSTED
+            -- case; a hosted reserve must be released by us, like the picker does).
+            if msgarea then
+                pcall(function()
+                    msgarea.segment("lvim-utils-tabs-host"):release()
+                end)
+            end
             if not done then
                 vim.schedule(function()
                     cb(false)
@@ -573,19 +700,91 @@ function M.tabs(opts)
         end,
     })
 
+    -- Docked: publish the title to the statusline overlay (the echo/info area), like the area finder — the
+    -- bottom line shows it while the panel owns the zone.
+    if docked and opts.title and opts.title ~= "" then
+        pcall(function()
+            require("lvim-utils.chrome.overlay").set({ title = opts.title })
+        end)
+    end
+
+    -- After-open hook: hand the content buffer/window to the consumer (e.g. the installer's per-row action
+    -- keymaps r/u/d/b). The content panel is the first frame panel.
+    if opts.on_open then
+        local p = st.panels and st.panels[1]
+        if p then
+            opts.on_open(p.buf, p.win)
+        end
+    end
+
     -- `l` / `h` switch tabs from the content body too (multi-tab) — not only while the tab bar is focused,
     -- matching the project panel. (Plain h/l are free on the body; the form owns j/k/<CR>.)
     if set_active_tab then
         local body_buf = st.panels[1] and st.panels[1].buf
         if body_buf and vim.api.nvim_buf_is_valid(body_buf) then
+            -- On a toolbar `bar` row, h/l move the focused button; otherwise they switch tabs.
             vim.keymap.set("n", "l", function()
-                set_active_tab(st, active + 1)
+                if not form_p.bar_nav(1) then
+                    set_active_tab(st, active + 1)
+                end
             end, { buffer = body_buf, nowait = true, silent = true })
             vim.keymap.set("n", "h", function()
-                set_active_tab(st, active - 1)
+                if not form_p.bar_nav(-1) then
+                    set_active_tab(st, active - 1)
+                end
             end, { buffer = body_buf, nowait = true, silent = true })
         end
     end
+
+    -- The interactive handle the consumer drives (validity, repaint, re-fit, cursor query / move). The frame
+    -- redesign dropped this rich API; restored here as a thin layer over the frame state + the form provider.
+    local function panel_win()
+        return st and st.panels and st.panels[1] and st.panels[1].win
+    end
+    return {
+        --- Whether the content panel window is still open.
+        ---@return boolean
+        valid = function()
+            local w = panel_win()
+            return w ~= nil and vim.api.nvim_win_is_valid(w)
+        end,
+        --- Re-paint the active tab's rows in place (after the consumer mutated row values).
+        render = function()
+            form_p.rerender()
+        end,
+        --- Re-read the active tab's (mutated) row set + rebuild its toolbar header bands, and re-fit — for a
+        --- content/filter rebuild (e.g. the installer applying a filter). set_header relayouts.
+        recalc = function()
+            form_p.set_rows((split(active)))
+            if st and st.set_header then
+                st.set_header(header_spec())
+            elseif st and st.relayout then
+                st.relayout()
+            end
+        end,
+        --- The `name` of the row under the cursor.
+        ---@return string?
+        cursor_name = function()
+            return form_p.cursor_name()
+        end,
+        --- The 1-based window line of the cursor.
+        ---@return integer
+        cursor_index = function()
+            return form_p.cursor_index()
+        end,
+        --- Move the cursor to the first row whose `name` matches (expanding its ancestors).
+        ---@param name string
+        ---@return boolean
+        focus = function(name)
+            return form_p.focus_name(name)
+        end,
+        --- Move the cursor to (a clamped) window line `i`.
+        ---@param i integer
+        ---@return boolean
+        focus_index = function(i)
+            return form_p.focus_index(i)
+        end,
+    }
 end
 
 --- Read-only info viewer — a 1-panel `frame` that scrolls the content, with a `q close` footer.
