@@ -49,13 +49,48 @@ function M.dw(s)
     return vim.fn.strdisplaywidth(tostring(s or ""))
 end
 
---- Return s centered within width columns, padded with spaces on both sides.
+--- Clip `s` to at most `width` DISPLAY cells, appending an ellipsis ("…") when it is clipped. Multibyte /
+--- wide-char aware (splits on grapheme boundaries and counts display width). Used so a row whose content is
+--- wider than its panel never spills past the border — its full-line background would otherwise overflow.
+---@param s     any
+---@param width integer
+---@return string
+function M.truncate(s, width)
+    s = tostring(s or "")
+    if width <= 0 then
+        return ""
+    end
+    if M.dw(s) <= width then
+        return s
+    end
+    local ell = "…"
+    local budget = width - M.dw(ell) -- reserve room for the ellipsis
+    if budget <= 0 then
+        return ell:sub(1, width) -- degenerate width; best effort
+    end
+    local out, w = {}, 0
+    for _, ch in ipairs(vim.fn.split(s, "\\zs")) do
+        local cw = M.dw(ch)
+        if w + cw > budget then
+            break
+        end
+        out[#out + 1] = ch
+        w = w + cw
+    end
+    return table.concat(out) .. ell
+end
+
+--- Return s centered within width columns, padded with spaces on both sides (clipped if it overflows).
 ---@param s     any
 ---@param width integer
 ---@return string
 function M.center(s, width)
     s = tostring(s or "")
     local len = M.dw(s)
+    if len > width then
+        s = M.truncate(s, width)
+        len = M.dw(s)
+    end
     if len >= width then
         return s
     end
@@ -63,7 +98,8 @@ function M.center(s, width)
     return string.rep(" ", l) .. s .. string.rep(" ", width - len - l)
 end
 
---- Return s left-padded with indent spaces and right-padded to fill width.
+--- Return s left-padded with indent spaces and right-padded to fill width (clipped if it overflows, so the
+--- row — and its full-line background — never exceed `width`).
 ---@param s      any
 ---@param width  integer
 ---@param indent integer  Number of leading spaces (default 2)
@@ -71,6 +107,10 @@ end
 function M.lpad(s, width, indent)
     s = string.rep(" ", indent or 2) .. tostring(s or "")
     local len = M.dw(s)
+    if len > width then
+        s = M.truncate(s, width)
+        len = M.dw(s)
+    end
     return len >= width and s or (s .. string.rep(" ", width - len))
 end
 

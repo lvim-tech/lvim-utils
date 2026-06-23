@@ -32,6 +32,7 @@ local M = {}
 ---@field option_icons? table<string, string>
 ---@field bracket_key?  boolean
 ---@field center?       boolean   center the row text instead of left-padding
+---@field dim_to?        integer   dim the first N bytes of the LABEL (e.g. a file row's path before the name)
 ---@field items?         table[]   bar rows: the ui.bar button / separator specs
 ---@field align?         string    bar rows: "left" | "center" (default) | "right"
 ---@field _off?          integer   bar rows: persisted horizontal scroll offset (internal)

@@ -112,6 +112,10 @@ return function(c)
         LvimUiRowItemIconInactive = { fg = c.teal },
         LvimUiRowTextActive = { fg = c.yellow, bold = true },
         LvimUiRowTextInactive = { fg = c.fg },
+        -- A file row's path: the file name is BLUE + bold; the leading project/dir path is the same blue
+        -- tinted toward the bg (a dimmer blue), so the name clearly reads over the muted path.
+        LvimUiPathDim = { fg = mtint(c.blue, 0.8) },
+        LvimUiPathName = { fg = c.blue, bold = true },
 
         -- Select / multiselect items (clean list — yellow text, active row = yellow + bold)
         LvimUiItemIconActive = { fg = c.yellow },

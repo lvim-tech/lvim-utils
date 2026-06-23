@@ -18,7 +18,9 @@ local api = vim.api
 local M = {}
 
 --- Create a form provider.
----@param opts { rows: Row[], on_change?: fun(row: Row), ico?: table }
+---@param opts { rows: Row[], on_change?: fun(row: Row), ico?: table, cursorline_hl?: string }
+---       cursorline_hl: name a cursorline highlight group (e.g. a bg-only one) so the hover changes only the
+---       background and a row's own fg highlights survive; default = the frame's yellow "list hover".
 ---@return table provider
 function M.new(opts)
     local model = opts.rows or {}
@@ -168,7 +170,7 @@ function M.new(opts)
 
     return {
         hide_cursor = true,
-        cursorline = true,
+        cursorline = opts.cursorline_hl or true,
         size = function()
             local fr = flat()
             local w = 1
@@ -229,6 +231,20 @@ function M.new(opts)
                     local icon_str = rows.row_icon_info(r, ico)
                     if icon_str and #icon_str > 0 then
                         hls[#hls + 1] = { i - 1, 2, 2 + #icon_str, "LvimUiRowIconInactive" }
+                    end
+                    -- A file row's label = "<dimmed path>/<bright name>". `r.dim_to` is a byte count into the
+                    -- LABEL (the SUFFIX of `disp`) up to the name; offset by the lpad indent (2), clamped to
+                    -- the rendered line. Dim the path, brighten the name, so the name stands out.
+                    if r.dim_to and r.dim_to > 0 and type(r.label) == "string" then
+                        local lstart = 2 + (#disp - #r.label)
+                        local dim_end = math.min(lstart + r.dim_to, #lines[i])
+                        if dim_end > lstart then
+                            hls[#hls + 1] = { i - 1, lstart, dim_end, "LvimUiPathDim" }
+                        end
+                        local name_start, name_end = lstart + r.dim_to, math.min(lstart + #r.label, #lines[i])
+                        if name_end > name_start then
+                            hls[#hls + 1] = { i - 1, name_start, name_end, "LvimUiPathName" }
+                        end
                     end
                 end
             end

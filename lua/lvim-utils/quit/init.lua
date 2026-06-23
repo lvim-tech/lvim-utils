@@ -8,8 +8,79 @@
 --   M.open(opts?) – open the quit dialog (or quit immediately if nothing is dirty)
 
 local ui = require("lvim-utils.ui")
+local util = require("lvim-utils.ui.util")
 
 local M = {}
+
+-- ─── path label ─────────────────────────────────────────────────────────────────
+
+-- Project-root markers, checked upward from the file (git first); the label is shown RELATIVE to the nearest.
+local ROOT_MARKERS = {
+    ".git",
+    ".hg",
+    ".svn",
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "pyproject.toml",
+    "stylua.toml",
+    "Makefile",
+}
+
+--- Middle-elide a path to ≤ `max` display cells, keeping the FIRST crumb + the trailing components (the file
+--- name and as many parent dirs as fit), joined by "…". Component-aware (breaks on "/"), so the file name is
+--- never cut. Falls back to a hard end-clip only when even the name will not fit.
+---@param p   string
+---@param max integer
+---@return string
+local function elide_middle(p, max)
+    if util.dw(p) <= max then
+        return p
+    end
+    local parts = vim.split(p, "/", { plain = true, trimempty = true })
+    if #parts <= 2 then
+        return util.truncate(p, max)
+    end
+    local first, mid = parts[1], "/…/"
+    local budget = max - util.dw(first) - util.dw(mid)
+    local tail, w = {}, 0
+    for i = #parts, 2, -1 do
+        local seg = parts[i]
+        local add = util.dw(seg) + (#tail > 0 and 1 or 0) -- +1 for the joining "/"
+        if w + add > budget then
+            break
+        end
+        table.insert(tail, 1, seg)
+        w = w + add
+    end
+    if #tail == 0 then
+        return util.truncate(p, max)
+    end
+    return first .. mid .. table.concat(tail, "/")
+end
+
+--- A short, readable label for `name`: the PROJECT name (git / common markers) + the path relative to it,
+--- else home/cwd-relative (`:~:.`); middle-elided when wider than ~60% of the screen so the file name is
+--- always visible. Also returns how many leading BYTES are the dir part (project + folders, up to and
+--- including the last "/"), so the caller can dim that and keep the file name bright.
+---@param name string  the absolute buffer name ("" → nil)
+---@return string? label, integer dim_to
+local function file_label(name)
+    if name == "" then
+        return nil, 0
+    end
+    local rel
+    local root = vim.fs.root(name, ROOT_MARKERS)
+    if root and root ~= "" and (name == root or vim.startswith(name, root .. "/")) then
+        rel = vim.fn.fnamemodify(root, ":t") .. "/" .. name:sub(#root + 2) -- "<project>/<path-from-root>"
+    else
+        rel = vim.fn.fnamemodify(name, ":~:.") -- cwd- or home-relative
+    end
+    local max = math.max(30, math.floor(vim.o.columns * 0.6))
+    rel = elide_middle(rel, max)
+    local name_at = rel:match("^.*()/[^/]*$") -- byte count of everything up to + including the last "/"
+    return rel, name_at or 0
+end
 
 -- ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -90,14 +161,12 @@ function M.open(opts)
     local rows = {}
 
     for _, b in ipairs(unsaved) do
-        local name = vim.api.nvim_buf_get_name(b)
-        if name == "" then
-            name = "[No Name #" .. b .. "]"
-        end
+        local lbl, dim = file_label(vim.api.nvim_buf_get_name(b))
         table.insert(rows, {
             type = "bool",
             name = tostring(b),
-            label = name,
+            label = lbl or ("[No Name #" .. b .. "]"),
+            dim_to = lbl and dim or 0, -- dim the leading project/dir part; the file name stays bright
             value = true, -- selected for saving by default
         })
     end
@@ -199,6 +268,10 @@ function M.open(opts)
 
     ui.tabs({
         title = "Quit",
+        footer_fill = false, -- the action bar floats on the bare panel bg (no tinted strip under the buttons)
+        -- A bg-only hover (just the row bg tints) so the file name's blue + the dimmed path survive the cursor
+        -- row instead of being recoloured by the default yellow "list hover".
+        cursorline_hl = "LvimUiCursorLine",
         subtitle = {
             text = #unsaved .. " file(s) with unsaved changes",
             type = "error", -- red fg, no bg

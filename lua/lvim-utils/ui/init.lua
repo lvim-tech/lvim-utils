@@ -52,6 +52,8 @@ local M = {}
 ---@field highlights? table[]        -- info: extra content highlights
 ---@field on_open? fun(buf: integer, win: integer)  -- info: after open
 ---@field footer? boolean            -- info: false → no footer
+---@field footer_fill? boolean       -- tabs: false → no tinted strip under the footer action bar (buttons float on the panel bg)
+---@field cursorline_hl? string      -- tabs: name a bg-only cursorline group so the hover changes only the bg (a row's own fg highlights survive)
 ---@field footer_items? table[]      -- info: extra footer action buttons { { key, name, run } } before `q close`
 ---@field hide_cursor? boolean       -- info: hide the hardware cursor (read-only viewer)
 ---@field wrap? boolean              -- info: enable line wrap in the window (default off)
@@ -518,7 +520,7 @@ function M.tabs(opts)
     end
 
     local content1, actions1 = split(active)
-    local form_p = form.new({ rows = content1, on_change = opts.on_change })
+    local form_p = form.new({ rows = content1, on_change = opts.on_change, cursorline_hl = opts.cursorline_hl })
 
     local function action_specs(actions)
         local specs = {}
@@ -682,7 +684,9 @@ function M.tabs(opts)
         },
         header = (#header_spec().bars > 0) and header_spec() or nil,
         content = { blocks = { { id = "form", provider = form_p } } },
-        footer = (#actions1 > 0) and { bars = { { items = action_specs(actions1), align = "center" } } } or nil,
+        footer = (#actions1 > 0)
+                and { bars = { { items = action_specs(actions1), align = "center", fill = opts.footer_fill ~= false } } }
+            or nil,
         on_close = function()
             if docked then
                 pcall(function()

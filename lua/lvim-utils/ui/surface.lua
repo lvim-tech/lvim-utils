@@ -313,8 +313,11 @@ local function compute_geom(state, place)
     for _, band in ipairs(state.header_bands) do
         bars_w = math.max(bars_w, band.buttons and uibar.width(band.buttons) or util.dw(band.meta or ""))
     end
+    local footer_w = 0
     for _, band in ipairs(state.footer_bands) do
-        bars_w = math.max(bars_w, band.buttons and uibar.width(band.buttons) or 0)
+        local bw = band.buttons and uibar.width(band.buttons) or 0
+        bars_w = math.max(bars_w, bw)
+        footer_w = math.max(footer_w, bw) -- the action footer must FIT (never scroll under the auto-width cap)
     end
     -- Stacking axis sums; cross axis is the max. Horizontal: width sums (+ column separators), height = the
     -- tallest panel. Vertical: width = the widest panel, height sums (+ row separators).
@@ -326,6 +329,11 @@ local function compute_geom(state, place)
     if not place and cfg.min_width then
         local mw = cfg.min_width <= 1 and math.floor(vim.o.columns * cfg.min_width) or cfg.min_width
         W = math.max(W, math.floor(mw))
+    end
+    -- The footer action bar must fit: its buttons should never scroll just because the auto-width cap is
+    -- tighter than them. Widen to the footer, up to the screen.
+    if not place and footer_w > 0 then
+        W = math.max(W, math.min(footer_w, vim.o.columns - 4))
     end
     -- A `scope_panel` input band does NOT take its own header row — it overlays its panel's top (winbar)
     -- row instead, so it doesn't count toward the header height.
@@ -583,7 +591,10 @@ local function render_chrome(state, L)
         lines[ln] = res.line
         -- A continuous full-width bg STRIP under the buttons, so the whole bar row reads as one tinted bar
         -- (the buttons + chevrons sit ON it). Priority below the button/chevron spans (200) so they show through.
-        placements[#placements + 1] = { ln - 1, 0, #res.line, "LvimUiBarFill", 150 }
+        -- `band.fill = false` drops the strip (the buttons then float on the bare panel bg).
+        if band.fill ~= false then
+            placements[#placements + 1] = { ln - 1, 0, #res.line, "LvimUiBarFill", 150 }
+        end
         local entry = { kind = where, row = ln, buttons = {}, band = band }
         for i, b in ipairs(res.items) do
             entry.buttons[i] = { c0 = b.c0, c1 = b.c1, spec = b.spec, sep = b.sep }
@@ -1266,7 +1277,10 @@ local function open_windows(state)
         if pan.provider and pan.provider.cursorline then
             -- MULTI-panel frames (the list+preview peek) use the NEUTRAL cursorline in BOTH panels; only a
             -- single-panel popup (a pick list) uses the yellow "list hover" cursorline (matches the row icon).
-            local cl = (#state.panels > 1) and "LvimUiCursorLine" or "LvimUiPeekCursorLine"
+            -- A provider may NAME its own group (a string) — e.g. a bg-only one, so a row's own fg highlights
+            -- (a file row's blue name / dimmed path) survive the hover instead of being recoloured.
+            local cl = (type(pan.provider.cursorline) == "string" and pan.provider.cursorline)
+                or ((#state.panels > 1) and "LvimUiCursorLine" or "LvimUiPeekCursorLine")
             vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:" .. cl
             vim.wo[pan.win].cursorline = true
         else
