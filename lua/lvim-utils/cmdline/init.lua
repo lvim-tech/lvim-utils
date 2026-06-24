@@ -268,9 +268,9 @@ local function render()
         local ccol = badge_w + 1 + cur_col
         local cline = lines[crow + 1] or ""
         api.nvim_buf_set_extmark(buf, _ns, crow, math.min(ccol, #cline), {
-            -- `▎` (LEFT ONE QUARTER BLOCK, ¼ cell) ≈ the terminal beam-cursor width the finders show, so the
-            -- two carets read as the same thickness (`▏`, ⅛, looked noticeably thinner than the beam).
-            virt_text = { { "▎", mode.hl .. "Caret" } },
+            -- The caret GLYPH (config.cmdline.caret, default `▎` ≈ the finders' beam-cursor width); its colour
+            -- is the mode's `<mode.hl>Caret` group.
+            virt_text = { { _cfg.caret or "▎", mode.hl .. "Caret" } },
             virt_text_pos = "overlay",
             hl_mode = "combine",
         })

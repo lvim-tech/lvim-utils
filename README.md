@@ -873,6 +873,8 @@ require("lvim-utils.picker").buffers() -- ready finder over the open buffers (wi
 
 **Layouts** — `layout = "float"` (default centred), `"bottom"` (a dock floating over the bottom rows), or `"area"` (the Emacs-style cmdline region — it grows `cmdheight` so a global statusline rises above it). **Preview side** — `preview_side = "right"` (default) `| "left" | "below" | "above"` (below/above stack and grow the height). **Result ordering** is the shared [`config.fuzzy.sort`](#fuzzy) (so it matches the rest of the engine).
 
+**Input styling** — the typed-text colour is `config.picker.hl.input`'s fg (shared by both backends); the **caret** is `config.picker.caret = { hl = "LvimUiPickerCursor", shape = "ver25" }` (its `hl` group's fg is the bar colour, `shape` is a `guicursor` spec) — a thin blue bar by default, every finder. The self-rendered cmdline mirrors this: its caret glyph is `config.cmdline.caret` (default `▎`), coloured per its mode group.
+
 **Ready finders:**
 
 ```lua

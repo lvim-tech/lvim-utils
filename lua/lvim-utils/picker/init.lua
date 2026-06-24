@@ -979,9 +979,9 @@ function M.open(opts)
                     keys = function(buf, st)
                         state.st = st
                         state.input_buf = buf -- so NORMAL-mode list can jump back to typing (focus_input)
-                        -- the typed-text caret: a thin BLUE bar (insert-mode) — same as the fzf finder. Through
-                        -- the cursor module so it coexists with cursor-hiding; cleared on close.
-                        pcall(require("lvim-utils.cursor").mark_cursor_buffer, buf, "i-ci-ve:ver25-LvimUiPickerCursor")
+                        -- the typed-text caret (config.picker.caret) — same as the fzf finder. Through the
+                        -- cursor module so it coexists with cursor-hiding; cleared on close.
+                        pcall(require("lvim-utils.cursor").mark_cursor_buffer, buf, source.caret_fragment("i-ci-ve"))
                         publish_status() -- show the title + initial counter the moment the navigator opens
                         local function imap(lhs, fn)
                             vim.keymap.set("i", lhs, fn, { buffer = buf, nowait = true, silent = true })

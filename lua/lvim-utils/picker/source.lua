@@ -42,6 +42,16 @@ function M.clear_active(entry)
     end
 end
 
+--- The `guicursor` fragment for the finder INPUT caret, from `config.picker.caret` ({ hl, shape }). `modes`
+--- is the guicursor mode-list to apply it to — "t" for the fzf terminal input, "i-ci-ve" for the tint
+--- finder's insert prompt. Shared so both backends build it identically.
+---@param modes string
+---@return string
+function M.caret_fragment(modes)
+    local caret = (require("lvim-utils.config").picker or {}).caret or {}
+    return modes .. ":" .. (caret.shape or "ver25") .. "-" .. (caret.hl or "LvimUiPickerCursor")
+end
+
 --- True when `bin` is an executable on PATH.
 ---@param bin string
 ---@return boolean

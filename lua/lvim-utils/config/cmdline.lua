@@ -27,6 +27,10 @@ return {
     badge_pad_right = 2,
     -- Rows of extra offset above the cmdheight area.
     row_offset = 0,
+    -- The caret GLYPH drawn in the externalised cmdline (there is no real cursor there — it is hidden). Its
+    -- COLOUR follows the active mode (each `modes.<x>.hl` group's `fg`). "▎" (¼ cell) matches the finders'
+    -- terminal beam-cursor width; "▏" is thinner (⅛ cell), "█" a full block.
+    caret = "▎",
     -- Max float height; false = auto (≈ half the screen). Long input wraps + grows up.
     max_height = false,
     -- Cmdline-mode keys that insert a literal newline (multi-line command input).

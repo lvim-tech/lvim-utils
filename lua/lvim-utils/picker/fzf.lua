@@ -37,18 +37,40 @@ end
 -- background TRANSPARENT so it inherits the panel's `Normal` (LvimUiPeekNormal via the window `winhl`), so the
 -- fzf bg always matches the surrounding chassis. The selected line echoes the tint canon: a STRONG blue tint.
 
---- Build fzf's `--color` value from the current lvim palette. Recomputed per open so it tracks the theme.
+--- A "#rrggbb" hex of `attr` ("fg"/"bg") from highlight group `group`, or `fallback` when unset — so the fzf
+--- TUI input colours track the SAME groups the tint finder uses (configurable via config.picker.hl), not
+--- baked-in palette constants.
+---@param group string
+---@param attr "fg"|"bg"
+---@param fallback string
+---@return string
+local function hl_hex(group, attr, fallback)
+    local h = vim.api.nvim_get_hl(0, { name = group, link = false })
+    local v = h and h[attr]
+    return (type(v) == "number") and ("#%06x"):format(v) or fallback
+end
+
+--- The configured highlight-group NAMES for the input field (`config.picker.hl.input` / `.prompt`).
+---@return string input_group, string prompt_group
+local function input_groups()
+    local phl = (require("lvim-utils.config").picker or {}).hl or {}
+    return phl.input or "LvimUiPickerInput", phl.prompt or "LvimUiPickerPrompt"
+end
+
+--- Build fzf's `--color` value. The INPUT field (query text + field tint) reads the `hl.input` group so it is
+--- configurable + consistent with the tint finder; the rest tracks the live palette. Recomputed per open.
 ---@return string
 local function fzf_colors()
     local c = require("lvim-utils.colors")
     local blend = require("lvim-utils.highlight").blend
     local sel_bg = blend(c.blue, c.bg, 0.20) -- the active (current) row: a blue tint 0.2, full-width (--highlight-line)
     -- The diagnostics finder's two-tone search, kept to ONE row: a STRONG-tint badge box (done in fzf_prompt
-    -- via ANSI) + a LIGHT-tint typed FIELD (`input-bg` = LvimUiPickerInput.bg). fzf only paints `input-bg` on
-    -- a BORDERED input section, so the caller adds `--input-border=right` — a RIGHT border is a COLUMN, not an
-    -- extra row, so the search stays a single row; we colour that border to the SAME light tint so it
-    -- dissolves into the field (invisible). The `query` text is the normal fg.
-    local input_bg = blend(c.blue, c.bg, 0.10) -- = LvimUiPickerInput.bg (mtint(blue, 0.1))
+    -- via ANSI) + a LIGHT-tint typed FIELD (`input-bg`). fzf only paints `input-bg` on a BORDERED input
+    -- section, so the caller adds `--input-border=right` — a RIGHT border is a COLUMN, not an extra row, so the
+    -- search stays a single row; we colour that border to the SAME field tint so it dissolves (invisible).
+    local input_g = input_groups()
+    local input_fg = hl_hex(input_g, "fg", c.blue) -- the typed text colour (= the tint finder's input fg)
+    local input_bg = hl_hex(input_g, "bg", blend(c.blue, c.bg, 0.10)) -- the typed FIELD tint
     local spec = {
         "fg:" .. c.fg,
         "bg:-1", -- transparent → inherits the panel Normal (themed via winhl)
@@ -58,9 +80,9 @@ local function fzf_colors()
         "hl+:" .. c.red,
         "info:" .. c.comment,
         "border:" .. c.comment,
-        "query:" .. c.blue, -- the typed text — blue (matches the blue input caret)
-        "input-bg:" .. input_bg, -- the typed FIELD tint, like LvimUiPickerInput.bg
-        "input-border:" .. input_bg, -- the border line dissolved into the field (no visible rule)
+        "query:" .. input_fg,
+        "input-bg:" .. input_bg,
+        "input-border:" .. input_bg, -- dissolved into the field (no visible rule)
         "pointer:" .. c.blue,
         "marker:" .. c.yellow,
         "spinner:" .. c.yellow,
@@ -100,17 +122,13 @@ local function fzf_prompt()
         badge = badge .. label
     end
     badge = badge .. sp(" ", pcfg.pad_right or 1)
+    -- the badge box colours come from the `hl.prompt` group (LvimUiPickerPrompt) — configurable + consistent
+    -- with the tint finder's badge — extracted to ANSI (fzf has no prompt-bg colour role).
+    local _, prompt_g = input_groups()
+    local fg = hl_hex(prompt_g, "fg", c.blue)
+    local bg = hl_hex(prompt_g, "bg", blend(c.blue, c.bg, 0.30))
     local ESC = string.char(27)
-    local style = ESC
-        .. "[1m"
-        .. ESC
-        .. "[38;2;"
-        .. hexrgb(c.blue)
-        .. "m"
-        .. ESC
-        .. "[48;2;"
-        .. hexrgb(blend(c.blue, c.bg, 0.30))
-        .. "m"
+    local style = ESC .. "[1m" .. ESC .. "[38;2;" .. hexrgb(fg) .. "m" .. ESC .. "[48;2;" .. hexrgb(bg) .. "m"
     return style .. badge .. ESC .. "[0m" .. sp(" ", pcfg.input_gap or 1)
 end
 
@@ -578,9 +596,9 @@ function M.open(opts)
             })
         end)
         vim.bo[tbuf].filetype = "lvim-picker-fzf"
-        -- the fzf INPUT caret: a thin blue vertical bar (terminal-mode), through the cursor module so it
-        -- coexists with cursor-hiding instead of being clobbered by it. The query text is blue (--color=query).
-        pcall(require("lvim-utils.cursor").mark_cursor_buffer, tbuf, "t:ver25-LvimUiPickerCursor")
+        -- the fzf INPUT caret (config.picker.caret), through the cursor module so it coexists with
+        -- cursor-hiding instead of being clobbered by it. The query text colour is the input group's fg.
+        pcall(require("lvim-utils.cursor").mark_cursor_buffer, tbuf, source.caret_fragment("t"))
         strip_chrome() -- after termopen + filetype, so the TermOpen/FileType chrome is overwritten, not us
         vim.schedule(strip_chrome) -- and once more next tick, beating any deferred chrome the user applies
         -- Keep the terminal in TERMINAL-mode whenever its window is entered, so fzf always receives the

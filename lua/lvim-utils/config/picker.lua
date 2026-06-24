@@ -68,8 +68,17 @@ return {
         input_gap = 1,
     },
 
+    -- The INPUT CARET — the cursor in the typed-query field, shared by EVERY finder (the fzf-TUI ones and the
+    -- tint/lsp ones). `hl` is the highlight group for its COLOUR (the group's `fg` is the bar colour); `shape`
+    -- is a `guicursor` shape spec: "ver25" (a 25%-wide vertical bar — the default thin blue line) | "block" |
+    -- "hor20" | … The typed TEXT colour is the `hl.input` group's `fg` (below) — change it there.
+    caret = {
+        hl = "LvimUiPickerCursor",
+        shape = "ver25",
+    },
+
     -- Highlight groups for EVERY element — all overridable (and shared by all finders). Swap any to restyle
-    -- the whole finder.
+    -- the whole finder. The INPUT text colour is `input` (its fg); the caret colour is `caret.hl` above.
     hl = {
         prompt = "LvimUiPickerPrompt", -- the icon + label badge (default: blue tint 0.3, bold)
         input = "LvimUiPickerInput", -- the typed-text area (default: blue tint 0.1)
