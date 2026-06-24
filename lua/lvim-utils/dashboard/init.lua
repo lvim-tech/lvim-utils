@@ -39,7 +39,7 @@ local _current = nil
 ---@field _size? { width: integer, height: integer }
 ---@field _cur_pane? integer  the pane the cursor is currently in (h/l switch it)
 ---@field _cur_idx? integer  index of the current item in its pane's actionable list (j/k step it)
----@field _snapping? boolean  re-entrancy guard for the cursor snap
+---@field _acting? boolean  freeze re-paints while a finder launched from the menu owns the screen
 local D = {}
 D.__index = D
 
@@ -57,6 +57,10 @@ function D:action(action)
         pcall(api.nvim_win_close, self.win, true)
         self.win = nil
     end
+    -- FREEZE re-paints from here until focus returns (WinEnter). A finder opening below churns the layout
+    -- (resizes, window re-stacks) while it owns the screen; re-painting then would re-centre / one-column the
+    -- dashboard against that transient geometry. The flag is the reliable signal (focus timing is not).
+    self._acting = true
     if type(action) == "string" then
         if action:sub(1, 1) == ":" then
             vim.cmd(action:sub(2))
@@ -66,6 +70,60 @@ function D:action(action)
     elseif type(action) == "function" then
         action(self)
     end
+    -- if the action did NOT open anything (dashboard still focused AND full height), there is nothing to wait
+    -- for — unfreeze. If a finder opened (focus moved OR our window shrank), stay frozen until it closes.
+    vim.schedule(function()
+        if
+            not self.closed
+            and self.win
+            and api.nvim_win_is_valid(self.win)
+            and api.nvim_get_current_win() == self.win
+            and not self:window_shrunk()
+        then
+            self._acting = false
+        end
+    end)
+end
+
+--- True when our window is shorter than its last painted height — i.e. a finder / the area opened below and
+--- took rows. While this holds we stay FROZEN (no re-paint): re-centring against the shrunk height would jump
+--- the content up, and re-laying-out against the finder's transient width would collapse the panes to one
+--- column. We re-paint only once the window is back to full height (the finder closed).
+---@return boolean
+function D:window_shrunk()
+    return self.win ~= nil
+        and api.nvim_win_is_valid(self.win)
+        and self._size ~= nil
+        and api.nvim_win_get_height(self.win) < self._size.height
+end
+
+--- The dashboard auto-opens early — before the lazy nvim-web-devicons has initialised — so file rows first
+--- paint with the generic fallback glyph. Poll briefly and re-paint ONCE devicons is ready, upgrading them to
+--- per-file-type icons. Stops on the first success, after ~1s, or when the dashboard closes / a finder opens.
+function D:upgrade_icons()
+    local function ready()
+        local ok, dev = pcall(require, "nvim-web-devicons")
+        return ok and dev.get_icon("init.lua", "lua", { default = false }) ~= nil
+    end
+    if ready() then
+        return
+    end
+    local timer = (vim.uv or vim.loop).new_timer()
+    local tries = 0
+    timer:start(
+        100,
+        100,
+        vim.schedule_wrap(function()
+            tries = tries + 1
+            if self.closed or ready() or tries >= 10 then
+                timer:stop()
+                timer:close()
+                if not self.closed and not self._acting and ready() then
+                    self:update()
+                end
+            end
+        end)
+    )
 end
 
 --- True when the dashboard is a floating window (vs the editor window).
@@ -115,11 +173,9 @@ function D:map_keys()
         end
     end
     vim.keymap.set("n", "<CR>", function()
-        local row = api.nvim_win_get_cursor(self.win)[1] - 1
-        for _, it in ipairs(self.items) do
-            if it.action and it._row == row then
-                return self:action(it.action)
-            end
+        local it = self:actionables(self._cur_pane or 1)[self._cur_idx or 1]
+        if it and it.action then
+            return self:action(it.action)
         end
     end, { buffer = self.buf, nowait = true, silent = true })
     -- j/k (and ↓/↑) step between the CLICKABLE rows of the current pane — skipping every blank / banner /
@@ -211,12 +267,12 @@ function D:goto_item(pane, idx)
         return
     end
     idx = math.max(1, math.min(#acts, idx))
-    local it = acts[idx]
     self._cur_pane, self._cur_idx = pane, idx
-    self._snapping = true
-    pcall(api.nvim_win_set_cursor, self.win, { it._row + 1, it._col or 0 })
-    self._snapping = false
-    self:highlight_item(it)
+    self:highlight_item(acts[idx])
+    -- the selection is shown by the TINTED row, not the real cursor — so PIN the cursor to the top. A cursor
+    -- sitting on a low row would make Neovim scroll the view to keep it visible when the window shrinks (the
+    -- area opening below), jumping the whole dashboard up. Pinned at the top, the view never scrolls.
+    pcall(api.nvim_win_set_cursor, self.win, { 1, 0 })
 end
 
 --- Step to the next (+1) / previous (-1) actionable item WITHIN the current pane (clamped at the ends).
@@ -236,31 +292,28 @@ function D:switch_pane(dir)
     if to == (self._cur_pane or 1) or #self:actionables(to) == 0 then
         return
     end
-    local idx = self:nearest(to, api.nvim_win_get_cursor(self.win)[1] - 1)
-    self:goto_item(to, idx)
+    -- align to the row of the CURRENT selection (not the cursor, which is pinned to the top)
+    local cur = self:actionables(self._cur_pane or 1)[self._cur_idx or 1]
+    self:goto_item(to, self:nearest(to, cur and cur._row or 0))
 end
 
---- Safety net for non-keyboard cursor moves (mouse, the initial position): pull the cursor onto the nearest
---- actionable of the current pane, so it can never rest on a blank/banner/title row.
-function D:snap()
-    if self._snapping or not (self.win and api.nvim_win_is_valid(self.win)) then
+--- Select an actionable item: RESTORE the saved selection (after a re-paint), else the first actionable in
+--- the first pane that has one (the initial selection).
+---@param restore? boolean
+function D:select(restore)
+    if not (self.win and api.nvim_win_is_valid(self.win)) then
         return
     end
-    local pane = self._cur_pane or 1
-    if #self:actionables(pane) == 0 then -- the current pane has none — find any that does
-        pane = 0
-        for p = 1, #(self.panes or {}) do
-            if #self:actionables(p) > 0 then
-                pane = p
-                break
-            end
-        end
-        if pane == 0 then
+    if restore and self._cur_pane and self._cur_idx and #self:actionables(self._cur_pane) > 0 then
+        self:goto_item(self._cur_pane, self._cur_idx)
+        return
+    end
+    for p = 1, #(self.panes or {}) do
+        if #self:actionables(p) > 0 then
+            self:goto_item(p, 1)
             return
         end
     end
-    local idx = self:nearest(pane, api.nvim_win_get_cursor(self.win)[1] - 1)
-    self:goto_item(pane, idx)
 end
 
 --- Re-resolve, assign keys, paint, and (re)wire the keymaps + cursor. Called on open, on resize, and when the
@@ -274,14 +327,9 @@ function D:update()
     self:assign_keys()
     render.paint(self)
     self:map_keys()
-    -- KEEP the logical selection (pane + item index) across re-paints — the row numbers shift when the height
-    -- changes (the area opening/closing re-centres the dashboard), so restore by index, not by cursor row.
-    -- Only the very first paint has no selection yet → land on the nearest clickable item.
-    if self._cur_pane and self._cur_idx then
-        self:goto_item(self._cur_pane, self._cur_idx)
-    else
-        self:snap()
-    end
+    -- keep the logical selection (pane + item index) across re-paints — restore by INDEX, not by the (now
+    -- shifted) cursor row; the first paint, with no selection yet, lands on the first item.
+    self:select(true)
 end
 
 --- The window size (width × height), accounting for the statusline row.
@@ -328,20 +376,36 @@ function D:set_options()
     end
 end
 
---- Register the lifecycle autocmds (one augroup): resize → re-paint, buffer-wipe / window-close → close once,
---- window re-enter → re-acquire the window, cursor-move → snap.
+--- Register the lifecycle autocmds (one augroup). The guiding rule: the dashboard does NOT re-paint while a
+--- finder it launched owns the screen (the `_acting` freeze, set by D:action) — that finder churns the layout
+--- (resizes, window re-stacks, the area growing), and re-painting against that transient geometry is what
+--- re-stacked the panes to one column / re-centred it. A single clean re-paint happens when focus RETURNS.
 function D:init()
     self.augroup = api.nvim_create_augroup("LvimUtilsDashboard_" .. self.buf, { clear = true })
     api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
         group = self.augroup,
         callback = function()
-            if not self.closed and self.win and api.nvim_win_is_valid(self.win) then
+            vim.schedule(function()
+                if self.closed or not (self.win and api.nvim_win_is_valid(self.win)) then
+                    return
+                end
+                if self._acting then
+                    -- frozen while a finder is up: unfreeze + re-paint only once the window is back to full
+                    -- height (the finder/area closed); otherwise leave the dashboard exactly as it is.
+                    if self:window_shrunk() then
+                        return
+                    end
+                    self._acting = false
+                elseif api.nvim_get_current_win() ~= self.win then
+                    return -- another window owns the screen — don't react to its resizes
+                end
                 local s = self:size()
-                if not self._size or s.width ~= self._size.width or s.height ~= self._size.height then
-                    self._size = s
+                local changed = not self._size or s.width ~= self._size.width or s.height ~= self._size.height
+                self._size = s
+                if changed then
                     self:update()
                 end
-            end
+            end)
         end,
     })
     -- ONE teardown path: the buffer is `bufhidden=wipe`, so closing the window wipes it → BufWipeout → close().
@@ -352,7 +416,9 @@ function D:init()
             self:close()
         end,
     })
-    -- the dashboard window was re-entered after the layout changed elsewhere → re-acquire + re-paint
+    -- Focus RETURNS to the dashboard (a finder closed): re-acquire the window handle and re-paint ONCE against
+    -- the now-stable geometry — fixing any pane re-stack the finder caused. The cursor is pinned to the top, so
+    -- this never scrolls/jumps; the selection (by index) is restored by update().
     api.nvim_create_autocmd("WinEnter", {
         group = self.augroup,
         callback = function()
@@ -361,15 +427,16 @@ function D:init()
                 if w ~= self.win then
                     self.win = w
                 end
+                -- Focus returned to the dashboard. If a finder is STILL open (e.g. parked out of its input with
+                -- the area still up — our window is short), stay FROZEN so it keeps its columns and position.
+                -- Re-paint only once the window is back to full height (the finder fully closed).
+                if self._acting and self:window_shrunk() then
+                    return
+                end
+                self._acting = false
+                self._size = self:size()
                 self:update()
             end
-        end,
-    })
-    api.nvim_create_autocmd("CursorMoved", {
-        group = self.augroup,
-        buffer = self.buf,
-        callback = function()
-            self:snap()
         end,
     })
 end
@@ -406,6 +473,7 @@ function M.open(opts)
     end
     self._size = self:size()
     self:update()
+    self:upgrade_icons() -- re-paint with per-type devicons once the lazy plugin is ready
     _current = self
     return self
 end

@@ -97,11 +97,22 @@ end
 
 -- ─── field formatting ─────────────────────────────────────────────────────────
 
---- The devicon chunk for a file (via nvim-web-devicons), or a blank fallback.
+-- Fallback glyphs (built by codepoint so they survive editing) for when nvim-web-devicons is NOT ready yet —
+-- the dashboard auto-opens early in startup, before the lazy devicons plugin has run its setup(), so get_icon
+-- returns nil then. A directory always uses the folder glyph (devicons is file-oriented).
+local ICON_FILE = vim.fn.nr2char(0xF15B) -- nf-fa-file
+local ICON_DIR = vim.fn.nr2char(0xF07B) -- nf-fa-folder
+
+--- The icon chunk for a file/directory item: the per-type devicon when available, else a generic file/folder
+--- glyph (so a row always has an icon).
 ---@param self table
 ---@param file string
+---@param kind string  "file" | "directory"
 ---@return table
-local function devicon(self, file)
+local function devicon(self, file, kind)
+    if kind == "directory" then
+        return { ICON_DIR .. " ", hl = rhl(self, "icon") }
+    end
     local ok, dev = pcall(require, "nvim-web-devicons")
     if ok then
         local tail = vim.fn.fnamemodify(file, ":t")
@@ -110,7 +121,7 @@ local function devicon(self, file)
             return { glyph .. " ", hl = hl }
         end
     end
-    return { "  ", hl = rhl(self, "icon") }
+    return { ICON_FILE .. " ", hl = rhl(self, "icon") }
 end
 
 --- A `file` item → a shortened path split into a dimmed DIR chunk + a bright FILE chunk.
@@ -142,7 +153,7 @@ local function format_field(self, item, field)
     end
     local val = item[field]
     if field == "icon" and item.file and (val == "file" or val == "directory") then
-        return { devicon(self, item.file) }, nil
+        return { devicon(self, item.file, val) }, nil
     end
     local fmt = (self.opts.formats or {})[field]
     if type(fmt) == "function" then
@@ -225,6 +236,11 @@ function M.render_item(self, item)
     local left = {}
     if item.icon and item.icon ~= "" then
         left = format_field(self, item, "icon")
+        -- a menu row (icon + a command description) gets one extra space between the glyph and the name, so
+        -- the label breathes; file/title rows keep the tight single gap.
+        if item.desc then
+            left[#left + 1] = { " " }
+        end
     end
 
     -- RIGHT: an explicit label, else the key shortcut

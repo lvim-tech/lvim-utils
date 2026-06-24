@@ -39,9 +39,45 @@ local function fzf_backend()
     return (ok and b.available() and b) or nil
 end
 
-local NS = api.nvim_create_namespace("lvim-utils-picker")
-
 local M = {}
+
+--- Route a Lua-ITEM finder through the fzf-TUI backend when available, else the tint list — so EVERY finder
+--- shares one backend (only the structured lsp/diagnostics lists stay tint). Each item is encoded as
+--- `idx\ttext`; fzf shows/matches only the text (`--with-nth`), and the idx recovers the full item on
+--- selection, so the finder keeps its own `preview` / `on_confirm` / `on_cancel` for BOTH backends.
+---@param spec { title: string, items: table[], preview?: function, on_confirm?: function, on_cancel?: function, opts?: table }
+local function pick_items(spec)
+    local items = spec.items or {}
+    local b = fzf_backend()
+    if b then
+        local contents = {}
+        for i, it in ipairs(items) do
+            contents[i] = i .. "\t" .. ((it.text or ""):gsub("[\t\n]", " "))
+        end
+        b.open(vim.tbl_extend("force", {
+            title = spec.title,
+            contents = contents,
+            fzf_args = { "--delimiter=\t", "--with-nth=2.." }, -- hide the leading index, show/match the text
+            parse = function(line)
+                local idx = tonumber(line:match("^(%d+)\t"))
+                return (idx and items[idx]) or { text = line }
+            end,
+            preview = spec.preview,
+            on_confirm = spec.on_confirm,
+            on_cancel = spec.on_cancel,
+        }, spec.opts or {}))
+        return
+    end
+    M.open(vim.tbl_extend("force", {
+        title = spec.title,
+        items = items,
+        preview = spec.preview,
+        on_confirm = spec.on_confirm,
+        on_cancel = spec.on_cancel,
+    }, spec.opts or {}))
+end
+
+local NS = api.nvim_create_namespace("lvim-utils-picker")
 
 --- Normalise the caller's items into `{ text, icon?, _src }`. A string item is its own text; a table item
 --- uses `opts.format(item)` (or `item.text`) for the display text and keeps the original as `_src`.
@@ -1411,9 +1447,10 @@ function M.oldfiles(opts)
             items[#items + 1] = { text = vim.fn.fnamemodify(p, ":~:."), path = p }
         end
     end
-    M.open(vim.tbl_extend("force", {
+    pick_items({
         title = "Recent",
         items = items,
+        opts = opts,
         on_confirm = function(it)
             if it and it.path then
                 vim.cmd.edit(vim.fn.fnameescape(it.path))
@@ -1422,7 +1459,7 @@ function M.oldfiles(opts)
         preview = function(it)
             return read_preview(it.path)
         end,
-    }, opts or {}))
+    })
 end
 
 --- Fuzzy finder over HELP tags; confirming opens that help topic.
@@ -1432,15 +1469,16 @@ function M.help_tags(opts)
     for _, t in ipairs(vim.fn.getcompletion("", "help")) do
         items[#items + 1] = { text = t, tag = t }
     end
-    M.open(vim.tbl_extend("force", {
+    pick_items({
         title = "Help",
         items = items,
+        opts = opts,
         on_confirm = function(it)
             if it and it.tag then
                 pcall(vim.cmd.help, it.tag)
             end
         end,
-    }, opts or {}))
+    })
 end
 
 --- Fuzzy finder over GIT-tracked files (`git ls-files`); confirming edits the file, with a content preview.
@@ -1502,9 +1540,10 @@ function M.colorschemes(opts)
     for _, c in ipairs(vim.fn.getcompletion("", "color")) do
         items[#items + 1] = { text = c, name = c }
     end
-    M.open(vim.tbl_extend("force", {
+    pick_items({
         title = "Colorschemes",
         items = items,
+        opts = opts,
         on_confirm = function(it)
             if it and it.name then
                 pcall(vim.cmd.colorscheme, it.name)
@@ -1515,7 +1554,7 @@ function M.colorschemes(opts)
                 pcall(vim.cmd.colorscheme, current)
             end
         end,
-    }, opts or {}))
+    })
 end
 
 --- Fuzzy finder over EX commands; confirming drops `:<cmd> ` into the command line (so args can be added)
@@ -1526,15 +1565,16 @@ function M.commands(opts)
     for _, c in ipairs(vim.fn.getcompletion("", "command")) do
         items[#items + 1] = { text = c, cmd = c }
     end
-    M.open(vim.tbl_extend("force", {
+    pick_items({
         title = "Commands",
         items = items,
+        opts = opts,
         on_confirm = function(it)
             if it and it.cmd then
                 vim.api.nvim_feedkeys(":" .. it.cmd .. " ", "n", false)
             end
         end,
-    }, opts or {}))
+    })
 end
 
 --- Jump to a `[file] lnum:col  text` location item: open its file (if any) and place the cursor. Shared by
@@ -1588,12 +1628,13 @@ function M.marks(opts)
             col = m.pos[3],
         }
     end
-    M.open(vim.tbl_extend("force", {
+    pick_items({
         title = "Marks",
         items = items,
+        opts = opts,
         on_confirm = jump_to,
         preview = preview_location,
-    }, opts or {}))
+    })
 end
 
 --- Fuzzy finder over KEYMAPS (all modes); confirming feeds the mapping's lhs. The preview shows its rhs /
@@ -1611,9 +1652,10 @@ function M.keymaps(opts)
             }
         end
     end
-    M.open(vim.tbl_extend("force", {
+    pick_items({
         title = "Keymaps",
         items = items,
+        opts = opts,
         on_confirm = function(it)
             if it and it.lhs and it.mode == "n" then
                 api.nvim_feedkeys(api.nvim_replace_termcodes(it.lhs, true, false, true), "m", false)
@@ -1622,7 +1664,7 @@ function M.keymaps(opts)
         preview = function(it)
             return { it.mode .. "  " .. it.lhs, "", it.detail }, ""
         end,
-    }, opts or {}))
+    })
 end
 
 --- Fuzzy finder over the QUICKFIX list; confirming jumps to the entry, with a preview at its line.
@@ -1638,12 +1680,13 @@ function M.quickfix(opts)
             col = e.col,
         }
     end
-    M.open(vim.tbl_extend("force", {
+    pick_items({
         title = "Quickfix",
         items = items,
+        opts = opts,
         on_confirm = jump_to,
         preview = preview_location,
-    }, opts or {}))
+    })
 end
 
 --- Fuzzy finder over the JUMPLIST (newest first); confirming jumps to the location, with a preview.
@@ -1663,12 +1706,13 @@ function M.jumplist(opts)
             }
         end
     end
-    M.open(vim.tbl_extend("force", {
+    pick_items({
         title = "Jumplist",
         items = items,
+        opts = opts,
         on_confirm = jump_to,
         preview = preview_location,
-    }, opts or {}))
+    })
 end
 
 -- ── unified command ───────────────────────────────────────────────────────────
