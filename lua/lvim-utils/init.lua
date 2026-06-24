@@ -17,9 +17,10 @@ M.input = require("lvim-utils.input")
 M.msgarea = require("lvim-utils.msgarea")
 M.chrome = require("lvim-utils.chrome")
 M.picker = require("lvim-utils.picker")
+M.dashboard = require("lvim-utils.dashboard")
 
 ---Setup lvim-utils.
----@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table }
+---@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table, dashboard?: table }
 function M.setup(opts)
     opts = opts or {}
 
@@ -40,6 +41,7 @@ function M.setup(opts)
         chrome = opts.chrome,
         fuzzy = opts.fuzzy,
         picker = opts.picker,
+        dashboard = opts.dashboard,
     })
 
     -- 3. Self-theme the UI/notify groups from the fully-configured palette via bind():
@@ -92,6 +94,9 @@ function M.setup(opts)
 
     -- the unified `:LvimPicker <finder> [layout]` command (one entry point for every finder).
     M.picker.setup_command()
+
+    -- the start dashboard: `:LvimDashboard` + the empty-startup auto-open (no-op unless dashboard.enable).
+    M.dashboard.setup()
 end
 
 return M

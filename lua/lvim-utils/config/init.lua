@@ -19,9 +19,10 @@ M.msgarea = vim.deepcopy(require("lvim-utils.config.msgarea"))
 M.chrome = vim.deepcopy(require("lvim-utils.config.chrome"))
 M.fuzzy = vim.deepcopy(require("lvim-utils.config.fuzzy"))
 M.picker = vim.deepcopy(require("lvim-utils.config.picker"))
+M.dashboard = vim.deepcopy(require("lvim-utils.config.dashboard"))
 
 ---Merge user-provided options into each module's config.
----@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table }
+---@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table, dashboard?: table }
 function M.setup(opts)
     opts = opts or {}
     if opts.ui then
@@ -59,6 +60,11 @@ function M.setup(opts)
     end
     if opts.picker then
         M.picker = vim.tbl_deep_extend("force", M.picker, opts.picker)
+    end
+    if opts.dashboard then
+        -- utils.merge replaces LIST values wholesale (so a user `sections` / `preset.keys` overrides, not
+        -- index-merges into the defaults).
+        require("lvim-utils.utils").merge(M.dashboard, opts.dashboard)
     end
 end
 

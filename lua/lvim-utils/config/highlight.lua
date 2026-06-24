@@ -75,6 +75,20 @@ return function(c)
         -- the preview winbar's PATH (dir): the tint's OWN accent fg on the WINBAR's bg (the "fg = the tint"
         -- canon), so it blends into the bar; the file name stays the brighter LvimUiPeekFile.
         LvimUiPickerPreviewDir = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
+        -- ── start dashboard (lvim-utils.dashboard) ── colours mirror the old snacks dashboard groups,
+        -- self-themed from the palette: header green_dark, icon/footer/file red_dark (the Special accent),
+        -- key orange, desc cyan, special purple, dir comment, title green_dark+bold (the Title accent).
+        LvimUiDashboardHeader = { fg = c.green_dark }, -- the ASCII banner
+        LvimUiDashboardFooter = { fg = c.red_dark }, -- a footer line
+        LvimUiDashboardIcon = { fg = c.red_dark }, -- a key/file leading glyph
+        LvimUiDashboardKey = { fg = c.orange }, -- the keyboard shortcut (right side)
+        LvimUiDashboardDesc = { fg = c.cyan }, -- a key row's description
+        LvimUiDashboardTitle = { fg = c.green_dark, bold = true }, -- a section title (Recent Files / Projects)
+        LvimUiDashboardFile = { fg = c.red_dark }, -- a file name (the Special accent)
+        LvimUiDashboardDir = { fg = c.comment }, -- a file's directory part (dim)
+        LvimUiDashboardSpecial = { fg = c.purple }, -- emphasised inline text (the startup counts)
+        LvimUiDashboardNormal = { fg = c.fg, bg = c.bg }, -- the buffer background / plain text
+        LvimUiDashboardCursorLine = { bg = mtint(c.blue, 0.12) }, -- the active item's row cell (a subtle tint)
         LvimUiMsgAreaItemSource = { fg = c.comment, bg = c.bg_dark }, -- the right-aligned [source] tag, dim
         LvimUiMsgAreaRowOdd = { fg = c.blue, bg = mtint(c.blue, 0.1) }, -- odd grid row stripe (blue)
         LvimUiMsgAreaRowEven = { fg = c.yellow, bg = mtint(c.yellow, 0.1) }, -- even grid row stripe (yellow)

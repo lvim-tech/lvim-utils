@@ -115,6 +115,12 @@ function M.check()
     else
         info("fzf not found — the heavy finders use the Lua tint list (fzf --filter ranking when available)")
     end
+
+    -- start dashboard
+    local d_ok, d = pcall(require, "lvim-utils.dashboard")
+    if d_ok and type(d.health) == "function" then
+        d.health({ ok = ok, warn = warn, info = info })
+    end
 end
 
 return M

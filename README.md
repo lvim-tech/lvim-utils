@@ -900,6 +900,37 @@ Keys (in the query input, insert mode): type to filter, `<C-j>`/`<Down>` and `<C
 
 ---
 
+### `dashboard`
+
+A declarative, section-based **start dashboard** (greeter) — the snacks.nvim dashboard model, reimplemented on the lvim-utils stack. Like the [chrome](#chrome) components it ships the ENGINE only; the CONTENT (the banner, the menu, the layout) is yours, defined in your config. Opt-in via `setup({ dashboard = { enable = true } })`; with `auto_open` (default on) it replaces the blank start buffer when Neovim is launched with no file.
+
+A `sections` list (top to bottom) drives it — each entry an item TABLE, a generator `function(self)`, or `{ section = "<built-in>" }`. Built-in sections: `header` (the `preset.header` banner), `keys` (the `preset.keys` menu), `recent_files` (oldfiles), `projects` (git roots of recent files), `startup` (plugin-load stat), `session` (restore the last session). Item fields: `text` / `icon` / `key` / `desc` / `title` / `action` / `pane` / `align` / `indent` / `title_indent` / `padding` / `gap` / `hl` / `label` / `file` / `header` / `footer` / `enabled` / `autokey`. `pane = N` lays sections out in side-by-side columns (as many as fit the window); `title_indent` sits a section title to the left of its (deeper-`indent`) list for a nested look. `action` is a `:Cmd` string, raw keys, or a `function`.
+
+```lua
+require("lvim-utils").setup({
+    dashboard = {
+        enable = true,
+        preset = {
+            header = "  L V I M\n  start screen", -- your banner
+            keys = { -- your menu (icon / key / desc / action)
+                { icon = "󰈞 ", key = "f", desc = "Find File", action = ":LvimDashboard pick files" },
+                { icon = "󰗼 ", key = "q", desc = "Quit", action = ":qa" },
+            },
+        },
+        sections = { -- your layout
+            { section = "header" },
+            { section = "keys", gap = 1, padding = 1 },
+            { pane = 2, icon = " ", title = "Recent Files", section = "recent_files", indent = 2, padding = 1 },
+            { section = "startup" },
+        },
+    },
+})
+```
+
+`:LvimDashboard` opens it; `:LvimDashboard pick <source>` opens a finder via [`picker`](#picker) (no fzf-lua/telescope). Keys: `j`/`k` (or `↓`/`↑`) step between the CLICKABLE rows of the current pane — skipping every blank / banner / title / meta line; `h`/`l` (or `←`/`→`) move between the side-by-side panes; `<CR>` runs the row under the cursor; each item's shortcut runs it directly; `q` closes. The buffer caret/colours are the `LvimUiDashboard*` groups; the caret is the input one (a thin blue bar). Configurable: `caret`/`width`/`pane_gap`/`autokeys`/`formats`/`hl`/`auto_open`. Closing tears down cleanly (one autocmd group, deleted once — no double-free).
+
+---
+
 ### `quit`
 
 Quit dialog that lists all unsaved normal buffers as toggleable rows. The user chooses which files to save, then picks an action from a horizontal button bar.
