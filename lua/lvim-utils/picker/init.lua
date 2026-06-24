@@ -144,16 +144,20 @@ local function filter(items, query, cb)
     end)
 end
 
---- Build a list ROW for a grid item: ` icon text`, plus the BYTE spans of its matched label characters.
+--- Build a list ROW for a grid item: `<lead> icon text`, plus the BYTE spans of its matched label characters
+--- and the byte length of the leading column. `marked` swaps the leading blank for the mark dot.
 ---@param it table
----@return string row, { c0: integer, c1: integer }[] match_spans
-local function list_row(it)
+---@param marked boolean  the row is marked (multi-select) → show the mark dot in the front column
+---@param dot string  the mark glyph
+---@return string row, { c0: integer, c1: integer }[] match_spans, integer lead_bytes
+local function list_row(it, marked, dot)
+    local lead = marked and dot or " "
     local icon = (it.icon and it.icon ~= "") and (it.icon .. " ") or ""
     local text = (it.text or ""):gsub("[\r\n]+", " ")
-    local row = " " .. icon .. text
+    local row = lead .. icon .. text
     local spans = {}
     if it.match and #it.match > 0 then
-        local base = 1 + #icon -- byte offset of the label within `row`
+        local base = #lead + #icon -- byte offset of the label within `row`
         local nch = vim.fn.strchars(text)
         for _, ci in ipairs(it.match) do
             if ci >= 0 and ci < nch then
@@ -162,7 +166,7 @@ local function list_row(it)
             end
         end
     end
-    return row, spans
+    return row, spans, #lead
 end
 
 ---@class LvimPickerOpts
@@ -209,7 +213,16 @@ function M.open(opts)
     local surface = require("lvim-utils.ui.surface")
     local items = normalize(opts.items, opts.format)
     local maxr = opts.max_rows or 15
-    local state = { filtered = items, sel = 1, list_pan = nil, preview_pan = nil, st = nil, closed = false, query = "" }
+    local state = {
+        filtered = items,
+        sel = 1,
+        list_pan = nil,
+        preview_pan = nil,
+        st = nil,
+        closed = false,
+        query = "",
+        marked = {},
+    }
     -- this finder's entry in the shared "open finder" registry (so the next open closes us first)
     local active_entry = {
         close = function()
@@ -271,6 +284,74 @@ function M.open(opts)
     -- Forward declarations — the list panel's NORMAL-mode keys (defined with the panel, early) call these,
     -- but they are assigned further down (after the providers/state are wired).
     local move, confirm, cancel, focus_input, act, scroll_preview
+
+    -- ── multi-select marking + quickfix (config.picker.keys.mark / .quickfix, shared with the fzf backend) ──
+    local pkc = (require("lvim-utils.config").picker or {})
+    local kcfg = pkc.keys or {}
+    local marker = pkc.marker or "●"
+    --- A config key value (a single key, a list, or "") → a list of keys.
+    ---@param v string|string[]|nil
+    ---@return string[]
+    local function keylist(v)
+        if type(v) == "table" then
+            return v
+        end
+        return (type(v) == "string" and v ~= "") and { v } or {}
+    end
+    --- The mark-order index of a source value within `state.marked`, or nil.
+    local function marked_index(src)
+        for i, s in ipairs(state.marked) do
+            if s == src then
+                return i
+            end
+        end
+    end
+    --- Whether a source value is marked (drives the front-column dot in the render).
+    local function is_marked(src)
+        return src ~= nil and marked_index(src) ~= nil
+    end
+    --- Toggle the focused row's mark, then advance one row (multi-select `Tab` = toggle + down).
+    local function mark()
+        local it = state.filtered[state.sel]
+        if it and it._src ~= nil then
+            local i = marked_index(it._src)
+            if i then
+                table.remove(state.marked, i)
+            else
+                state.marked[#state.marked + 1] = it._src
+            end
+        end
+        move(1) -- advance + re-render (so the new dot shows)
+    end
+    --- Send the marked rows (or the focused one when none are marked) to the quickfix list; close + open it.
+    local function to_quickfix()
+        local srcs = state.marked
+        if #srcs == 0 then
+            local cur = state.filtered[state.sel]
+            srcs = (cur and cur._src ~= nil) and { cur._src } or {}
+        end
+        local qf = {}
+        for _, src in ipairs(srcs) do
+            if type(src) == "table" then
+                qf[#qf + 1] = {
+                    filename = src.path,
+                    bufnr = (not src.path) and src.bufnr or nil,
+                    lnum = src.lnum or 1,
+                    col = src.col or 1,
+                    text = src.text or "",
+                }
+            end
+        end
+        if #qf == 0 then
+            return
+        end
+        status.clear() -- idempotent — drop the finder's statusline title/counter if it published one
+        if state.st then
+            state.st.close()
+        end
+        vim.fn.setqflist({}, " ", { title = opts.title or "Picker", items = qf })
+        vim.cmd("botright copen")
+    end
 
     -- Kill the "↳" continuation marker on wrapped rows WITHOUT touching the user's global `showbreak`: the
     -- special window-local value "NONE" disables showbreak for THIS window only (an empty "" would just
@@ -438,7 +519,8 @@ function M.open(opts)
         render = function()
             local lines, hls = {}, {}
             for i, it in ipairs(state.filtered) do
-                local row, spans = list_row(it)
+                local marked = is_marked(it._src)
+                local row, spans, lead = list_row(it, marked, marker)
                 lines[i] = row
                 local odd = (i % 2) == 1
                 local sel = i == state.sel
@@ -446,10 +528,14 @@ function M.open(opts)
                         and (odd and hl("sel_odd", "LvimUiMsgAreaSelOdd") or hl("sel_even", "LvimUiMsgAreaSelEven"))
                     or (odd and hl("row_odd", "LvimUiMsgAreaRowOdd") or hl("row_even", "LvimUiMsgAreaRowEven"))
                 hls[#hls + 1] = { i - 1, 0, -1, stripe, sel and 200 or 100 } -- full-row tint (eol)
+                -- the mark dot in the front column (above the row tint) — the multi-select indicator
+                if marked then
+                    hls[#hls + 1] = { i - 1, 0, lead, hl("marker", "LvimUiPickerMarker"), 220 }
+                end
                 -- the leading glyph keeps its OWN colour (e.g. diagnostic severity signs) — above the row
-                -- stripe (incl. the selected row's strong tint) so it shows through; the row is ` <icon> …`.
+                -- stripe (incl. the selected row's strong tint) so it shows through; the row is `<lead><icon> …`.
                 if it.icon and it.icon ~= "" and it.icon_hl then
-                    hls[#hls + 1] = { i - 1, 1, 1 + #it.icon, it.icon_hl, 210 }
+                    hls[#hls + 1] = { i - 1, lead, lead + #it.icon, it.icon_hl, 210 }
                 end
                 for _, ms in ipairs(spans) do
                     hls[#hls + 1] = { i - 1, ms.c0, ms.c1, hl("match", "LvimUiMsgAreaMatch"), 250 }
@@ -494,8 +580,13 @@ function M.open(opts)
                 -- NOTE: <C-j>/<C-k> are the surface's SECTOR navigation (list → footer bar → … and, when
                 -- hosted, on past the footer DOWN into the messages via `on_escape_below`). We do NOT bind
                 -- them here — that would shadow the stack navigation.
-                -- back to typing: `/` + <C-f> (NOT <Tab> — the chassis owns it for the list ⇄ preview toggle;
-                -- NOT i/a — a consumer filter may own those hotkeys, e.g. diagnostics' [A]ll / [I]nfo).
+                -- multi-select: the mark key toggles the row's mark + advances (same as the fzf backend); the
+                -- quickfix key sends the marked rows (or the focused one) to the quickfix list. The mark key
+                -- (Tab) is bound AFTER the chassis, so it overrides the list ⇄ preview toggle on the LIST (the
+                -- preview is still reachable via `<C-l>`); both keys come from config.picker.keys.
+                map(keylist(kcfg.mark), mark)
+                map(keylist(kcfg.quickfix), to_quickfix)
+                -- back to typing: `/` + <C-f> (NOT i/a — a consumer filter may own those, e.g. diagnostics).
                 map({ "/", "<C-f>" }, focus_input)
                 map({ "q", "<Esc>" }, cancel)
                 for _, a in ipairs(opts.keys or {}) do

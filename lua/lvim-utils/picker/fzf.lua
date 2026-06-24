@@ -84,7 +84,7 @@ local function fzf_colors()
         "input-bg:" .. input_bg,
         "input-border:" .. input_bg, -- dissolved into the field (no visible rule)
         "pointer:" .. c.blue,
-        "marker:" .. c.yellow,
+        "marker:" .. c.red, -- the multi-select mark dot (●) — red
         "spinner:" .. c.yellow,
         "header:" .. c.comment,
     }
@@ -324,10 +324,28 @@ function M.open(opts)
     -- PARK: leave fzf's input + focus the editor (the finder stays open, fzf keeps running). A transient
     -- normal-mode map on the SAME key returns. RETURN: focus the fzf terminal → its WinEnter autocmd
     -- re-enters terminal-mode (back in fzf, exactly where you left it) and clears the parked state + map.
-    local park_key = (require("lvim-utils.config").picker or {}).park_key
-    if park_key == nil then
-        park_key = "<C-o>"
+    -- ── keys (ALL configurable, config.picker.keys) ──
+    local kcfg = (require("lvim-utils.config").picker or {}).keys or {}
+    --- A config key value (a single key, a list, or ""/{}) → a flat list of vim-notation keys.
+    ---@param v string|string[]|nil
+    ---@return string[]
+    local function keylist(v)
+        if type(v) == "table" then
+            return v
+        end
+        return (type(v) == "string" and v ~= "") and { v } or {}
     end
+    --- vim key notation → fzf key notation: "<Tab>"→"tab", "<C-q>"→"ctrl-q", "<CR>"→"enter", "<Esc>"→"esc".
+    ---@param k string
+    ---@return string
+    local function fzfkey(k)
+        local s = (k or ""):gsub("^<(.+)>$", "%1"):lower()
+        s = s:gsub("^c%-", "ctrl-"):gsub("^[ma]%-", "alt-")
+        return ({ cr = "enter", ["return"] = "enter", esc = "esc", tab = "tab", space = "space", bs = "bspace" })[s]
+            or s
+    end
+    local park_key = keylist(kcfg.park)[1] or ""
+    local qf_key = keylist(kcfg.quickfix)[1] -- the one key that accepts-into-quickfix (via fzf --expect)
     --- Drop the transient return-map (idempotent).
     local function clear_park_map()
         if state.parked and park_key ~= "" then
@@ -427,8 +445,35 @@ function M.open(opts)
     end
 
     -- ── close / confirm / cancel ──
+    --- Send the selected rows to the quickfix list (each parsed into a file/buffer + line/col + text).
+    ---@param items string[]  the raw selected fzf lines
+    local function to_quickfix(items)
+        local qf = {}
+        for _, line in ipairs(items) do
+            local it = parse(line)
+            if it then
+                qf[#qf + 1] = {
+                    filename = it.path,
+                    bufnr = (not it.path) and it.bufnr or nil,
+                    lnum = it.lnum or 1,
+                    col = it.col or 1,
+                    text = it.text or line,
+                }
+            end
+        end
+        if #qf > 0 then
+            vim.fn.setqflist({}, " ", { title = opts.title or "Picker", items = qf })
+            vim.cmd("botright copen")
+        end
+    end
+
     local confirmed = false
-    local function finish(code, sel)
+    --- `lines` = every line fzf wrote to the outfile. With `--expect` (a quickfix key configured), line 1 is
+    --- the pressed key ("" for plain accept) and the rest are the selected/marked rows; without it, all lines
+    --- are the selection. The quickfix key routes to to_quickfix; anything else opens the first row.
+    ---@param code integer
+    ---@param lines string[]?
+    local function finish(code, lines)
         if state.closed then
             return
         end
@@ -438,13 +483,30 @@ function M.open(opts)
         if state.st then
             pcall(state.st.close) -- triggers surface on_close → resource cleanup below
         end
-        if code == 0 and sel and sel ~= "" then
-            confirmed = true
-            if opts.on_confirm then
-                opts.on_confirm(parse(sel))
+        local key, items = "", {}
+        if code == 0 and lines and #lines > 0 then
+            local start = 1
+            if qf_key then -- --expect prints the key as line 1
+                key = lines[1] or ""
+                start = 2
             end
-        elseif opts.on_cancel then
-            opts.on_cancel()
+            for i = start, #lines do
+                if lines[i] ~= "" then
+                    items[#items + 1] = lines[i]
+                end
+            end
+        end
+        if #items == 0 then
+            if opts.on_cancel then
+                opts.on_cancel()
+            end
+            return
+        end
+        confirmed = true
+        if qf_key and key == fzfkey(qf_key) then
+            to_quickfix(items)
+        elseif opts.on_confirm then
+            opts.on_confirm(parse(items[1]))
         end
     end
 
@@ -464,9 +526,12 @@ function M.open(opts)
             "--no-separator", -- no rule under the prompt → the list sits DIRECTLY below the search row
             "--no-scrollbar", -- no scrollbar column (the thin `▌` bar down the left/right of the list)
             "--highlight-line", -- the active row's tint covers the WHOLE row, not just the text
-            "--no-multi",
+            "--multi", -- Tab marks/unmarks rows (multi-select); the mark dot shows in the blank front column
+            "--marker=" .. ((require("lvim-utils.config").picker or {}).marker or "●"),
             "--prompt=" .. fzf_prompt(),
-            "--pointer=➤",
+            "--pointer=", -- no active-row arrow (the row is shown by --highlight-line); also shifts the item
+            -- text one column left so it starts directly UNDER the prompt's search glyph
+
             "--gutter= ", -- blank the gutter column (fzf's default gutter char is a `▌` — the thin left bar)
             "--input-border=right", -- bordered input section → fzf paints the light field tint (input-bg); a
             -- LEFT border is a COLUMN (not an extra row), so the search stays ONE row tall, dissolved into the tint
@@ -494,6 +559,15 @@ function M.open(opts)
             args[#args + 1] = "--disabled"
             args[#args + 1] = "--bind=change:reload(" .. opts.reload .. ")"
             args[#args + 1] = "--bind=start:reload(" .. opts.reload .. ")"
+        end
+        -- mark / unmark with the configured key, then advance to the next row (multi-select toggle+down)
+        for _, k in ipairs(keylist(kcfg.mark)) do
+            args[#args + 1] = "--bind=" .. fzfkey(k) .. ":toggle+down"
+        end
+        -- quickfix: the configured key ACCEPTS the finder; `--expect` makes fzf print that key as the first
+        -- output line, so on exit we know to send the marked rows to the quickfix list (vs a plain open).
+        if qf_key then
+            args[#args + 1] = "--expect=" .. fzfkey(qf_key)
         end
         -- extra per-finder fzf flags (e.g. buffers: `--delimiter` / `--with-nth` to hide the bufnr field)
         for _, a in ipairs(opts.fzf_args or {}) do
@@ -583,14 +657,16 @@ function M.open(opts)
             state.term_chan = vim.fn.termopen({ "sh", "-c", cmdline }, {
                 env = env,
                 on_exit = function(_, code)
-                    local sel
+                    local lines = {}
                     local f = io.open(state.outfile)
                     if f then
-                        sel = f:read("*l")
+                        for line in f:lines() do
+                            lines[#lines + 1] = line
+                        end
                         f:close()
                     end
                     vim.schedule(function()
-                        finish(code, sel)
+                        finish(code, lines)
                     end)
                 end,
             })
@@ -616,27 +692,34 @@ function M.open(opts)
                 end
             end,
         })
+        local kopts = { buffer = tbuf, nowait = true, silent = true }
         -- park: leave fzf's input for the editor, keeping the finder open (terminal-mode, not passed to fzf)
         if park_key ~= "" then
-            vim.keymap.set("t", park_key, park, { buffer = tbuf, nowait = true, silent = true })
+            vim.keymap.set("t", park_key, park, kopts)
         end
-        -- fzf owns the keys: pass the control keys it relies on STRAIGHT through to the terminal, overriding
-        -- any inherited terminal-mode mapping (a user / plugin TermOpen often binds `<Esc>` to leave
+        -- fzf owns these keys: pass the configured control keys it relies on STRAIGHT through to the terminal,
+        -- overriding any inherited terminal-mode mapping (a user / plugin TermOpen often binds `<Esc>` to leave
         -- terminal-mode — that would swallow fzf's abort and strand the picker in normal mode). Buffer-local,
-        -- so it only affects THIS fzf terminal and dies with the buffer. `<Esc>`/`<C-c>` abort fzf (→ cancel);
-        -- the nav keys keep fzf's own bindings.
-        for _, lhs in ipairs({ "<Esc>", "<C-c>", "<C-j>", "<C-k>", "<C-n>", "<C-p>", "<CR>" }) do
-            vim.keymap.set("t", lhs, lhs, { buffer = tbuf, nowait = true, silent = true })
+        -- so it only affects THIS fzf terminal and dies with the buffer. accept (→ open), mark (→ toggle),
+        -- quickfix (→ accept-into-qf via --expect), abort (→ cancel), and nav all keep fzf's own bindings.
+        for _, group in ipairs({ kcfg.accept, kcfg.mark, kcfg.quickfix, kcfg.abort, kcfg.nav }) do
+            for _, lhs in ipairs(keylist(group)) do
+                vim.keymap.set("t", lhs, lhs, kopts)
+            end
         end
-        -- <C-d>/<C-u> scroll the PREVIEW (a real nvim window) instead of going to fzf — matching the tint
-        -- finder. (fzf's own C-d/C-u query editing is given up here, like the tint finder's prompt does.)
+        -- the preview-scroll keys scroll the PREVIEW (a real nvim window) instead of going to fzf — matching
+        -- the tint finder. (fzf's own scroll/query editing on these keys is given up here.)
         if opts.preview then
-            vim.keymap.set("t", "<C-d>", function()
-                scroll_preview(1)
-            end, { buffer = tbuf, nowait = true, silent = true })
-            vim.keymap.set("t", "<C-u>", function()
-                scroll_preview(-1)
-            end, { buffer = tbuf, nowait = true, silent = true })
+            for _, lhs in ipairs(keylist(kcfg.preview_down)) do
+                vim.keymap.set("t", lhs, function()
+                    scroll_preview(1)
+                end, kopts)
+            end
+            for _, lhs in ipairs(keylist(kcfg.preview_up)) do
+                vim.keymap.set("t", lhs, function()
+                    scroll_preview(-1)
+                end, kopts)
+            end
         end
     end
 
@@ -700,16 +783,22 @@ function M.open(opts)
         size = { width = { fixed = 0.85 }, height = { fixed = 0.7 } }
     end
 
+    -- footer hints — labelled from the configured keys (first of a list), so they track config.picker.keys.
+    local function klabel(v)
+        return (keylist(v)[1] or ""):gsub("[<>]", "")
+    end
     local footer_items = {
-        { key = "<CR>", name = "open" },
+        { key = klabel(kcfg.accept), name = "open" },
         { key = "C-j/k", name = "move" },
-        { key = "Esc", name = "close" },
+        { key = klabel(kcfg.mark), name = "mark" },
+        { key = klabel(kcfg.quickfix), name = "qf" },
+        { key = klabel(kcfg.abort), name = "close" },
     }
     if opts.preview then -- scroll the preview window from the fzf list
-        footer_items[#footer_items + 1] = { key = "C-d/u", name = "preview" }
+        footer_items[#footer_items + 1] = { key = klabel(kcfg.preview_down) .. "/u", name = "preview" }
     end
     if park_key ~= "" then -- the park toggle (leave to the editor / return)
-        footer_items[#footer_items + 1] = { key = (park_key:gsub("[<>]", "")), name = "buffer" }
+        footer_items[#footer_items + 1] = { key = klabel(kcfg.park), name = "buffer" }
     end
 
     local host = msgarea

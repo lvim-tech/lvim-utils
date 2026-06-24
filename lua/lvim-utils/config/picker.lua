@@ -22,11 +22,26 @@ return {
     -- `mkfifo` on PATH; falls back to the tint list automatically when missing.
     fzf_tui = true,
 
-    -- (fzf finders) The PARK key — a focus toggle that keeps the finder OPEN. Pressed inside fzf's input it
-    -- leaves the input and focuses the editor (the real buffer) WITHOUT closing the finder; pressed in the
-    -- editor while a finder is parked it returns focus to the finder (back into fzf's input, exactly where you
-    -- left it — fzf kept running). Set to "" to disable. (The tint finders use the chassis sector nav instead.)
-    park_key = "<C-o>",
+    -- (fzf finders) ALL terminal keys — every one configurable. Editor-side keys (preview scroll, park,
+    -- quickfix) are handled by Neovim; the rest pass straight to fzf with its own bindings. The fzf-internal
+    -- actions (mark, quickfix-accept) also get the matching fzf `--bind` / `--expect` wiring automatically.
+    -- A value may be a single key or a LIST of keys (all bound to that action). "" / {} disables an action.
+    keys = {
+        accept = "<CR>", -- open / confirm the focused item
+        mark = "<Tab>", -- toggle the focused row's mark (multi-select)
+        quickfix = "<C-q>", -- send every marked row (or the focused one) to the quickfix list, then close
+        preview_down = "<C-d>", -- scroll the preview down
+        preview_up = "<C-u>", -- scroll the preview up
+        -- PARK: a focus toggle that keeps the finder OPEN. In fzf's input it focuses the editor (the real
+        -- buffer) without closing; in the editor (parked) it returns to fzf's input exactly where you left.
+        park = "<C-o>",
+        abort = { "<Esc>", "<C-c>" }, -- cancel the finder
+        nav = { "<C-j>", "<C-k>", "<C-n>", "<C-p>" }, -- passed through to fzf's own up/down navigation
+    },
+
+    -- The MARK indicator drawn in the one blank column in front of a marked row (multi-select), in red — both
+    -- backends. A small, vertically-centred bullet reads cleanly in that single space.
+    marker = "•",
 
     -- Publish the finder's title + match counter + query to the bottom statusline (lvim-utils.chrome.overlay) for
     -- EVERY docked finder (area/bottom) — diagnostics, buffers, any plugin's picker. false = each finder draws
@@ -82,6 +97,7 @@ return {
     hl = {
         prompt = "LvimUiPickerPrompt", -- the icon + label badge (default: blue tint 0.3, bold)
         input = "LvimUiPickerInput", -- the typed-text area (default: blue tint 0.1)
+        marker = "LvimUiPickerMarker", -- the multi-select mark dot (default: red)
         separator = "LvimUiPickerSeparator", -- the list↔preview divider (default: a muted grey)
         -- list rows (tint canon — odd blue / even yellow stripes, the selected row a STRONG tint)
         row_odd = "LvimUiMsgAreaRowOdd",
