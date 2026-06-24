@@ -79,6 +79,42 @@ function M.check()
             end
         end
     end
+
+    -- picker / finder backends
+    local function has(bin)
+        return vim.fn.executable(bin) == 1
+    end
+    -- the LISTING engine for files / directories (config.picker.source.engine, default auto)
+    local engine
+    for _, c in ipairs({ "fd", "fdfind", "rg", "find" }) do
+        if has(c) then
+            engine = c
+            break
+        end
+    end
+    if engine then
+        ok("finder listing engine: " .. engine .. (engine == "find" and " (no .gitignore support)" or ""))
+    else
+        warn("no file-listing tool found (fd / rg / find) — the files/directories finders cannot list")
+    end
+    if has("rg") then
+        ok("ripgrep present — the grep finder is available")
+    else
+        info("ripgrep (rg) not found — the grep finder is disabled")
+    end
+    -- the fzf-TUI render backend for the heavy finders (config.picker.fzf_tui)
+    local fzf_tui = not (cfg_ok and cfg.picker and cfg.picker.fzf_tui == false)
+    if not fzf_tui then
+        info("picker.fzf_tui = false — the heavy finders use the Lua tint list")
+    elseif has("fzf") and has("mkfifo") then
+        ok("fzf-TUI finder backend active (fzf + mkfifo present) — instant over huge trees")
+    elseif has("fzf") then
+        warn("fzf present but `mkfifo` is not — the heavy finders fall back to the tint list", {
+            "mkfifo is part of coreutils; install it to enable the fzf-TUI backend",
+        })
+    else
+        info("fzf not found — the heavy finders use the Lua tint list (fzf --filter ranking when available)")
+    end
 end
 
 return M

@@ -20,9 +20,13 @@ local api = vim.api
 ---@field hide_buffers   table<integer, boolean>  Buffers that hide the cursor while CURRENT (by handle, not
 ---                                                filetype — e.g. a hover/diagnostic float whose ft is shared)
 ---@field input_buffers  table<integer, boolean>  Buffers explicitly marked as input (never hidden)
+---@field custom_buffers table<integer, string>   Buffers with a CUSTOM cursor: an `guicursor` fragment (e.g.
+---                                                "t:ver25-LvimUiPickerCursor") appended to the baseline while current
 ---@field augroup        integer|nil              Autocmd group handle
----@field saved_guicursor string|nil             Original guicursor value saved before hiding
+---@field saved_guicursor string|nil             The user's BASELINE guicursor, saved on the first deviation (hide
+---                                                or custom), restored when the cursor returns to normal
 ---@field hidden         boolean                  Whether the cursor is currently hidden
+---@field custom         string|nil               The custom guicursor fragment currently applied (or nil)
 
 ---@type CursorState
 local state = {
@@ -31,9 +35,11 @@ local state = {
     -- persistent side panel like the outline), NOT globally whenever it is visible somewhere
     hide_buffers = {}, -- "current-only" by BUFFER HANDLE (for floats whose filetype can't be dedicated)
     input_buffers = {},
+    custom_buffers = {}, -- buffer handle → a guicursor fragment applied (over the baseline) while that buf is current
     augroup = nil,
     saved_guicursor = nil,
     hidden = false,
+    custom = nil, -- the custom guicursor fragment currently applied, or nil
     -- When true, HIDE the hardware cursor while the command-line is active (a self-rendered cmdline draws
     -- its own cursor in the float, so the buffer cursor is redundant — like the native cmdline, where the
     -- cursor lives in the cmdline, not the buffer). Default false: with the native cmdline keep it shown.
@@ -43,30 +49,57 @@ local state = {
 
 -- ─── highlight control ────────────────────────────────────────────────────────
 
---- Hide the cursor by switching to a transparent 1-cell vertical bar.
---- Sets guicursor to "a:ver1-LvimUtilsHiddenCursor" and applies blend=100
---- on the dedicated HL group. No-op when already hidden.
+local HIDDEN_GC = "a:ver1-LvimUtilsHiddenCursor"
+
+--- The custom guicursor fragment registered for the CURRENT buffer (via `mark_cursor_buffer`), or nil.
+---@return string|nil
+local function current_custom()
+    local ok, win = pcall(api.nvim_get_current_win)
+    if not ok or not api.nvim_win_is_valid(win) then
+        return nil
+    end
+    local ok2, buf = pcall(api.nvim_win_get_buf, win)
+    if not ok2 or not buf then
+        return nil
+    end
+    return state.custom_buffers[buf]
+end
+
+--- Hide the cursor by switching to a transparent 1-cell vertical bar. Saves the user's BASELINE guicursor on
+--- the first deviation. No-op when already hidden.
 local function hide_cursor()
     if state.hidden then
         return
     end
-    state.saved_guicursor = vim.o.guicursor
+    if state.saved_guicursor == nil then
+        state.saved_guicursor = vim.o.guicursor
+    end
     api.nvim_set_hl(0, "LvimUtilsHiddenCursor", { blend = 100, nocombine = true })
-    vim.o.guicursor = "a:ver1-LvimUtilsHiddenCursor"
+    vim.o.guicursor = HIDDEN_GC
     state.hidden = true
+    state.custom = nil
 end
 
---- Restore the cursor to the shape that was active before hide_cursor().
---- No-op when the cursor is already visible.
+--- Show the cursor: the CURRENT buffer's CUSTOM cursor if it has one (the user's baseline + the registered
+--- fragment, e.g. a thin blue bar for the finder input), else the plain baseline. Idempotent.
 local function show_cursor()
-    if not state.hidden then
+    local frag = current_custom()
+    if frag then
+        if state.saved_guicursor == nil then
+            state.saved_guicursor = vim.o.guicursor
+        end
+        local want = state.saved_guicursor .. "," .. frag
+        if vim.o.guicursor ~= want then
+            vim.o.guicursor = want
+        end
+        state.hidden, state.custom = false, frag
         return
     end
-    if state.saved_guicursor then
+    if state.saved_guicursor ~= nil then
         vim.o.guicursor = state.saved_guicursor
         state.saved_guicursor = nil
     end
-    state.hidden = false
+    state.hidden, state.custom = false, nil
 end
 
 -- ─── helpers ──────────────────────────────────────────────────────────────────
@@ -177,6 +210,17 @@ end
 ---@param value boolean|nil  true to hide while current, nil/false to stop
 function M.mark_hide_buffer(bufnr, value)
     state.hide_buffers[bufnr] = value or nil
+    vim.schedule(update)
+end
+
+--- Give a buffer a CUSTOM cursor while it is the current window: `fragment` is a `guicursor` fragment (e.g.
+--- "t:ver25-LvimUiPickerCursor") appended to the user's baseline, so the cursor takes that shape/colour in
+--- that buffer and reverts to normal everywhere else. Pass nil to clear. The owning module is also the one
+--- that defines the referenced highlight group. Used by the fzf finder for its thin blue input caret.
+---@param bufnr integer
+---@param fragment string|nil
+function M.mark_cursor_buffer(bufnr, fragment)
+    state.custom_buffers[bufnr] = fragment or nil
     vim.schedule(update)
 end
 

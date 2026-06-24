@@ -39,6 +39,7 @@ local function build()
     local function pair(name, col)
         g[name] = { fg = col, bg = b(col, bg, 0.1) }
         g[name .. "Icon"] = { fg = col, bg = b(col, bg, 0.2), bold = true }
+        g[name .. "Caret"] = { fg = col } -- the thin-bar caret glyph (matches the mode's text colour)
     end
     pair("LvimUiCmdlineCommand", c.blue)
     pair("LvimUiCmdlineSearch", c.green)
@@ -260,14 +261,18 @@ local function render()
         })
     end
 
-    -- Block cursor (no real cursor is drawn while the cmdline is externalised); blinks.
+    -- Thin-bar caret (no real cursor is drawn while the cmdline is externalised); blinks. A `▏` overlay in the
+    -- mode's colour (blue for `:` command — matching the typed text — green for search, …) instead of a block.
     if _cursor_on then
         local crow = cmd_row + cur_sub - 1
         local ccol = badge_w + 1 + cur_col
         local cline = lines[crow + 1] or ""
         api.nvim_buf_set_extmark(buf, _ns, crow, math.min(ccol, #cline), {
-            end_col = math.min(ccol + 1, #cline),
-            hl_group = "Cursor",
+            -- `▎` (LEFT ONE QUARTER BLOCK, ¼ cell) ≈ the terminal beam-cursor width the finders show, so the
+            -- two carets read as the same thickness (`▏`, ⅛, looked noticeably thinner than the beam).
+            virt_text = { { "▎", mode.hl .. "Caret" } },
+            virt_text_pos = "overlay",
+            hl_mode = "combine",
         })
     end
 

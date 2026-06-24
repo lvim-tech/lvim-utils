@@ -21,4 +21,10 @@ return {
     -- The fuzzy rank is ALWAYS the final tiebreak, so the order is deterministic. Examples:
     --   "score"  ·  { "dirs_first", "score" }  ·  { "score", "dirs_first" }  ·  { "ext", "alpha" }
     sort = "score",
+
+    -- Hard cap on how many ranked results are BUILT + handed back per query. fzf still searches the WHOLE
+    -- candidate set (its stdin has everything) — this only limits how many of the top matches we materialise +
+    -- render, so a broad / empty query over a huge tree (e.g. `~/`) stays instant instead of building hundreds
+    -- of thousands of rows on every keystroke. Raise it for a deeper scrollable list.
+    max_results = 1000,
 }

@@ -120,6 +120,63 @@ local function lua_rank(texts, query)
     return scored
 end
 
+-- File-backed candidate cache. fzf reads its input from a TEMP FILE rather than us re-piping the whole
+-- `idx\ttext` block (hundreds of MB at ~/ scale) on every keystroke — passing that from Lua was the real
+-- per-query cost (`fzf --filter q < file` over 1.6M takes ~0.3s; piping the same via stdin took ~2.7s). The
+-- file is written INCREMENTALLY: the picker extends the `texts` array in place as a stream feeds, so we only
+-- APPEND the new candidates (keyed by the array reference + last-written length), and the open pre-warms it.
+---@type { texts: string[], len: integer, path: string, fh: file*? }?
+local _file_cache
+
+--- Ensure a temp file holding `idx\ttext` for every candidate in `texts` exists and is up to date; return its
+--- path. Same array reference + grown length ⇒ APPEND only the new tail (cheap); a new reference ⇒ a fresh
+--- file (the previous one is removed). Lines are `idx\ttext` so fzf (matching field 2) can hand back indices.
+---@param texts string[]
+---@return string?
+local function ensure_file(texts)
+    if _file_cache and _file_cache.texts == texts then
+        if _file_cache.len < #texts and _file_cache.fh then
+            local buf = {}
+            for i = _file_cache.len + 1, #texts do
+                buf[#buf + 1] = i .. "\t" .. (texts[i]:gsub("[\t\n]", " "))
+            end
+            _file_cache.fh:write(table.concat(buf, "\n") .. "\n")
+            _file_cache.fh:flush()
+            _file_cache.len = #texts
+        end
+        return _file_cache.path
+    end
+    if _file_cache then
+        if _file_cache.fh then
+            pcall(function()
+                _file_cache.fh:close()
+            end)
+        end
+        os.remove(_file_cache.path)
+    end
+    local path = vim.fn.tempname()
+    local fh = io.open(path, "w")
+    if not fh then
+        _file_cache = nil
+        return nil
+    end
+    local buf = {}
+    for i, t in ipairs(texts) do
+        buf[#buf + 1] = i .. "\t" .. (t:gsub("[\t\n]", " "))
+    end
+    fh:write(table.concat(buf, "\n"))
+    if #texts > 0 then
+        fh:write("\n")
+    end
+    fh:flush()
+    _file_cache = { texts = texts, len = #texts, path = path, fh = fh }
+    return path
+end
+
+-- The in-flight fzf process; a newer query kills it so fast typing over a huge candidate set does not pile up
+-- a stack of `fzf` scans (only the latest query matters — the picker drops stale results anyway).
+local _running
+
 --- Rank `texts` against `query`, async. `cb` receives a list of `{ idx, match? }` in ranked order — `idx`
 --- is the 1-based index into `texts`, `match` the 0-based matched-char indices (for highlighting; absent on
 --- an empty query). Empty query = all, source order, no match. fzf when present (async via vim.system),
@@ -128,45 +185,74 @@ end
 ---@param query string
 ---@param cb fun(ranked: { idx: integer, match?: integer[] }[])
 function M.filter(texts, query, cb)
+    -- Hard cap on materialised results (config.fuzzy.max_results): fzf still searches ALL candidates, but we
+    -- only hand back the top `max`, so a broad / empty query over a huge tree never builds hundreds of
+    -- thousands of rows on a keystroke (the per-keystroke freeze).
+    local max = (require("lvim-utils.config").fuzzy or {}).max_results or 1000
+    -- Keep the candidate temp file warm (incrementally) on EVERY call — including the empty-query path used
+    -- while a stream feeds — so a real query reads a READY file instead of paying to build it then.
+    local path = ensure_file(texts)
     -- every path delivers through here so the config sort (dirs_first / ext / …) is applied uniformly
     local function deliver(ranked)
         cb(apply_sort(ranked, texts))
     end
     if query == "" then
         local out = {}
-        for i = 1, #texts do
+        for i = 1, math.min(#texts, max) do -- first `max` in source order (fzf is not involved on empty query)
             out[i] = { idx = i }
         end
         deliver(out)
         return
     end
     local bin = fzf_path()
-    if not bin or type(vim.system) ~= "function" then
+    if not bin or type(vim.system) ~= "function" or not path then
         deliver(lua_rank(texts, query))
         return
     end
-    -- Feed `idx\ttext` to `fzf --filter`, matching field 2 only; read back the ranked indices and attach the
-    -- locally-computed match positions (fzf --filter emits none).
-    local lines = {}
-    for i, t in ipairs(texts) do
-        lines[i] = i .. "\t" .. (t:gsub("[\t\n]", " "))
+    if _running then
+        pcall(function()
+            _running:kill("sigterm")
+        end)
     end
-    vim.system(
-        { bin, "--filter", query, "--delimiter", "\t", "--nth", "2" },
-        { stdin = table.concat(lines, "\n"), text = true },
-        function(res)
-            vim.schedule(function()
-                local out = {}
-                for line in (res.stdout or ""):gmatch("[^\n]+") do
-                    local idx = tonumber(line:match("^(%d+)\t"))
-                    if idx and texts[idx] then
-                        out[#out + 1] = { idx = idx, match = utils.match_indices(query, texts[idx]) }
-                    end
+    -- `fzf --filter` reads the temp FILE (not a re-piped stdin — that was the per-query cost), capped to `max`
+    -- via `head` so fzf stops at the top matches. The query is $1 (shell-safe, never interpolated); the path is
+    -- shell-escaped. fzf matches field 2 (the text) of each `idx\ttext` line; we read the indices back.
+    local cmd = ("fzf --filter \"$1\" --delimiter '\\t' --nth 2 < %s | head -n %d"):format(
+        vim.fn.shellescape(path),
+        max
+    )
+    _running = vim.system({ "sh", "-c", cmd, "sh", query }, { text = true }, function(res)
+        vim.schedule(function()
+            local out = {}
+            for line in (res.stdout or ""):gmatch("[^\n]+") do
+                local idx = tonumber(line:match("^(%d+)\t"))
+                if idx and texts[idx] then
+                    out[#out + 1] = { idx = idx, match = utils.match_indices(query, texts[idx]) }
                 end
-                deliver(out)
+            end
+            deliver(out)
+        end)
+    end)
+end
+
+--- Drop the candidate temp file + kill any in-flight fzf. A finder calls this on close so a large (~hundreds
+--- of MB) candidate file does not linger until the next search replaces it.
+function M.release()
+    if _running then
+        pcall(function()
+            _running:kill("sigterm")
+        end)
+        _running = nil
+    end
+    if _file_cache then
+        if _file_cache.fh then
+            pcall(function()
+                _file_cache.fh:close()
             end)
         end
-    )
+        os.remove(_file_cache.path)
+        _file_cache = nil
+    end
 end
 
 return M

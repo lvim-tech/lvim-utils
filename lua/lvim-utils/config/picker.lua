@@ -12,10 +12,47 @@ return {
     -- bottom dock). A per-call `opts.layout` (or a `:LvimPicker <finder> <layout>` arg) overrides it.
     layout = "area",
 
+    -- RENDERER for the heavy, command-driven finders (files / grep / git_files / directories / buffers):
+    -- `true` (default) = the real fzf TUI runs inside the finder's list panel (fzf — in C — owns parsing,
+    -- matching, ranking AND rendering, so it stays instant and updates CONTINUOUSLY while you type even over
+    -- huge trees like ~/ with millions of files); `false` = the Lua tint-striped list (the lvim look, but it
+    -- materialises + renders candidates itself, so it is slower at extreme scale). The preview stays a real
+    -- Neovim window either way. The STRUCTURED finders (lsp locations / diagnostics / marks / …) always use
+    -- the tint list — their data is small and in-memory, so the fzf TUI buys nothing there. Needs `fzf` +
+    -- `mkfifo` on PATH; falls back to the tint list automatically when missing.
+    fzf_tui = true,
+
+    -- (fzf finders) The PARK key — a focus toggle that keeps the finder OPEN. Pressed inside fzf's input it
+    -- leaves the input and focuses the editor (the real buffer) WITHOUT closing the finder; pressed in the
+    -- editor while a finder is parked it returns focus to the finder (back into fzf's input, exactly where you
+    -- left it — fzf kept running). Set to "" to disable. (The tint finders use the chassis sector nav instead.)
+    park_key = "<C-o>",
+
     -- Publish the finder's title + match counter + query to the bottom statusline (lvim-utils.chrome.overlay) for
     -- EVERY docked finder (area/bottom) — diagnostics, buffers, any plugin's picker. false = each finder draws
     -- the title/counter IN its own navigator instead. A per-call `opts.statusline` overrides this global.
     statusline = true,
+
+    -- How the `files` / `directories` finders LIST entries — the engine and what it ignores, so the picker
+    -- matches your fd / rg / fzf-lua setup. (The `grep` finder is ripgrep-only and uses its own command.)
+    source = {
+        -- The listing tool. "auto" = the first available (fd → fdfind → rg → find); or force one of
+        -- "fd" | "fdfind" | "rg" | "find". `rg` lists files only (directories fall back to fd/find).
+        engine = "auto",
+        -- Directory / file names to EXCLUDE entirely (e.g. ".git", ".jj", "node_modules"). Defaults match
+        -- fzf-lua (the `.git` + `.jj` VCS dirs).
+        exclude = { ".git", ".jj" },
+        -- Include dotfiles / dot-directories (fd / rg `--hidden`).
+        hidden = true,
+        -- Follow symbolic links (fd / rg `--follow`).
+        follow = false,
+        -- Honour `.gitignore` / `.ignore` / `.fdignore` (the tool default). false = list ignored files too
+        -- (fd / rg `--no-ignore`). `find` has no ignore-file support and always lists everything but `exclude`.
+        respect_gitignore = true,
+        -- Entry types the FILES finder lists (fd `--type`): "f" = files, "l" = symlinks, "x" = executable, …
+        -- Defaults to files + symlinks, like fzf-lua. (Ignored by rg / find, which list regular files.)
+        file_types = { "f", "l" },
+    },
 
     -- The PROMPT badge shown before the typed query: an icon and/or label (either may be "" — icon only /
     -- text only / icon + text). A per-call `opts.prompt` string overrides it.

@@ -15,6 +15,29 @@ local fuzzy = require("lvim-utils.fuzzy")
 local utils = require("lvim-utils.utils")
 local status = require("lvim-utils.chrome.overlay")
 local ui_filters = require("lvim-utils.ui.filters")
+-- The listing commands / preview reader / async streamer live in picker.source so BOTH backends (this tint
+-- one and the fzf-TUI one) list + ignore identically (config.picker.source). Aliased as locals to keep the
+-- call sites here unchanged.
+local source = require("lvim-utils.picker.source")
+local has = source.has
+local file_list_cmd = source.file_list_cmd
+local dir_list_cmd = source.dir_list_cmd
+local read_preview = source.read_preview
+local run_lines = source.run_lines
+local spawn_stream = source.spawn_stream
+
+--- The fzf-TUI backend for the heavy / command-driven finders (files / grep / git_files / directories /
+--- buffers), or nil when it is disabled (`config.picker.fzf_tui == false`) or unavailable (no fzf / mkfifo).
+--- When present, those finders let the real fzf TUI own the list (instant over huge trees, continuous live
+--- updates); the structured finders (lsp / diagnostics / …) always use the tint-striped list below.
+---@return table?
+local function fzf_backend()
+    if (require("lvim-utils.config").picker or {}).fzf_tui == false then
+        return nil
+    end
+    local ok, b = pcall(require, "lvim-utils.picker.fzf")
+    return (ok and b.available() and b) or nil
+end
 
 local NS = api.nvim_create_namespace("lvim-utils-picker")
 
@@ -42,15 +65,38 @@ local function normalize(items, format)
     return out
 end
 
+-- Single-slot cache of the candidate `texts` array, keyed by the pool table + its length: the query changes
+-- on every keystroke but the candidate set does NOT, so rebuild this (and, downstream, fzf's stdin) only when
+-- the pool actually changes — appended (stream → length grows), replaced (refresh → new ref) or narrowed (a
+-- filter → new ref). This keeps per-keystroke work O(1) over a huge list.
+---@type { pool: table[], len: integer, texts: string[] }?
+local _texts_cache
 --- Filter `items` (normalised `{ text, icon?, _src }`) by `query` via the shared fuzzy engine and hand the
 --- ranked GRID items (`{ text, icon, icon_hl, _src, match }`) to `cb`. Empty query = all, source order.
 ---@param items table[]
 ---@param query string
 ---@param cb fun(list: table[])
 local function filter(items, query, cb)
-    local texts = {}
-    for i, it in ipairs(items) do
-        texts[i] = it.text
+    local texts
+    if _texts_cache and _texts_cache.pool == items then
+        texts = _texts_cache.texts
+        if _texts_cache.len < #items then
+            -- the SAME pool grew (stream feed) — EXTEND the cached array (O(new)) instead of rebuilding it
+            -- (O(all)) on every chunk; otherwise the open freezes as the list approaches its full size.
+            for i = _texts_cache.len + 1, #items do
+                texts[i] = items[i].text
+            end
+            _texts_cache.len = #items
+        elseif _texts_cache.len > #items then
+            texts = nil -- shrank (not expected for a stream) — rebuild below
+        end
+    end
+    if not texts then
+        texts = {}
+        for i, it in ipairs(items) do
+            texts[i] = it.text
+        end
+        _texts_cache = { pool = items, len = #items, texts = texts }
     end
     fuzzy.filter(texts, query, function(ranked)
         local out = {}
@@ -86,6 +132,7 @@ end
 ---@class LvimPickerOpts
 ---@field items? any[]  STATIC candidates (strings, or tables — see `format`), fuzzy-filtered as you type
 ---@field source? fun(query: string, cb: fun(items: any[]))  a LIVE source: each query produces the results (e.g. ripgrep); use instead of `items`
+---@field stream? fun(feed: fun(raw: any[]), done: fun()): fun()  an ASYNC streaming producer (e.g. `fd`): feeds candidates in incrementally; returns a cancel fn
 ---@field on_confirm fun(item: any)  called with the chosen item's source value
 ---@field on_cancel? fun()  called when the finder is dismissed without a choice
 ---@field format? fun(item: any): string  display text for a table item (default: `item.text`)
@@ -114,25 +161,27 @@ end
 --- scrollable preview beside it. INSERT prompt: type to filter (fzf), `<C-j>/<C-k>` move, `<C-d>/<C-u>`
 --- scroll the preview, `<CR>` confirms, `<C-c>` cancels, `<Esc>`/`<C-f>` → NORMAL. NORMAL list: `j`/`k`
 --- move, `<C-d>/<C-u>` scroll preview, `<C-l>`/`<C-h>` panel nav, filter hotkeys, `q` close, `/` → typing.
----@type table?  the currently-open finder's state — a NEW open() closes it first, so re-opening REPLACES the
---- content instead of stacking a second finder over the stale one.
-local _current = nil
-
 ---@param opts LvimPickerOpts
 function M.open(opts)
     opts = opts or {}
     -- Default the LAYOUT from `config.picker.layout` (default "area") when the caller gave none — so every
     -- finder + `:LvimPicker <finder>` lands in the configured layout unless overridden per call.
     opts.layout = opts.layout or (require("lvim-utils.config").picker or {}).layout or "area"
-    -- A finder already open? Close it FIRST so this open() replaces it (no stacking / no stale list left behind).
-    if _current and not _current.closed and _current.st and _current.st.close then
-        pcall(_current.st.close)
-    end
-    _current = nil
+    -- A finder already open (EITHER backend)? Close it FIRST via the shared registry so this open() replaces
+    -- it in place — its docked area is released, instead of a new finder stacking above the old one.
+    source.close_active()
     local surface = require("lvim-utils.ui.surface")
     local items = normalize(opts.items, opts.format)
     local maxr = opts.max_rows or 15
     local state = { filtered = items, sel = 1, list_pan = nil, preview_pan = nil, st = nil, closed = false, query = "" }
+    -- this finder's entry in the shared "open finder" registry (so the next open closes us first)
+    local active_entry = {
+        close = function()
+            if not state.closed and state.st then
+                pcall(state.st.close)
+            end
+        end,
+    }
     local opener = api.nvim_get_current_win() -- the editor window the finder opened from (for the top-edge escape)
     ---@type table?  the msgarea module when this finder HOSTS in its zone (area + zone enabled); else nil. Set
     --- below at open; the NORMAL-mode list `<C-j>` uses it to descend into the messages composed below us.
@@ -224,8 +273,10 @@ function M.open(opts)
             status.set({
                 title = opts.title,
                 icon = opts.icon,
-                current = #state.filtered > 0 and state.sel or 0,
-                total = #state.filtered,
+                -- `matches / candidate-pool` (fzf-lua style): the pool (#items) GROWS live as a stream feeds in,
+                -- so the counter is the "files found so far" indicator; matches is the (capped) result count.
+                current = #state.filtered,
+                total = #items,
                 action = state.query,
                 subtitle = sub,
             })
@@ -928,6 +979,9 @@ function M.open(opts)
                     keys = function(buf, st)
                         state.st = st
                         state.input_buf = buf -- so NORMAL-mode list can jump back to typing (focus_input)
+                        -- the typed-text caret: a thin BLUE bar (insert-mode) — same as the fzf finder. Through
+                        -- the cursor module so it coexists with cursor-hiding; cleared on close.
+                        pcall(require("lvim-utils.cursor").mark_cursor_buffer, buf, "i-ci-ve:ver25-LvimUiPickerCursor")
                         publish_status() -- show the title + initial counter the moment the navigator opens
                         local function imap(lhs, fn)
                             vim.keymap.set("i", lhs, fn, { buffer = buf, nowait = true, silent = true })
@@ -984,9 +1038,16 @@ function M.open(opts)
         close_keys = {}, -- the input owns <Esc>/<C-c>; the panels are not normally focused
         on_close = function()
             state.closed = true
-            if _current == state then
-                _current = nil -- forget the current finder once it closes (only if it is still us)
+            if state.stream_cancel then -- kill a still-running async producer (e.g. `fd` over a huge tree)
+                pcall(state.stream_cancel)
+                state.stream_cancel = nil
             end
+            _texts_cache = nil -- drop the cached candidate texts (and let fuzzy drop its temp file) for this run
+            fuzzy.release()
+            if state.input_buf then -- drop the custom blue caret registration (cursor module restores normal)
+                pcall(require("lvim-utils.cursor").mark_cursor_buffer, state.input_buf, nil)
+            end
+            source.clear_active(active_entry) -- forget the current finder once it closes (only if it is still us)
             if msgarea then -- release our hosted rows so the zone shrinks back (or closes if nothing else)
                 pcall(function()
                     msgarea.segment("lvim-picker-host"):release()
@@ -999,7 +1060,7 @@ function M.open(opts)
         end,
     })
 
-    _current = state -- track THIS finder as the open one (its surface is now live)
+    source.set_active(active_entry) -- track THIS finder as the open one (its surface is now live)
 
     -- initial: show all, select the first, preview it (fetch + fit + render)
     rerender()
@@ -1042,11 +1103,43 @@ function M.open(opts)
             end,
         })
     end
+
+    -- ASYNC STREAM source: `opts.stream(feed, done)` produces candidates incrementally (a spawned `fd` / `rg`
+    -- streamed in via `spawn_stream`), so the open NEVER blocks on a huge tree. `feed(raw)` appends the batch
+    -- to the candidate pool and schedules ONE coalesced refilter (fuzzy is already async); `done()` does a
+    -- final pass. The producer is killed in on_close. Mutually exclusive with the per-query live `source`.
+    if opts.stream and not opts.source then
+        local pending = false
+        local function feed(raw)
+            if state.closed or type(raw) ~= "table" or #raw == 0 then
+                return
+            end
+            for _, it in ipairs(normalize(raw, opts.format)) do
+                items[#items + 1] = it
+            end
+            if not pending then
+                pending = true
+                vim.defer_fn(function()
+                    pending = false
+                    if not state.closed then
+                        refilter(state.query)
+                    end
+                end, 60) -- coalesce a burst of chunks into one re-render
+            end
+        end
+        local function done()
+            if not state.closed then
+                refilter(state.query)
+            end
+        end
+        state.stream_cancel = opts.stream(feed, done)
+    end
 end
 
 --- A ready finder over the listed buffers; confirming switches to the chosen buffer, with a content preview.
 ---@param opts? table  forwarded to M.open
 function M.buffers(opts)
+    opts = opts or {}
     local items = {}
     for _, b in ipairs(api.nvim_list_bufs()) do
         if vim.bo[b].buflisted then
@@ -1054,6 +1147,53 @@ function M.buffers(opts)
             name = name ~= "" and vim.fn.fnamemodify(name, ":~:.") or "[No Name]"
             items[#items + 1] = { text = name, bufnr = b }
         end
+    end
+    --- Preview a listed buffer's content, with a filetype for syntax.
+    ---@param bufnr integer
+    ---@param name string
+    ---@return string[] lines, string filetype
+    local function buf_preview(bufnr, name)
+        local ft = (bufnr and api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].filetype) or ""
+        if ft == "" and name ~= "" and name ~= "[No Name]" then
+            ft = vim.filetype.match({ filename = name }) or ""
+        end
+        if bufnr and api.nvim_buf_is_loaded(bufnr) then
+            return api.nvim_buf_get_lines(bufnr, 0, 500, false), ft
+        end
+        if name ~= "" and name ~= "[No Name]" and vim.fn.filereadable(name) == 1 then
+            return vim.fn.readfile(name, "", 500), ft
+        end
+        return { "[no preview]" }, ""
+    end
+    local fb = fzf_backend()
+    if fb then
+        -- Encode each entry as `bufnr\tname`; fzf shows/matches only field 2 (the name) via
+        -- `--delimiter`/`--with-nth`, but hands back the whole line so we recover the bufnr.
+        local contents = {}
+        for _, it in ipairs(items) do
+            contents[#contents + 1] = ("%d\t%s"):format(it.bufnr, it.text)
+        end
+        fb.open(vim.tbl_extend("force", {
+            title = "Buffers",
+            contents = contents,
+            fzf_args = { "--delimiter=\t", "--with-nth=2" },
+            parse = function(line)
+                local bufnr, name = line:match("^(%d+)\t(.*)$")
+                -- a real file name doubles as the preview `path` (drives the devicon winbar); "[No Name]" stays
+                -- text-only.
+                local path = (name and name ~= "[No Name]") and name or nil
+                return { bufnr = tonumber(bufnr), text = name or line, path = path }
+            end,
+            preview = function(it)
+                return buf_preview(it.bufnr, it.text or "")
+            end,
+            on_confirm = function(it)
+                if it and it.bufnr and api.nvim_buf_is_valid(it.bufnr) then
+                    api.nvim_set_current_buf(it.bufnr)
+                end
+            end,
+        }, opts))
+        return
     end
     M.open(vim.tbl_extend("force", {
         title = "Buffers",
@@ -1083,72 +1223,47 @@ function M.buffers(opts)
 end
 
 -- ── file / directory / grep finders ────────────────────────────────────────────
-
----@param bin string
----@return boolean
-local function has(bin)
-    return vim.fn.executable(bin) == 1
-end
-
---- The best available command (argv) to LIST files under cwd: fd / fdfind / rg --files / find.
----@return string[]
-local function file_list_cmd()
-    if has("fd") then
-        return { "fd", "--type", "f", "--hidden", "--strip-cwd-prefix", "--exclude", ".git" }
-    elseif has("fdfind") then
-        return { "fdfind", "--type", "f", "--hidden", "--strip-cwd-prefix", "--exclude", ".git" }
-    elseif has("rg") then
-        return { "rg", "--files", "--hidden", "--glob", "!.git" }
-    end
-    return { "find", ".", "-type", "f", "-not", "-path", "*/.git/*" }
-end
-
---- The best available command (argv) to LIST directories under cwd.
----@return string[]
-local function dir_list_cmd()
-    if has("fd") then
-        return { "fd", "--type", "d", "--hidden", "--strip-cwd-prefix", "--exclude", ".git" }
-    elseif has("fdfind") then
-        return { "fdfind", "--type", "d", "--hidden", "--strip-cwd-prefix", "--exclude", ".git" }
-    end
-    return { "find", ".", "-type", "d", "-not", "-path", "*/.git/*" }
-end
-
---- Read up to `n` lines of `path` for a preview, with a filetype guessed from the name.
----@param path string
----@param n? integer
----@return string[] lines, string filetype
-local function read_preview(path, n)
-    local ft = vim.filetype.match({ filename = path }) or ""
-    if vim.fn.filereadable(path) == 1 then
-        return vim.fn.readfile(path, "", n or 500), ft
-    end
-    return { "[unreadable]" }, ""
-end
-
---- Run an argv synchronously and return its stdout lines (empty on failure).
----@param argv string[]
----@return string[]
-local function run_lines(argv)
-    local ok, res = pcall(vim.fn.systemlist, argv)
-    if not ok or vim.v.shell_error ~= 0 then
-        return type(res) == "table" and res or {}
-    end
-    return res or {}
-end
+-- The listing commands (file_list_cmd / dir_list_cmd), the preview reader (read_preview) and the async
+-- streamer (spawn_stream) are aliased from picker.source at the top of the file, so this tint backend and
+-- the fzf-TUI backend share one source layer.
 
 --- Fuzzy file finder under cwd; confirming edits the file, with a content preview. `opts` forwarded to open.
 ---@param opts? table
 function M.files(opts)
-    local items = {}
-    for _, p in ipairs(run_lines(file_list_cmd())) do
-        if p ~= "" then
-            items[#items + 1] = { text = p, path = p }
-        end
+    opts = opts or {}
+    local b = fzf_backend()
+    if b then
+        -- fzf runs `file_list_cmd()` as its producer (FZF_DEFAULT_COMMAND) and owns the list; we keep the
+        -- real-Neovim preview + the open action.
+        b.open(vim.tbl_extend("force", {
+            title = "Files",
+            cmd = file_list_cmd(),
+            preview = function(it)
+                return read_preview(it.path)
+            end,
+            on_confirm = function(it)
+                if it and it.path then
+                    vim.cmd.edit(vim.fn.fnameescape(it.path))
+                end
+            end,
+        }, opts))
+        return
     end
     M.open(vim.tbl_extend("force", {
         title = "Files",
-        items = items,
+        -- Stream `fd`/`find` async so opening in a huge tree (e.g. `~/`) does not freeze the editor; results
+        -- fill in as they arrive and fuzzy-match live.
+        stream = function(feed, done)
+            return spawn_stream(file_list_cmd(), function(lines)
+                local batch = {}
+                for _, p in ipairs(lines) do
+                    if p ~= "" then
+                        batch[#batch + 1] = { text = p, path = p }
+                    end
+                end
+                feed(batch)
+            end, done)
+        end,
         on_confirm = function(it)
             if it and it.path then
                 vim.cmd.edit(vim.fn.fnameescape(it.path))
@@ -1163,15 +1278,36 @@ end
 --- Fuzzy directory finder under cwd; confirming `:cd`s into the chosen directory. `opts` forwarded to open.
 ---@param opts? table
 function M.directories(opts)
-    local items = {}
-    for _, p in ipairs(run_lines(dir_list_cmd())) do
-        if p ~= "" then
-            items[#items + 1] = { text = p, path = p }
-        end
+    opts = opts or {}
+    local b = fzf_backend()
+    if b then
+        b.open(vim.tbl_extend("force", {
+            title = "Directories",
+            cmd = dir_list_cmd(),
+            preview = function(it)
+                return run_lines({ "ls", "-A", it.path }), ""
+            end,
+            on_confirm = function(it)
+                if it and it.path then
+                    vim.cmd.cd(vim.fn.fnameescape(it.path))
+                end
+            end,
+        }, opts))
+        return
     end
     M.open(vim.tbl_extend("force", {
         title = "Directories",
-        items = items,
+        stream = function(feed, done) -- async, so a huge tree never freezes the open
+            return spawn_stream(dir_list_cmd(), function(lines)
+                local batch = {}
+                for _, p in ipairs(lines) do
+                    if p ~= "" then
+                        batch[#batch + 1] = { text = p, path = p }
+                    end
+                end
+                feed(batch)
+            end, done)
+        end,
         on_confirm = function(it)
             if it and it.path then
                 vim.cmd.cd(vim.fn.fnameescape(it.path))
@@ -1192,6 +1328,36 @@ function M.grep(opts)
         vim.notify("lvim-utils.picker.grep needs ripgrep (rg)", vim.log.levels.WARN)
         return
     end
+    -- Parse a ripgrep `--vimgrep` line (`file:lnum:col:text`) into a location item.
+    local function parse_grep(line)
+        local file, lnum, col = line:match("^(.-):(%d+):(%d+):")
+        if file then
+            return { path = file, lnum = tonumber(lnum), col = tonumber(col), text = line }
+        end
+        return { path = line, text = line }
+    end
+    local b = fzf_backend()
+    if b then
+        -- fzf live mode: each keystroke RELOADS ripgrep with the query — fzf re-renders the matches
+        -- continuously. fzf does no fuzzy ranking of its own (`--disabled`); rg IS the search.
+        b.open(vim.tbl_extend("force", {
+            title = "Grep",
+            reload = source.grep_reload(opts.regex),
+            parse = parse_grep,
+            preview = function(it)
+                local lines, ft = read_preview(it.path)
+                return lines, ft, it.lnum -- focus the matched line
+            end,
+            on_confirm = function(it)
+                if it and it.path then
+                    vim.cmd.edit(vim.fn.fnameescape(it.path))
+                    pcall(api.nvim_win_set_cursor, 0, { it.lnum or 1, (it.col or 1) - 1 })
+                    vim.cmd("normal! zz")
+                end
+            end,
+        }, opts))
+        return
+    end
     M.open(vim.tbl_extend("force", {
         title = "Grep",
         source = function(query, cb)
@@ -1199,14 +1365,10 @@ function M.grep(opts)
                 cb({})
                 return
             end
-            -- `--fixed-strings`: match the query LITERALLY (so `vim.notify("x")` finds that exact text — its
-            -- `.` `(` `)` `"` are not regex metacharacters). Set `opts.regex = true` for a regex search.
-            local rg = { "rg", "--vimgrep", "--smart-case", "--color=never" }
-            if not opts.regex then
-                rg[#rg + 1] = "--fixed-strings"
-            end
-            rg[#rg + 1] = "--"
-            rg[#rg + 1] = query
+            -- ripgrep argv from the shared source layer: matches the query LITERALLY unless `opts.regex`, and
+            -- shares the file-source config so CONTENT search matches what `files` LISTS (hidden / .gitignore /
+            -- the excluded dirs).
+            local rg = source.grep_cmd(query, opts.regex)
             vim.system(rg, { text = true }, function(res)
                 vim.schedule(function()
                     local out = {}
@@ -1285,20 +1447,41 @@ end
 --- No-op outside a git work tree.
 ---@param opts? table
 function M.git_files(opts)
+    opts = opts or {}
     local inside = run_lines({ "git", "rev-parse", "--is-inside-work-tree" })[1]
     if inside ~= "true" then
         vim.notify("lvim-utils.picker.git_files: not inside a git work tree", vim.log.levels.WARN)
         return
     end
-    local items = {}
-    for _, p in ipairs(run_lines({ "git", "ls-files" })) do
-        if p ~= "" then
-            items[#items + 1] = { text = p, path = p }
-        end
+    local b = fzf_backend()
+    if b then
+        b.open(vim.tbl_extend("force", {
+            title = "Git files",
+            cmd = { "git", "ls-files" },
+            preview = function(it)
+                return read_preview(it.path)
+            end,
+            on_confirm = function(it)
+                if it and it.path then
+                    vim.cmd.edit(vim.fn.fnameescape(it.path))
+                end
+            end,
+        }, opts))
+        return
     end
     M.open(vim.tbl_extend("force", {
         title = "Git files",
-        items = items,
+        stream = function(feed, done) -- stream `git ls-files` async (the rev-parse guard above is a quick check)
+            return spawn_stream({ "git", "ls-files" }, function(lines)
+                local batch = {}
+                for _, p in ipairs(lines) do
+                    if p ~= "" then
+                        batch[#batch + 1] = { text = p, path = p }
+                    end
+                end
+                feed(batch)
+            end, done)
+        end,
         on_confirm = function(it)
             if it and it.path then
                 vim.cmd.edit(vim.fn.fnameescape(it.path))
