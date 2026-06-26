@@ -72,7 +72,7 @@ return function(c)
         LvimUiPickerInput = { fg = c.blue, bg = mtint(c.blue, 0.1) }, -- the typed-text area (blue text)
         LvimUiPickerCursor = { bg = c.blue, fg = c.bg }, -- the fzf input caret (a thin blue bar via guicursor)
         LvimUiPickerMarker = { fg = c.red, bold = true }, -- the multi-select mark dot (●) — red, in the front column
-        LvimUiPickerSeparator = { fg = panel_bg, bg = panel_bg }, -- the panel divider — INVISIBLE (= panel bg, no line)
+        LvimUiPickerSeparator = { fg = mtint(c.fg, 0.35), bg = panel_bg }, -- the panel divider — a THIN faint line
         -- the preview winbar's PATH (dir): the tint's OWN accent fg on the WINBAR's bg (the "fg = the tint"
         -- canon), so it blends into the bar; the file name stays the brighter LvimUiPeekFile.
         LvimUiPickerPreviewDir = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },

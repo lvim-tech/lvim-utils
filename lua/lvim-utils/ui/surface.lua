@@ -414,18 +414,37 @@ local function compute_geom(state, place)
     ---@param auto boolean
     ---@return integer[]
     local function allocate(avail, natural, auto)
-        local sizes, fixed, flex = {}, 0, {}
+        local sizes, fixed, flex, auto_idx = {}, 0, {}, {}
         for i, pan in ipairs(panels) do
             local wgt = pan.weight
             if auto and not wgt then
                 sizes[i] = natural(i)
                 fixed = fixed + sizes[i]
+                auto_idx[#auto_idx + 1] = i
             elseif wgt then
                 sizes[i] = math.max(1, wgt <= 1 and math.floor(avail * wgt) or math.floor(wgt))
                 fixed = fixed + sizes[i]
             else
                 flex[#flex + 1] = i
             end
+        end
+        -- OVERFLOW: the natural (auto) panels together exceed `avail` — the area hit its height cap (e.g. a long
+        -- list + a preview both wanting `max_rows`). Shrink the auto panels PROPORTIONALLY so the stack fits
+        -- exactly, instead of spilling past the container (which pushed the divider + the scoped input band down
+        -- into the list, and the last panel off-screen).
+        if fixed > avail and #flex == 0 and #auto_idx > 0 then
+            local auto_total = 0
+            for _, i in ipairs(auto_idx) do
+                auto_total = auto_total + sizes[i]
+            end
+            local auto_avail = math.max(#auto_idx, avail - (fixed - auto_total)) -- room left for the auto panels
+            local acc = 0
+            for k, i in ipairs(auto_idx) do
+                sizes[i] = (k < #auto_idx) and math.max(1, math.floor(sizes[i] * auto_avail / auto_total))
+                    or math.max(1, auto_avail - acc) -- the last auto panel takes the remainder (no rounding gap)
+                acc = acc + sizes[i]
+            end
+            fixed = (fixed - auto_total) + auto_avail
         end
         local rest = math.max(0, avail - fixed)
         if #flex > 0 then
@@ -854,6 +873,17 @@ local function sector_cycle(state, dir)
         return
     end
     local cur = current_sector(state)
+    -- VERTICAL stack: the center panels are stacked top↔bottom, so `<C-j>`/`<C-k>` step THROUGH them (the
+    -- preview is reachable up/down, not only via panel-nav) before continuing to the next sector.
+    if state.cfg.direction == "vertical" and state.sectors[cur] and state.sectors[cur].kind == "center" then
+        local np = #state.panels
+        local cp = state.center_panel or 1
+        if (dir > 0 and cp < np) or (dir < 0 and cp > 1) then
+            state.center_panel = cp + dir
+            focus_sector(state, cur)
+            return
+        end
+    end
     if (dir < 0 and cur == 1) or (dir > 0 and cur == n) then
         -- Top/bottom edge of a docked split → step VERTICALLY out to the editor (matches a below/above dock).
         if escape_to_neighbor(state, dir < 0 and "k" or "j") then
@@ -877,10 +907,11 @@ local function sector_cycle(state, dir)
         end
     end
     local target = ((cur - 1 + dir) % n) + 1
-    -- Entering the CENTER vertically lands on the PRIMARY panel (panel 1, e.g. the list): the preview is
-    -- reached only by `panel_toggle` (Tab), never by up/down — so it is skipped in the vertical stack.
+    -- Entering the CENTER: horizontal lands on the PRIMARY panel (1; the preview is reached by panel-nav). A
+    -- VERTICAL stack lands on the panel at the edge we entered from — top (1) coming DOWN, bottom (last) coming
+    -- UP — so the next `<C-j>`/`<C-k>` keeps walking through the stack.
     if state.sectors[target] and state.sectors[target].kind == "center" then
-        state.center_panel = 1
+        state.center_panel = (state.cfg.direction == "vertical" and dir < 0) and #state.panels or 1
     end
     focus_sector(state, target)
 end
@@ -1665,6 +1696,9 @@ local function open_windows(state)
     --- Reads the REAL focused window (not just the tracked `center_panel`), so it works even when the
     --- preview was focused without going through `focus_panel` (e.g. its own buffer keymaps).
     state.panel = function(dir)
+        if state.cfg.direction == "vertical" then
+            return -- vertical stack: panels are top↔bottom, walked with the sector nav (<C-j>/<C-k>), not <C-l>/<C-h>
+        end
         local w = api.nvim_get_current_win()
         local base = state.center_panel or 1
         for i, pan in ipairs(state.panels) do

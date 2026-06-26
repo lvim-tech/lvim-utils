@@ -460,10 +460,10 @@ function M.open(opts)
             vim.wo[p.win].winbar = ""
             return
         end
-        -- With a preview the scoped INPUT prompt overlays this row, so keep it blank (just reserve the row,
-        -- so the first list item isn't hidden under the prompt); the title/count live in the statusline.
-        -- Without a preview the list owns its title bar.
-        if opts.preview then
+        -- With a preview (lines OR the editable file) the scoped INPUT prompt overlays this row, so keep it
+        -- blank (just reserve the row, so the first list item isn't hidden under the prompt); the title/count
+        -- live in the statusline / the header. Without ANY preview the list owns its title bar.
+        if opts.preview or opts.preview_file then
             vim.wo[p.win].winbar = ("%%#%s# %%="):format(hl("bar", "LvimUiPeekFileBar"))
         else
             vim.wo[p.win].winbar = ("%%#%s# %s %%#%s# %d %%#%s#%%="):format(
