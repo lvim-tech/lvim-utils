@@ -336,8 +336,10 @@ function M.open(opts)
                 qf[#qf + 1] = {
                     filename = src.path,
                     bufnr = (not src.path) and src.bufnr or nil,
-                    lnum = src.lnum or 1,
-                    col = src.col or 1,
+                    -- 0 (not 1) when the entry has no real position (a plain file pick), so consumers can tell a
+                    -- file list from a grep/diagnostic one; vim still jumps to the file's top.
+                    lnum = src.lnum or 0,
+                    col = src.col or 0,
                     text = src.text or "",
                 }
             end
@@ -864,12 +866,17 @@ function M.open(opts)
             state.st.focus_block("list")
         end
     end
-    -- Run a consumer `opts.keys` action on the SELECTED item: it gets the item's source value + a `close`
-    -- callback (so an action can dismiss the finder, or keep it open). No selection ⇒ no-op.
+    -- Run a consumer `opts.keys` action on the SELECTED item: it gets the item's source value, a `close`
+    -- callback (dismiss the finder, or keep it open), and the MARKED source values (the multi-select, in mark
+    -- order — empty when nothing is marked) so an action can operate on the whole selection. No selection ⇒ no-op.
     act = function(run)
         local it = state.filtered[state.sel]
         if not it then
             return
+        end
+        local marked = {}
+        for _, s in ipairs(state.marked) do
+            marked[#marked + 1] = s
         end
         run(it._src, function()
             if use_status then
@@ -878,7 +885,7 @@ function M.open(opts)
             if state.st then
                 state.st.close()
             end
-        end)
+        end, marked)
     end
 
     -- layout: a centred float (default), a "bottom" dock that FLOATS over the bottom rows (statusline
@@ -1214,6 +1221,12 @@ function M.open(opts)
                 vim.schedule(function()
                     scheduled = false
                     if state.closed then
+                        return
+                    end
+                    -- Do NOT rebuild while a multi-select is in progress: a refresh produces NEW item tables, so
+                    -- the marks (keyed by source value) would vanish and the cursor jump to the top mid-marking
+                    -- (and the stale-list re-render could even crash). Hold the live update until the marks clear.
+                    if #state.marked > 0 then
                         return
                     end
                     local fresh = opts.refresh()

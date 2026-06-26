@@ -358,20 +358,40 @@ function D:close()
             pcall(cur.mark_hide_buffer, self.buf, nil)
         end
     end
+    -- restore the global chrome we hid on auto-open, and the window's original options + winhighlight (a file
+    -- may now occupy self.win — without this it inherits the dashboard's chrome-less, number-less look).
+    if self._chrome then
+        vim.o.showtabline, vim.o.laststatus = self._chrome.showtabline, self._chrome.laststatus
+        self._chrome = nil
+    end
+    if self.win and api.nvim_win_is_valid(self.win) then
+        for k, v in pairs(self._saved_wo or {}) do
+            pcall(api.nvim_set_option_value, k, v, { win = self.win })
+        end
+        pcall(function()
+            vim.wo[self.win].winhighlight = self._saved_winhl or ""
+        end)
+    end
     if _current == self then
         _current = nil
     end
 end
 
---- Apply the configured buffer + window options (a clean, chrome-free scratch).
+--- Apply the configured buffer + window options (a clean, chrome-free scratch). The window's ORIGINAL values
+--- are saved so D:close can restore them — otherwise a file opened IN the dashboard window inherits the
+--- dashboard's chrome-less options (no number column, dashboard winhighlight, …).
 function D:set_options()
     for k, v in pairs(self.opts.bo or {}) do
         pcall(api.nvim_set_option_value, k, v, { buf = self.buf })
     end
     if self.win and api.nvim_win_is_valid(self.win) then
+        self._saved_wo = {}
         for k, v in pairs(self.opts.wo or {}) do
+            local ok, cur = pcall(api.nvim_get_option_value, k, { win = self.win })
+            self._saved_wo[k] = ok and cur or nil
             pcall(api.nvim_set_option_value, k, v, { win = self.win })
         end
+        self._saved_winhl = vim.wo[self.win].winhighlight
         vim.wo[self.win].winhighlight = "Normal:" .. (self.opts.hl.normal or "LvimUiDashboardNormal")
     end
 end
@@ -542,17 +562,12 @@ end
 local function arm_auto_open()
     local function try()
         if should_auto_open() then
-            -- save + hide the global chrome while the greeter is up; restore when it closes
-            local save = { showtabline = vim.o.showtabline, laststatus = vim.o.laststatus }
+            -- save + hide the global chrome while the greeter is up; D:close restores it (a separate
+            -- BufWipeout autocmd is unreliable — D:close deletes the augroup it would live in, so the restore
+            -- could be torn down before it runs, leaving laststatus = 0 and the editor chrome-less).
             local dash = M.open({ buf = api.nvim_get_current_buf(), win = api.nvim_get_current_win() })
+            dash._chrome = { showtabline = vim.o.showtabline, laststatus = vim.o.laststatus }
             vim.o.showtabline, vim.o.laststatus = 0, 0
-            api.nvim_create_autocmd("BufWipeout", {
-                group = dash.augroup,
-                buffer = dash.buf,
-                callback = function()
-                    vim.o.showtabline, vim.o.laststatus = save.showtabline, save.laststatus
-                end,
-            })
         end
     end
     if vim.v.vim_did_enter == 1 then

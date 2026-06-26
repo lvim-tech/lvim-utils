@@ -455,8 +455,10 @@ function M.open(opts)
                 qf[#qf + 1] = {
                     filename = it.path,
                     bufnr = (not it.path) and it.bufnr or nil,
-                    lnum = it.lnum or 1,
-                    col = it.col or 1,
+                    -- 0 (not 1) when the entry has no real position (a plain file pick), so consumers can tell a
+                    -- file list from a grep/diagnostic one; vim still jumps to the file's top.
+                    lnum = it.lnum or 0,
+                    col = it.col or 0,
                     text = it.text or line,
                 }
             end
