@@ -270,6 +270,7 @@ function M.open(opts)
 
     local state = {
         closed = false,
+        normal = false, -- NORMAL mode on the list: <Esc> left fzf's input, j/k drive fzf via chansend
         st = nil,
         list_pan = nil,
         preview_pan = nil,
@@ -305,6 +306,29 @@ function M.open(opts)
     -- OWN counter is hidden (--info=hidden); the stats come live from fzf ($FZF_MATCH_COUNT / $FZF_TOTAL_COUNT
     -- via the count fifo), so they climb during the stream and narrow as you filter.
     local show_title_row = (not use_status) and opts.title ~= nil and opts.title ~= ""
+    -- panel CONTENT heights (mirror the tint picker): the LIST fits the live match count, the PREVIEW fits the
+    -- focused file's line count — both capped at `max_rows`. `refit` relayouts when either changes, so the
+    -- panels + the auto-fit area track the content live.
+    local function list_rows()
+        return math.min(math.max(state.counts.match or 0, 1), maxr)
+    end
+    local function file_rows()
+        local it = state.cur_item
+        if it and it.path and it.path ~= "" then
+            local b = vim.fn.bufadd(it.path)
+            pcall(vim.fn.bufload, b)
+            return math.min(api.nvim_buf_line_count(b), maxr)
+        end
+        return 1
+    end
+    local last_fit
+    local function refit()
+        local key = list_rows() .. ":" .. file_rows()
+        if key ~= last_fit and state.st and state.st.relayout then
+            last_fit = key
+            state.st.relayout()
+        end
+    end
     --- Apply fzf's live match/total to the title bar (statusline or the header band).
     ---@param match integer
     ---@param total integer
@@ -318,6 +342,7 @@ function M.open(opts)
         elseif state.st and state.st.refresh_chrome then
             state.st.refresh_chrome()
         end
+        refit() -- the match count changed → re-fit the list panel + the auto area
     end
 
     -- ── park / return (leave fzf for the editor, keep the finder open) ──
@@ -427,6 +452,7 @@ function M.open(opts)
         end
         state.cur_item = parse(line)
         render_preview(state.preview_pan, state.cur_item)
+        refit() -- the focused file changed → re-fit the preview panel + the auto area
     end
 
     -- Scroll the PREVIEW window (a real nvim window) from the fzf terminal — half a page down/up, like the
@@ -690,7 +716,9 @@ function M.open(opts)
                 if not state.closed and state.term_chan then
                     clear_park_map() -- returning to the finder (however we got here) ends the parked state
                     strip_chrome() -- re-assert in case entering re-applied the user's gutter chrome
-                    vim.cmd("startinsert")
+                    if not state.normal then -- in NORMAL mode we deliberately stay out of terminal-mode (j/k overlay)
+                        vim.cmd("startinsert")
+                    end
                 end
             end,
         })
@@ -706,8 +734,77 @@ function M.open(opts)
         -- quickfix (→ accept-into-qf via --expect), abort (→ cancel), and nav all keep fzf's own bindings.
         for _, group in ipairs({ kcfg.accept, kcfg.mark, kcfg.quickfix, kcfg.abort, kcfg.nav }) do
             for _, lhs in ipairs(keylist(group)) do
-                vim.keymap.set("t", lhs, lhs, kopts)
+                if lhs ~= "<Esc>" then -- <Esc> drops to NORMAL on the list (below), not passed to fzf as abort
+                    vim.keymap.set("t", lhs, lhs, kopts)
+                end
             end
+        end
+        -- NORMAL mode on the list (Telescope-style): <Esc> leaves fzf's input WITHOUT closing — fzf keeps
+        -- running, and a normal-mode overlay drives it. `j`/`k` chansend Down/Up into the fzf PTY (so it moves
+        -- the selection + the preview follows via the focus fifo); `i`/`a` return to typing; `<CR>` accepts;
+        -- `q`/`<Esc>` close (send fzf its abort). The surface keys (rotate, panel nav) are also live here.
+        local function feed(keys)
+            if state.term_chan then
+                pcall(vim.fn.chansend, state.term_chan, keys)
+            end
+        end
+        local function to_insert()
+            state.normal = false
+            vim.cmd("startinsert")
+        end
+        vim.keymap.set("t", "<Esc>", function()
+            state.normal = true
+            -- LEAVE terminal-mode (stopinsert does NOT exit it) → NORMAL on the terminal buffer; fzf keeps running
+            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-\\><C-n>", true, false, true), "n", false)
+        end, kopts)
+        vim.keymap.set("n", "j", function()
+            feed("\27[B")
+        end, kopts)
+        vim.keymap.set("n", "k", function()
+            feed("\27[A")
+        end, kopts)
+        vim.keymap.set("n", "i", to_insert, kopts)
+        vim.keymap.set("n", "a", to_insert, kopts)
+        vim.keymap.set("n", "<CR>", function()
+            feed("\r")
+        end, kopts)
+        for _, lhs in ipairs({ "q", "<Esc>" }) do
+            vim.keymap.set("n", lhs, function()
+                feed("\27") -- fzf abort → on_exit → the finder closes
+            end, kopts)
+        end
+        for _, r in ipairs({ { "<C-n>", 1 }, { "<C-p>", -1 } }) do
+            vim.keymap.set("n", r[1], function()
+                if state.st and state.st.rotate_preview then
+                    state.st.rotate_preview(r[2])
+                end
+            end, kopts)
+        end
+        -- forward the fzf-owned actions (mark / quickfix) to the PTY in NORMAL too, so <Tab> marks + <C-q> sends
+        -- to the quickfix exactly like in insert (chansend the raw key bytes fzf is bound to)
+        for _, group in ipairs({ kcfg.mark, kcfg.quickfix }) do
+            for _, lhs in ipairs(keylist(group)) do
+                vim.keymap.set("n", lhs, function()
+                    feed(api.nvim_replace_termcodes(lhs, true, false, true))
+                end, kopts)
+            end
+        end
+        -- NORMAL: <C-d>/<C-u> scroll the PREVIEW (as in insert); every OTHER Neovim scroll/page motion is blocked
+        -- so it can't scroll the fzf terminal render under us (which would move the cursor + corrupt the display).
+        if opts.preview then
+            for _, lhs in ipairs(keylist(kcfg.preview_down)) do
+                vim.keymap.set("n", lhs, function()
+                    scroll_preview(1)
+                end, kopts)
+            end
+            for _, lhs in ipairs(keylist(kcfg.preview_up)) do
+                vim.keymap.set("n", lhs, function()
+                    scroll_preview(-1)
+                end, kopts)
+            end
+        end
+        for _, lhs in ipairs({ "<C-f>", "<C-b>", "<C-e>", "<C-y>", "<PageDown>", "<PageUp>", "gg", "G", "H", "M", "L" }) do
+            vim.keymap.set("n", lhs, "<Nop>", kopts)
         end
         -- the preview-scroll keys scroll the PREVIEW (a real nvim window) instead of going to fzf — matching
         -- the tint finder. (fzf's own scroll/query editing on these keys is given up here.)
@@ -727,7 +824,7 @@ function M.open(opts)
 
     local list_provider = {
         size = function()
-            return math.max(30, math.floor(vim.o.columns * 0.36)), maxr
+            return math.max(30, math.floor(vim.o.columns * 0.36)), list_rows() + 1 -- the LIST: matches + fzf's prompt row
         end,
         update = function(pan)
             state.list_pan = pan
@@ -742,7 +839,7 @@ function M.open(opts)
     local preview_provider = opts.preview
             and {
                 size = function()
-                    return math.max(40, math.floor(vim.o.columns * 0.5)), maxr
+                    return math.max(40, math.floor(vim.o.columns * 0.5)), file_rows() + 1 -- the PREVIEW: file lines + winbar
                 end,
                 update = function(pan)
                     state.preview_pan = pan
@@ -837,6 +934,11 @@ function M.open(opts)
         separator = "│",
         separator_hl = "LvimUiPickerSeparator",
         size = size,
+        -- so the surface can rotate the preview (C-n/C-p) + switch the dock height per stack direction
+        preview_side = preview_provider and (opts.preview_side or "right") or nil,
+        preview_heights = preview_provider
+                and (opts.preview_heights or (require("lvim-utils.config").picker or {}).preview_heights)
+            or nil,
         -- the title bar (title left + match/total stats right) as a header band — the SAME `title_counter`
         -- band the tint finder draws — shown when not publishing to the statusline; +1 air row under it.
         header = show_title_row and {

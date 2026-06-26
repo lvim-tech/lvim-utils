@@ -415,23 +415,34 @@ function M.open(opts)
         return math.min(#state.filtered, maxr) -- 0 when empty (no [no matches] body row)
     end
     local function preview_h()
-        -- the editable real-file preview wants the FULL height (room to edit), not the file's line count
         if opts.preview_file then
-            return maxr
+            -- the editable preview fits the FILE: a 3-line file is 3 rows; a big one is capped at max_rows
+            local it = state.filtered[state.sel]
+            local s = it and it._src
+            if s and s.path and s.path ~= "" then
+                local b = vim.fn.bufadd(s.path)
+                pcall(vim.fn.bufload, b)
+                return math.min(vim.api.nvim_buf_line_count(b), maxr)
+            end
+            return 1
         end
         return math.min(#state.preview_lines, maxr)
     end
     local function has_results()
         return #state.filtered > 0
     end
-    -- The CONTENT height shared by both panels. WITH results each panel is `content_h + 1` (the winbar row).
-    -- With NO results there is no winbar — each panel is a SINGLE row (the prompt on the left, the
-    -- `[no matches]` label on the right) — so the finder collapses to one tinted line.
-    local function content_h()
-        return math.max(1, list_h(), preview_h())
+    -- Each panel fits ITS OWN content (+1 for its winbar with results; a single tinted row when empty). The
+    -- surface MAXes them for a side-by-side (horizontal) layout, SUMs them when stacked (vertical), and the
+    -- area auto-fits to that — capped at the configured height. `content_h` is just a fingerprint so `refit`
+    -- relayouts whenever EITHER panel's height changes.
+    local function list_panel_h()
+        return has_results() and (list_h() + 1) or 1
     end
-    local function panel_height()
-        return has_results() and (content_h() + 1) or 1
+    local function preview_panel_h()
+        return has_results() and (preview_h() + 1) or 1
+    end
+    local function content_h()
+        return list_h() * 1000 + preview_h()
     end
 
     -- Each panel carries a WINBAR title, the lvim-lsp peek look: the list shows the title + result count,
@@ -444,7 +455,7 @@ function M.open(opts)
         if not (p and p.win and api.nvim_win_is_valid(p.win)) then
             return
         end
-        -- No results ⇒ NO winbar (the panel is a single row — see panel_height); the prompt overlay owns it.
+        -- No results ⇒ NO winbar (the panel is a single row — see list_panel_h); the prompt overlay owns it.
         if not has_results() then
             vim.wo[p.win].winbar = ""
             return
@@ -515,8 +526,14 @@ function M.open(opts)
         -- the SELECTION is the Sel stripe (not a window cursorline), so hide the hardware cursor while the
         -- list is focused (NORMAL mode) — the bright row, not a block cursor, shows where you are.
         hide_cursor = true,
+        -- the focused row's SOURCE value — so the surface's default `open`/split/vsplit/tab can act on it
+        -- without the consumer wiring anything (items already carry `path`/`lnum`/`col`).
+        selection = function()
+            local it = state.filtered[state.sel]
+            return it and it._src or nil
+        end,
         size = function()
-            return math.max(30, math.floor(vim.o.columns * 0.32)), panel_height() -- +winbar with results; 1 when empty
+            return math.max(30, math.floor(vim.o.columns * 0.32)), list_panel_h() -- the LIST's own height
         end,
         render = function()
             local lines, hls = {}, {}
@@ -616,7 +633,7 @@ function M.open(opts)
         })
         preview_provider = {
             size = function()
-                return math.max(40, math.floor(vim.o.columns * 0.5)), panel_height()
+                return math.max(40, math.floor(vim.o.columns * 0.5)), preview_panel_h() -- the PREVIEW's own height
             end,
             update = up.update,
             on_close = up.on_close,
@@ -635,7 +652,7 @@ function M.open(opts)
                     -- container fits the bigger one; the preview lines are cached in `state.preview_lines`
                     -- (fetched on selection — see `fetch_preview`). With results +1 for the winbar; with NO
                     -- results a single tinted `[no matches]` row.
-                    return math.max(40, math.floor(vim.o.columns * 0.5)), panel_height()
+                    return math.max(40, math.floor(vim.o.columns * 0.5)), preview_panel_h() -- the PREVIEW's own height
                 end,
                 update = function(pan)
                     set_preview_winbar(pan, state.filtered[state.sel] and state.filtered[state.sel]._src or nil)
@@ -921,7 +938,9 @@ function M.open(opts)
         id = "list",
         provider = list_provider,
         border = pbord,
-        size = vertical and { height = { fixed = 0.45 } } or { width = { fixed = 0.4 } },
+        -- 40% width side-by-side (horizontal); in a VERTICAL stack the height carries no weight, so it AUTO-fits
+        -- the match count (the surface re-derives the weight per stack axis on rotation).
+        size = { width = { fixed = 0.4 } },
     }
     local preview_block = preview_provider and { id = "preview", provider = preview_provider, border = pbord }
     local blocks
@@ -1070,6 +1089,9 @@ function M.open(opts)
         zindex = (host and 210) or (area and 200) or nil,
         header_air = false, -- no LEADING air row; the title_counter bar (or the filter/input) is the top row
         direction = vertical and "vertical" or nil,
+        preview_side = preview_provider and side or nil, -- so the surface can rotate the preview live (C-n/C-p)
+        preview_heights = preview_provider and (opts.preview_heights or pkcfg.preview_heights) or nil, -- { horizontal, vertical }
+        lock_keys = true, -- modal list: only the bound keys act; every other key is a no-op (the editable preview is exempt)
         title = surf_title,
         -- Docked: a native top-border TITLE when there IS a title (the canon — a top " " border, no ring +
         -- 1 air row under it), else NO border. A float keeps the rounded ring.
@@ -1106,9 +1128,9 @@ function M.open(opts)
                     prompt_hl = prompt_hl,
                     input_hl = input_hl,
                     filetype = "lvim-picker-prompt",
-                    -- narrow the prompt to the LIST panel (the left one) when a preview is shown, so it does
-                    -- not span the preview — its title winbar owns that side.
-                    scope_panel = (preview_provider and (side ~= "left" and side ~= "above")) and 1 or nil,
+                    -- scope the prompt to the LIST panel (by id, so it tracks it through every preview rotation):
+                    -- the input always sits just above the list, never over the preview.
+                    scope_id = preview_provider and "list" or nil,
                     on_change = refilter,
                     keys = function(buf, st)
                         state.st = st

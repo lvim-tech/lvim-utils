@@ -120,6 +120,17 @@ return {
         dir_pad_right = 1, -- spaces after the path
     },
 
+    -- (area / docked layouts WITH a preview) The area's HEIGHT for each preview-stack direction — shared by
+    -- EVERY finder (diagnostics, files, grep, the qf browser …): `horizontal` when the preview sits side-by-side
+    -- (left/right), `vertical` when it is stacked (above/below — usually taller so both panels get room). A
+    -- value ≤ 1 is a fraction of the screen height; > 1 an absolute row count. `<C-n>` / `<C-p>` rotate the
+    -- preview through the four sides live and switch between these two heights. A per-call `opts.preview_heights`
+    -- overrides (e.g. the qf browser's `config.browser.height`).
+    preview_heights = {
+        horizontal = 0.33,
+        vertical = 0.66,
+    },
+
     -- Shown when there are NO results — in the list body AND in the preview's winbar (where the file name
     -- would be). A per-call `opts.empty_text` overrides it.
     empty_text = "[no matches]",

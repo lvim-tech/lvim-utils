@@ -67,6 +67,15 @@ local DEFAULT_KEYS = {
     menu_prev = { "h", "<Left>" },
     menu_next = { "l", "<Right>" },
     menu_confirm = { "<CR>", "<Space>" },
+    -- OPEN the focused selection (the chassis default `open(mode)` — opens the focused panel provider's
+    -- `selection()` item by `path`/`lnum`/`col`, or `cfg.on_open(mode, item)` when the consumer overrides):
+    open = "<CR>", -- in the window the frame was opened from
+    open_split = "<C-x>", -- in a horizontal split
+    open_vsplit = "<C-v>", -- in a vertical split
+    open_tab = "<C-t>", -- in a new tab
+    -- ROTATE the preview panel through the four sides (right → below → left → above → …), live:
+    preview_next = "<C-n>",
+    preview_prev = "<C-p>",
 }
 
 -- ─── config normalisation ─────────────────────────────────────────────────────
@@ -144,6 +153,7 @@ local function build_bands(spec, footer, add_air)
                 keys = bar.keys,
                 filetype = bar.filetype,
                 scope_panel = bar.scope_panel, -- narrow the prompt to a single panel's columns (else full width)
+                scope_id = bar.scope_id, -- … or to the panel with this id (rotation-safe — tracks it as it moves)
             }
         else
             -- Mutate the bar spec INTO its band (the machinery reads the element list as `band.buttons`),
@@ -335,11 +345,11 @@ local function compute_geom(state, place)
     if not place and footer_w > 0 then
         W = math.max(W, math.min(footer_w, vim.o.columns - 4))
     end
-    -- A `scope_panel` input band does NOT take its own header row — it overlays its panel's top (winbar)
-    -- row instead, so it doesn't count toward the header height.
+    -- A `scope_panel` / `scope_id` input band does NOT take its own header row — it overlays its panel's top
+    -- (winbar) row instead, so it doesn't count toward the header height.
     local header_h = 0
     for _, b in ipairs(state.header_bands) do
-        if not b.scope_panel then
+        if not b.scope_panel and not b.scope_id then
             header_h = header_h + 1
         end
     end
@@ -630,12 +640,25 @@ local function render_chrome(state, L)
     end
     if sep_char then
         local sep_hl = util.resolve_hl(state.cfg.separator_hl or "LvimUiPeekBorder")
-        for ln = L.header_h, H - L.footer_h - 1 do
+        if L.vertical then
+            -- VERTICAL stack: each divider is a full-width ROW ("─") at `header_h + d` — highlight the WHOLE line
+            -- (a `d` here is a ROW offset, not a column), so the rule reads with `sep_hl` exactly like the
+            -- horizontal "│" instead of the default fg.
             for _, d in ipairs(L.dividers) do
-                pcall(api.nvim_buf_set_extmark, state.container_buf, NS, ln, d, {
-                    end_col = d + #sep_char,
+                pcall(api.nvim_buf_set_extmark, state.container_buf, NS, L.header_h + d, 0, {
+                    end_col = W * #sep_char,
                     hl_group = sep_hl,
                 })
+            end
+        else
+            -- HORIZONTAL: each divider is a COLUMN ("│") — highlight it on every center row.
+            for ln = L.header_h, H - L.footer_h - 1 do
+                for _, d in ipairs(L.dividers) do
+                    pcall(api.nvim_buf_set_extmark, state.container_buf, NS, ln, d, {
+                        end_col = d + #sep_char,
+                        hl_group = sep_hl,
+                    })
+                end
             end
         end
     end
@@ -925,6 +948,81 @@ local function menu_confirm(state)
     end
 end
 
+--- The item the focused selection points at — the first center panel whose provider exposes `selection()`
+--- (the list; the preview has none). Drives the default `open`.
+---@param state table
+---@return table? item
+local function focused_selection(state)
+    for _, pan in ipairs(state.panels) do
+        if pan.provider and pan.provider.selection then
+            local ok, it = pcall(pan.provider.selection)
+            if ok and it then
+                return it
+            end
+        end
+    end
+    return nil
+end
+
+--- Default OPEN action — open the focused selection in `mode` ("window"|"split"|"vsplit"|"tab"). A consumer
+--- overrides the whole behaviour with `cfg.on_open(mode, item)`; otherwise an item carrying `path` (+ optional
+--- `lnum`/`col`) is opened with `nvim_win_set_buf` (NOT `:edit`, so an unsaved editable preview can't block it
+--- with E37) in the origin window, or a fresh split/vsplit/tab. The frame closes first either way.
+---@param state table
+---@param mode string
+local function default_open(state, mode)
+    local item = focused_selection(state)
+    local origin = state.origin
+    if state.cfg.on_open then
+        state.close()
+        state.cfg.on_open(mode, item)
+        return
+    end
+    if not (item and item.path) then
+        return
+    end
+    state.close()
+    if origin and api.nvim_win_is_valid(origin) then
+        api.nvim_set_current_win(origin)
+    end
+    if mode == "split" then
+        vim.cmd("split")
+    elseif mode == "vsplit" then
+        vim.cmd("vsplit")
+    elseif mode == "tab" then
+        vim.cmd("tabnew")
+    end
+    local buf = vim.fn.bufadd(item.path)
+    vim.fn.bufload(buf)
+    api.nvim_win_set_buf(0, buf)
+    pcall(api.nvim_win_set_cursor, 0, { item.lnum or 1, math.max(0, (item.col or 1) - 1) })
+    pcall(vim.cmd, "normal! zz")
+end
+
+--- Set the DOCKED container height from `cfg.preview_heights` ( `{ horizontal, vertical }` — a value ≤ 1 is a
+--- fraction of the screen, > 1 an absolute row count) for the side's stack direction: `horizontal` when the
+--- preview sits left/right, `vertical` when it sits above/below. No-op for a float or when the consumer didn't
+--- ask for managed heights.
+---@param state table
+---@param side string
+local function apply_dock_height(state, side)
+    if not (state.cfg.host or state.cfg.mode == "split") then
+        return -- only the DOCKED layouts (hosted msgarea zone, or a non-hosted bottom/area split) have a height
+    end
+    local hs = state.cfg.preview_heights
+    local v = hs and ((side == "above" or side == "below") and hs.vertical or hs.horizontal)
+    if type(v) ~= "number" then
+        return
+    end
+    local rows = math.max(1, v <= 1 and math.floor(vim.o.lines * v) or math.floor(v))
+    -- AUTO-fit the docked area to its content (the panels' natural heights), CAPPED at the configured value —
+    -- so it shrinks when there are few matches / a short file, but never exceeds the cap. (cfg.size is only
+    -- normalised once at open, so we set the fields compute_geom reads directly; relayout re-reserves the host.)
+    state.cfg.auto_height = true
+    state.cfg.height = nil
+    state.cfg.max_height = rows
+end
+
 --- Install the chassis keymaps. Panel buffers get sector cycling + the provider's own keys; the
 --- container buffer (bar-menu mode) gets selection move / confirm + sector cycling. `cfg.close_keys`
 --- close a modal frame from anywhere.
@@ -934,9 +1032,36 @@ local function set_keys(state)
     local ok_cfg, cfg = pcall(require, "lvim-utils.config")
     local global_keys = (ok_cfg and cfg.ui and cfg.ui.keys) or {}
     local K = vim.tbl_extend("force", DEFAULT_KEYS, global_keys, state.cfg.keys or {})
+    local used = {} -- used[buf][lhs] = true — the keys we actually bind, so `lock_keys` can <Nop> the rest
     local function map(buf, lhs, fn)
+        used[buf] = used[buf] or {}
         for _, l in ipairs(type(lhs) == "table" and lhs or { lhs }) do
             vim.keymap.set("n", l, fn, { buffer = buf, nowait = true, silent = true })
+            used[buf][l] = true
+        end
+    end
+    -- `cfg.lock_keys`: a MODAL panel — only the keys we bound act; every other normal-mode key (motions,
+    -- scrolls, edits, search) is `<Nop>`-ed so a stray press can't move the cursor / scroll / edit the panel.
+    -- The cmdline `:` is kept as an escape hatch. Run AFTER the panel binds (so `used` is populated) and BEFORE
+    -- map_hotkeys (so a button hotkey re-maps OVER the `<Nop>`).
+    local function lock_panel(buf)
+        local u = used[buf] or {}
+        local function nop(lhs)
+            if not u[lhs] then
+                pcall(vim.keymap.set, "n", lhs, "<Nop>", { buffer = buf, nowait = true, silent = true })
+            end
+        end
+        for i = 33, 126 do
+            local ch = string.char(i)
+            if ch ~= ":" then -- single printable keys (a stray `g`/`z` prefix is killed too → no `gg`/`zz`)
+                nop(ch)
+            end
+        end
+        for i = string.byte("a"), string.byte("z") do
+            nop("<C-" .. string.char(i) .. ">") -- the Ctrl-letter combos (scroll, etc.)
+        end
+        for _, sk in ipairs({ "<Up>", "<Down>", "<Left>", "<Right>", "<PageUp>", "<PageDown>", "<Home>", "<End>" }) do
+            nop(sk)
         end
     end
     for _, pan in ipairs(state.panels) do
@@ -956,6 +1081,26 @@ local function set_keys(state)
         end)
         map(pan.buf, K.panel_toggle, function()
             panel_toggle(state)
+        end)
+        -- OPEN the focused selection (a provider's own `keys` below may still override these, e.g. <CR>)
+        map(pan.buf, K.open, function()
+            default_open(state, "window")
+        end)
+        map(pan.buf, K.open_split, function()
+            default_open(state, "split")
+        end)
+        map(pan.buf, K.open_vsplit, function()
+            default_open(state, "vsplit")
+        end)
+        map(pan.buf, K.open_tab, function()
+            default_open(state, "tab")
+        end)
+        -- ROTATE the preview position (live reflow of the floats)
+        map(pan.buf, K.preview_next, function()
+            state.rotate_preview(1)
+        end)
+        map(pan.buf, K.preview_prev, function()
+            state.rotate_preview(-1)
         end)
         if pan.provider and pan.provider.keys then
             pcall(pan.provider.keys, function(lhs, fn)
@@ -997,6 +1142,18 @@ local function set_keys(state)
         map(state.container_buf, km.key, fn)
     end
 
+    if state.cfg.lock_keys then -- modal: every unbound key is a no-op — the PANELS and the chrome CONTAINER
+        for _, pan in ipairs(state.panels) do
+            local editable = pan.provider and pan.provider.editable
+            if not editable and vim.bo[pan.buf].buftype ~= "terminal" then
+                lock_panel(pan.buf)
+            end
+        end
+        -- the container is the chrome buffer (bar-menu mode) — a stray `<C-f>`/`<C-d>` on a focused bar scrolled
+        -- it, pushing the header (title + bar) off the top and the footer up into its place
+        lock_panel(state.container_buf)
+    end
+
     -- Header button hotkeys work from EVERYWHERE: on every panel (all keys) and the container (all but
     -- the menu nav keys, so `h`/`l` still move the selection while a bar is focused).
     for _, pan in ipairs(state.panels) do
@@ -1036,10 +1193,21 @@ local function place_panels(state, L)
     local _, _, _, rcl = util.insets(L.cbord)
     local hbi = 0
     for _, band in ipairs(state.header_bands) do
+        -- a `scope_id` band tracks the CURRENT index of the panel with that id (rotation-safe — the input
+        -- always sits over the LIST panel however the preview is rotated); else the fixed `scope_panel` index.
+        local scope = band.scope_panel
+        if band.scope_id then
+            for i, pan in ipairs(state.panels) do
+                if pan.id == band.scope_id then
+                    scope = i
+                    break
+                end
+            end
+        end
         if band.input and band.win and api.nvim_win_is_valid(band.win) then
             local iw, icol, irow = L.W, L.col + rcl, L.row + L.ct + hbi
-            if band.scope_panel and L.panels[band.scope_panel] then
-                local sp = L.panels[band.scope_panel]
+            if scope and L.panels[scope] then
+                local sp = L.panels[scope]
                 iw, icol, irow = sp.width, sp.col, sp.row
             end
             pcall(api.nvim_win_set_config, band.win, {
@@ -1050,7 +1218,7 @@ local function place_panels(state, L)
                 height = 1,
             })
         end
-        if not band.scope_panel then
+        if not scope then
             hbi = hbi + 1
         end
     end
@@ -1376,6 +1544,55 @@ local function open_windows(state)
     -- Re-fit the frame to its providers' CURRENT content size (auto width/height) and re-centre — for an
     -- auto-sized frame whose content changed at runtime (e.g. a tab switch swapping the form's row count).
     state.relayout = function()
+        relayout(state)
+    end
+    state.preview_side = state.cfg.preview_side -- the live preview position (rotate_preview cycles it)
+    apply_dock_height(state, state.preview_side) -- the configured docked height for the INITIAL stack direction
+    --- Rotate the "preview" panel through the four sides (right → below → left → above → …), LIVE. The center
+    --- panels are floats, so flipping the stack direction + swapping the panel order + a `relayout` reflows them
+    --- in place — buffers, selection and scroll are untouched (no re-create). No-op unless there are exactly two
+    --- center panels, one of them `id = "preview"`.
+    ---@param dir integer  +1 next side, -1 previous
+    state.rotate_preview = function(dir)
+        if #state.panels ~= 2 then
+            return
+        end
+        local pv, other
+        for _, pan in ipairs(state.panels) do
+            if pan.id == "preview" then
+                pv = pan
+            else
+                other = pan
+            end
+        end
+        if not (pv and other) then
+            return
+        end
+        local order = { "right", "below", "left", "above" }
+        local ci = 1
+        for i, s in ipairs(order) do
+            if s == (state.preview_side or "right") then
+                ci = i
+            end
+        end
+        local side = order[((ci - 1 + dir) % #order) + 1]
+        state.preview_side = side
+        local vert = side == "above" or side == "below"
+        state.cfg.direction = vert and "vertical" or nil
+        if state.cfg.separator and state.cfg.separator ~= "" then
+            state.cfg.separator = vert and "─" or "│" -- horizontal rule when stacked, vertical bar when side-by-side
+        end
+        -- preview FIRST (top/left) for above/left; SECOND (bottom/right) for below/right
+        local preview_first = side == "above" or side == "left"
+        state.panels = preview_first and { pv, other } or { other, pv }
+        -- re-derive each panel's weight for the NEW stacking axis (a `{ width = 0.4 }` block weighs 0.4 across
+        -- horizontal, but carries NO weight when stacked vertically → its height AUTO-fits the content)
+        local stack_axis = vert and "height" or "width"
+        for _, pan in ipairs(state.panels) do
+            pan.weight = pan.size and (pan.size[stack_axis] or {}).fixed or nil
+        end
+        apply_dock_height(state, side) -- the configured horizontal/vertical docked height for the new stack
+        state.sectors = build_sectors(state)
         relayout(state)
     end
     --- Swap the HEADER bands at runtime — a tabbed surface changing a tab's toolbar bars (each becomes its own
@@ -1870,7 +2087,7 @@ function M.open(cfg)
     local stack_axis = cfg.direction == "vertical" and "height" or "width"
     for i, blk in ipairs((cfg.content or {}).blocks or {}) do
         local bw = (blk.size or {})[stack_axis] or {}
-        panels[i] = { id = blk.id, provider = blk.provider, weight = bw.fixed, border = blk.border }
+        panels[i] = { id = blk.id, provider = blk.provider, size = blk.size, weight = bw.fixed, border = blk.border }
     end
 
     -- A FLOAT carries the brand as its border title (built in open_windows). A SPLIT has no border, so the
