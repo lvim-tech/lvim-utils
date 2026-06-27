@@ -269,9 +269,10 @@ function M.open(opts)
         or (require("lvim-utils.config").picker or {}).empty_preview
         or "Nothing to preview"
     local opener = api.nvim_get_current_win()
-    local parse = opts.parse or function(line)
-        return { path = line, text = line }
-    end
+    local parse = opts.parse
+        or function(line)
+            return { path = line } -- a plain file line: the path IS the location, no separate message text
+        end
 
     local state = {
         closed = false,
@@ -494,7 +495,10 @@ function M.open(opts)
                     -- file list from a grep/diagnostic one; vim still jumps to the file's top.
                     lnum = it.lnum or 0,
                     col = it.col or 0,
-                    text = it.text or line,
+                    -- No parsed message? A FILE pick (it has a `path`) has none — the location IS the row, so
+                    -- leave it EMPTY (else the browser renders "path  path", the path twice). Only a finder whose
+                    -- line is itself the display text (no path) falls back to the raw line.
+                    text = it.text or (it.path and "" or line),
                 }
             end
         end
