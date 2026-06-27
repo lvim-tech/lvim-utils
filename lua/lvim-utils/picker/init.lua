@@ -179,7 +179,7 @@ end
 ---@field format? fun(item: any): string  display text for a table item (default: `item.text`)
 ---@field preview? fun(item: any): string[], string?, integer?  preview lines (+ a filetype, + a 1-based focus line) per selection
 ---@field preview_file? boolean  preview the item's REAL file buffer (EDITABLE, 2-way synced) instead of `preview` lines; items need `path` (+ lnum/col)
----@field preview_side? "right"|"left"|"below"|"above"  where the preview sits (default "right"); below/above stack + grow height
+---@field preview_side? "right"|"left"|"below"|"above"|"dynamic"|"hide"  where the preview sits (default "right"); below/above stack; `dynamic` = full-width list + a peek float above (native-qf style); `hide` = no preview (toggle with <C-e>)
 ---@field preview_numbers? boolean  show line numbers in the preview (default true)
 ---@field preview_wrap? boolean  soft-wrap the preview (default false)
 ---@field list_wrap? boolean  soft-wrap the list rows (no "↳" marker) so far-right matches stay visible (default false)
@@ -641,6 +641,8 @@ function M.open(opts)
                 return math.max(40, math.floor(vim.o.columns * 0.5)), preview_panel_h() -- the PREVIEW's own height
             end,
             update = up.update,
+            item = up.item, -- the focused location (lnum/col), so the dynamic peek can position its cursor
+            reset = up.reset, -- so the dynamic peek float re-asserts the file winbar on a fresh window
             on_close = up.on_close,
             -- only capture the panel (for C-d/C-u scroll); the file buffer is editable, so we add NO keys
             -- that would shadow `i`/`a` — ui.preview binds the panel-nav keys itself on focus.

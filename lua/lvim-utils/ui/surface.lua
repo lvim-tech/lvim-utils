@@ -73,9 +73,10 @@ local DEFAULT_KEYS = {
     open_split = "<C-x>", -- in a horizontal split
     open_vsplit = "<C-v>", -- in a vertical split
     open_tab = "<C-t>", -- in a new tab
-    -- ROTATE the preview panel through the four sides (right → below → left → above → …), live:
+    -- ROTATE the preview through five positions (right → below → left → above → dynamic → …), live:
     preview_next = "<C-n>",
     preview_prev = "<C-p>",
+    toggle_preview = "<C-e>", -- HIDE ↔ show the preview (no-op while the preview is `dynamic`)
 }
 
 -- ─── config normalisation ─────────────────────────────────────────────────────
@@ -873,6 +874,19 @@ local function sector_cycle(state, dir)
         return
     end
     local cur = current_sector(state)
+    -- DYNAMIC peek: the float sits ABOVE everything, so `<C-k>` enters it only from the TOP sector — from the
+    -- list you first reach the header (the filter bar), then one more `<C-k>` steps up into the float to edit.
+    if
+        state.preview_side == "dynamic"
+        and dir < 0
+        and cur == 1
+        and state.dyn
+        and state.dyn.win
+        and api.nvim_win_is_valid(state.dyn.win)
+    then
+        api.nvim_set_current_win(state.dyn.win)
+        return
+    end
     -- VERTICAL stack: the center panels are stacked top↔bottom, so `<C-j>`/`<C-k>` step THROUGH them (the
     -- preview is reachable up/down, not only via panel-nav) before continuing to the next sector.
     if state.cfg.direction == "vertical" and state.sectors[cur] and state.sectors[cur].kind == "center" then
@@ -905,6 +919,7 @@ local function sector_cycle(state, dir)
             state.cfg.on_escape_above()
             return
         end
+        return -- at an edge with no escape handler → STOP (never WRAP around to the opposite end)
     end
     local target = ((cur - 1 + dir) % n) + 1
     -- Entering the CENTER: horizontal lands on the PRIMARY panel (1; the preview is reached by panel-nav). A
@@ -1133,6 +1148,12 @@ local function set_keys(state)
         map(pan.buf, K.preview_prev, function()
             state.rotate_preview(-1)
         end)
+        -- HIDE ↔ show the preview (no-op while `dynamic`)
+        map(pan.buf, K.toggle_preview, function()
+            if state.toggle_preview then
+                state.toggle_preview()
+            end
+        end)
         if pan.provider and pan.provider.keys then
             pcall(pan.provider.keys, function(lhs, fn)
                 map(pan.buf, lhs, fn)
@@ -1352,6 +1373,70 @@ end
 
 -- ─── open / close ─────────────────────────────────────────────────────────────
 
+-- forward declarations: `open_panel_win`'s `pan.refresh` and the state methods inside `open_windows` reference
+-- these (the dynamic peek / restack helpers); their definitions follow below.
+local dyn_geom, dyn_update, dyn_show, dyn_hide, dyn_enable, dyn_disable, restack_panels, apply_preview_side, refocus_list
+
+--- Open (or re-open) ONE center panel's window over its computed rect + apply the window-local chrome. Used
+--- both at open and when a panel is re-docked at runtime (the preview returning from a `hide`/`dynamic` state).
+--- The scratch buffer persists across hide/show (`bufhidden = "hide"`), so its keymaps survive a close+reopen.
+---@param state table
+---@param pan table
+---@param i integer  its index in `state.panels` (drives render_panel)
+---@param pl table   the panel rect from compute_geom (`L.panels[i]`)
+---@param has_input boolean
+---@param docked boolean
+local function open_panel_win(state, pan, i, pl, has_input, docked)
+    if not (pan.buf and api.nvim_buf_is_valid(pan.buf)) then
+        pan.buf = api.nvim_create_buf(false, true)
+        vim.bo[pan.buf].bufhidden = "hide" -- keep the scratch buffer alive while hidden; deleted in close()
+        if pan.provider and pan.provider.hide_cursor then
+            vim.bo[pan.buf].filetype = FRAME_FT
+        end
+    end
+    pan.win = api.nvim_open_win(pan.buf, i == 1 and state.cfg.enter ~= false and not has_input, {
+        relative = "editor",
+        width = pl.width,
+        height = pl.height,
+        row = pl.row,
+        col = pl.col,
+        border = pl.border,
+        style = "minimal",
+        focusable = not docked,
+        zindex = not docked and (state.zindex + 1) or nil,
+    })
+    if docked then
+        vim.w[pan.win].lvim_frame = true
+    end
+    vim.wo[pan.win].wrap = false
+    if pan.provider and pan.provider.cursorline then
+        local cl = (type(pan.provider.cursorline) == "string" and pan.provider.cursorline)
+            or ((#state.panels > 1) and "LvimUiCursorLine" or "LvimUiPeekCursorLine")
+        vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:" .. cl
+        vim.wo[pan.win].cursorline = true
+    else
+        vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal"
+    end
+    pan.refresh = function() -- a provider re-renders its own panel after a state change (toggle, …)
+        -- find the panel's CURRENT index by identity — `state.panels` is reordered/shrunk by the preview
+        -- rotation / hide / dynamic, so the open-time `i` goes stale (a parked panel drops out entirely).
+        for idx, p in ipairs(state.panels) do
+            if p == pan then
+                render_panel(state, idx)
+                return
+            end
+        end
+        -- PARKED preview in `dynamic`: the consumer's selection-change refresh re-renders the peek FLOAT
+        -- instead (so it follows the list — its cursor lands on the new entry's location), since the picker
+        -- moves a Sel stripe, not the window cursor, so the float's own CursorMoved trigger never fires.
+        if pan == state.preview_panel and state.preview_side == "dynamic" then
+            dyn_show(state)
+        end
+    end
+    pan.frame = state -- providers reach the frame (focus_panel / close / cfg) through their panel
+    render_panel(state, i)
+end
+
 --- Build the container + the N panel windows from a computed layout.
 ---@param state table
 local function open_windows(state)
@@ -1438,58 +1523,7 @@ local function open_windows(state)
     end
 
     for i, pan in ipairs(state.panels) do
-        local pl = L.panels[i]
-        pan.buf = api.nvim_create_buf(false, true)
-        vim.bo[pan.buf].bufhidden = "hide" -- keep the scratch buffer alive while hidden; deleted in close()
-        -- A list-style provider shows its selection via cursorline → give its buffer FRAME_FT so the cursor
-        -- module hides the hardware cursor while it is focused. Editable panels (input / the real preview
-        -- buffer) keep their normal filetype, so the cursor stays visible there.
-        if pan.provider and pan.provider.hide_cursor then
-            vim.bo[pan.buf].filetype = FRAME_FT
-        end
-        -- DOCKED (split): `focusable = false` — the panels are NOT part of native window nav (`<C-w>`/
-        -- `<C-l>` must reach the surrounding editor splits, not land inside the peek); the frame focuses
-        -- them programmatically. FLOAT (modal): `focusable = true` so mouse / "focus next float" helpers
-        -- can reach the content panel. zindex: in SPLIT the container is a REAL window, so the floats sit
-        -- above it at the default (else they'd stack over unrelated floats like lvim-space); in FLOAT the
-        -- container IS a float, so the panels need `zindex + 1` to stay above it.
-        -- Enter the first panel on open — UNLESS `cfg.enter == false` (a non-focusing float like a hover:
-        -- it appears but the cursor stays in the editor; a later `st.focus_block()` enters it).
-        pan.win = api.nvim_open_win(pan.buf, i == 1 and state.cfg.enter ~= false and not has_input, {
-            relative = "editor",
-            width = pl.width,
-            height = pl.height,
-            row = pl.row,
-            col = pl.col,
-            border = pl.border,
-            style = "minimal",
-            focusable = not docked,
-            zindex = not docked and (state.zindex + 1) or nil,
-        })
-        -- Mark the panel ONLY when docked (a persistent peek to protect). A FLOAT-mode panel is left
-        -- unmarked so "close all floats" dismisses it and "focus next float" lands on it.
-        if docked then
-            vim.w[pan.win].lvim_frame = true
-        end
-        vim.wo[pan.win].wrap = false -- a UI panel never wraps: a too-wide row (the message filter bar) must
-        -- stay ONE line and let its own ui.bar chevrons scroll it, not spill onto a second row.
-        if pan.provider and pan.provider.cursorline then
-            -- MULTI-panel frames (the list+preview peek) use the NEUTRAL cursorline in BOTH panels; only a
-            -- single-panel popup (a pick list) uses the yellow "list hover" cursorline (matches the row icon).
-            -- A provider may NAME its own group (a string) — e.g. a bg-only one, so a row's own fg highlights
-            -- (a file row's blue name / dimmed path) survive the hover instead of being recoloured.
-            local cl = (type(pan.provider.cursorline) == "string" and pan.provider.cursorline)
-                or ((#state.panels > 1) and "LvimUiCursorLine" or "LvimUiPeekCursorLine")
-            vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:" .. cl
-            vim.wo[pan.win].cursorline = true
-        else
-            vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal"
-        end
-        pan.refresh = function() -- a provider re-renders its own panel after a state change (toggle, …)
-            render_panel(state, i)
-        end
-        pan.frame = state -- providers reach the frame (focus_panel / close / cfg) through their panel
-        render_panel(state, i)
+        open_panel_win(state, pan, i, L.panels[i], has_input, docked)
     end
 
     -- Editable INPUT bands: a focusable 1-row editable window over each input band's header row. The frame
@@ -1578,53 +1612,54 @@ local function open_windows(state)
         relayout(state)
     end
     state.preview_side = state.cfg.preview_side -- the live preview position (rotate_preview cycles it)
+    -- Capture the persistent list + preview panel refs, so the preview can be DROPPED (hide / dynamic) and
+    -- RE-DOCKED at runtime without losing them (the scratch buffers outlive their windows).
+    for _, pan in ipairs(state.panels) do
+        if pan.id == "preview" then
+            state.preview_panel = pan
+        else
+            state.list_panel = state.list_panel or pan
+        end
+    end
     apply_dock_height(state, state.preview_side) -- the configured docked height for the INITIAL stack direction
-    --- Rotate the "preview" panel through the four sides (right → below → left → above → …), LIVE. The center
-    --- panels are floats, so flipping the stack direction + swapping the panel order + a `relayout` reflows them
-    --- in place — buffers, selection and scroll are untouched (no re-create). No-op unless there are exactly two
-    --- center panels, one of them `id = "preview"`.
-    ---@param dir integer  +1 next side, -1 previous
+    --- Rotate the preview through FIVE positions (right → below → left → above → dynamic → …), LIVE. The four
+    --- docked sides reflow the floats in place; `dynamic` drops the docked preview to a full-width list + a
+    --- transient peek float (`apply_preview_side` handles both). No-op without a "preview" panel.
+    ---@param dir integer  +1 next position, -1 previous
     state.rotate_preview = function(dir)
-        if #state.panels ~= 2 then
+        if not state.preview_panel then
             return
         end
-        local pv, other
-        for _, pan in ipairs(state.panels) do
-            if pan.id == "preview" then
-                pv = pan
-            else
-                other = pan
-            end
-        end
-        if not (pv and other) then
-            return
-        end
-        local order = { "right", "below", "left", "above" }
+        local order = { "right", "below", "left", "above", "dynamic" }
         local ci = 1
         for i, s in ipairs(order) do
             if s == (state.preview_side or "right") then
                 ci = i
             end
         end
-        local side = order[((ci - 1 + dir) % #order) + 1]
-        state.preview_side = side
-        local vert = side == "above" or side == "below"
-        state.cfg.direction = vert and "vertical" or nil
-        if state.cfg.separator and state.cfg.separator ~= "" then
-            state.cfg.separator = vert and "─" or "│" -- horizontal rule when stacked, vertical bar when side-by-side
+        state.preview_side = order[((ci - 1 + dir) % #order) + 1]
+        state.preview_hidden = false -- rotating always un-hides
+        apply_preview_side(state)
+        refocus_list(state)
+    end
+    --- Toggle the preview HIDDEN ↔ shown (the `hide` position). A no-op while `dynamic` (its peek owns the
+    --- preview); only the docked sides hide. The last docked side returns on un-hide.
+    state.toggle_preview = function()
+        if not state.preview_panel or state.preview_side == "dynamic" then
+            return
         end
-        -- preview FIRST (top/left) for above/left; SECOND (bottom/right) for below/right
-        local preview_first = side == "above" or side == "left"
-        state.panels = preview_first and { pv, other } or { other, pv }
-        -- re-derive each panel's weight for the NEW stacking axis (a `{ width = 0.4 }` block weighs 0.4 across
-        -- horizontal, but carries NO weight when stacked vertically → its height AUTO-fits the content)
-        local stack_axis = vert and "height" or "width"
-        for _, pan in ipairs(state.panels) do
-            pan.weight = pan.size and (pan.size[stack_axis] or {}).fixed or nil
+        state.preview_hidden = not state.preview_hidden
+        apply_preview_side(state)
+        refocus_list(state)
+    end
+    -- Opened directly into a non-docked preview state (open_windows built BOTH panels): drop the docked preview
+    -- now. `hide` as an initial side = start hidden on the default side.
+    if state.preview_panel and (state.preview_side == "dynamic" or state.preview_side == "hide") then
+        if state.preview_side == "hide" then
+            state.preview_side = "right"
+            state.preview_hidden = true
         end
-        apply_dock_height(state, side) -- the configured horizontal/vertical docked height for the new stack
-        state.sectors = build_sectors(state)
-        relayout(state)
+        apply_preview_side(state)
     end
     --- Swap the HEADER bands at runtime — a tabbed surface changing a tab's toolbar bars (each becomes its own
     --- C-j/C-k sector). Regular bar bands are container LINES (not windows), so this just re-derives the band +
@@ -1878,6 +1913,303 @@ local function open_windows(state)
     })
 end
 
+-- ─── preview side: hide + dynamic ─────────────────────────────────────────────
+-- Two preview states beyond the four docked sides: `hide` (no preview — list full-width, toggled by a key)
+-- and `dynamic` (list full-width + a TRANSIENT preview FLOAT above it, shown only while the picker is focused
+-- and following the list cursor — the native-qf peek). Both drop the docked preview panel; `dynamic` then
+-- drives its own float.
+
+-- A single BOTTOM rule (no top/side border) — the SAME look as the docked `above` preview: the file winbar
+-- marks the top, a red rule (`LvimUiPickerSeparator`) divides it from what's below. Full container width.
+local DYN_BORDER = { "", "", "", "", "", "─", "", "" }
+
+--- The dynamic float's column/width, the container top, and the CONTENT-height cap. The float floats over the
+--- editor, so it is capped to LEAVE the top of the editor + its statusline VISIBLE (so you can still navigate to
+--- the real buffer): its bottom rule sits 1 row above the statusline (`top - 2`), and the top stays below a
+--- `keep_top` margin.
+---@param state table
+---@return table
+function dyn_geom(state)
+    local L = state._geom or compute_geom(state)
+    local hs = state.cfg.preview_heights
+    local capf = (hs and hs.vertical) or 0.5
+    local cfgcap = math.max(3, capf <= 1 and math.floor(vim.o.lines * capf) or math.floor(capf))
+    local top = L.row -- the container's top screen row (the editor statusline sits at top-1)
+    local keep_top = math.floor(vim.o.lines * 0.4) -- leave the top ~40% of the editor visible
+    return { col = L.col, width = L.W, top = top, cap = math.max(1, math.min(cfgcap, top - 2 - keep_top)) }
+end
+
+--- Render the preview provider into the dynamic float for the current list selection (no-op while the float
+--- itself is focused — the provider leaves an in-progress edit alone).
+---@param state table
+function dyn_update(state)
+    local d = state.dyn
+    if not (d and d.win and api.nvim_win_is_valid(d.win)) then
+        return
+    end
+    local prov = state.preview_panel and state.preview_panel.provider
+    if prov and prov.update then
+        pcall(prov.update, { win = d.win, buf = api.nvim_win_get_buf(d.win), frame = state })
+    end
+end
+
+--- Show (or reposition) the dynamic float + refresh its content.
+---@param state table
+function dyn_show(state)
+    local d = state.dyn
+    if not d or state._closed or d._positioning then
+        return
+    end
+    local g = dyn_geom(state)
+    if not (d.win and api.nvim_win_is_valid(d.win)) then
+        if not (d.buf and api.nvim_buf_is_valid(d.buf)) then
+            d.buf = api.nvim_create_buf(false, true)
+            vim.bo[d.buf].bufhidden = "hide"
+        end
+        d.win = api.nvim_open_win(d.buf, false, {
+            relative = "editor",
+            row = g.top - g.cap - 2, -- bottom rule lands at top-2 (editor statusline at top-1 stays visible)
+            col = g.col,
+            width = g.width,
+            height = g.cap,
+            style = "minimal",
+            border = DYN_BORDER,
+            focusable = true,
+            zindex = (state.zindex or 50) + 1,
+        })
+        vim.wo[d.win].winhighlight = "Normal:LvimUiPeekNormal,FloatBorder:LvimUiPickerSeparator"
+        vim.wo[d.win].wrap = false
+        -- a FRESH window has no winbar; make the provider re-assert the file title bar on the next update
+        local prov = state.preview_panel and state.preview_panel.provider
+        if prov and prov.reset then
+            prov.reset()
+        end
+    end
+    dyn_update(state)
+    -- AUTO-FIT the float to the file (a peek), capped at `g.cap`; the bottom rule lands at top-2 (above the
+    -- editor statusline), and the cap keeps the top of the editor visible.
+    if d.win and api.nvim_win_is_valid(d.win) then
+        local lines = api.nvim_buf_line_count(api.nvim_win_get_buf(d.win))
+        local wb = vim.wo[d.win].winbar
+        local h = math.max(1, math.min(lines + ((wb and wb ~= "") and 1 or 0), g.cap))
+        pcall(api.nvim_win_set_config, d.win, {
+            relative = "editor",
+            row = g.top - h - 2,
+            col = g.col,
+            width = g.width,
+            height = h,
+            border = DYN_BORDER,
+        })
+    end
+    -- A non-current FLOAT ignores cursor positioning (it always shows from line 1). Briefly FOCUS the float to
+    -- place its cursor on the entry, then restore focus — synchronous, so nothing redraws in between.
+    -- `_positioning` makes the focus-change autocmds' dyn_show re-entry a no-op (so it can't reset what we set).
+    local prov = state.preview_panel and state.preview_panel.provider
+    local it = prov and prov.item and prov.item()
+    if it and it.filename and it.lnum and d.win and api.nvim_win_is_valid(d.win) then
+        local prev = api.nvim_get_current_win()
+        if prev ~= d.win then
+            d._positioning = true
+            pcall(api.nvim_set_current_win, d.win)
+            local cnt = api.nvim_buf_line_count(api.nvim_win_get_buf(d.win))
+            pcall(
+                api.nvim_win_set_cursor,
+                d.win,
+                { math.max(1, math.min(it.lnum, cnt)), math.max(0, (it.col or 1) - 1) }
+            )
+            pcall(vim.cmd, "normal! zz")
+            if api.nvim_win_is_valid(prev) then
+                pcall(api.nvim_set_current_win, prev)
+            end
+            d._positioning = false
+        end
+    end
+end
+
+--- Hide the dynamic float (its buffer + the editable file stay alive; only the window closes).
+---@param state table
+function dyn_hide(state)
+    local d = state.dyn
+    if d and d.win and api.nvim_win_is_valid(d.win) then
+        pcall(api.nvim_win_close, d.win, true)
+    end
+    if d then
+        d.win = nil
+    end
+end
+
+--- Turn the dynamic peek ON: a `CursorMoved` on the list follows the selection; a global `WinEnter` shows the
+--- float while any picker window is focused and hides it when focus leaves the picker. Entering the float binds
+--- `<C-j>` (on the editable file buffer, while focused) to drop back to the list.
+---@param state table
+function dyn_enable(state)
+    state.dyn = state.dyn or {}
+    if state.dyn.aug then
+        return -- already on
+    end
+    local list = state.list_panel
+    local aug = api.nvim_create_augroup("LvimUiSurfaceDyn_" .. tostring(state.container_win), { clear = true })
+    state.dyn.aug = aug
+    if list and list.buf and api.nvim_buf_is_valid(list.buf) then
+        api.nvim_create_autocmd("CursorMoved", {
+            group = aug,
+            buffer = list.buf,
+            callback = function()
+                dyn_show(state)
+            end,
+        })
+    end
+    api.nvim_create_autocmd("WinEnter", {
+        group = aug,
+        callback = function()
+            if state._closed then
+                return
+            end
+            local w = api.nvim_get_current_win()
+            local on_float = state.dyn.win and w == state.dyn.win
+            local mine = on_float or (list and w == list.win) or (w == state.container_win)
+            for _, b in ipairs(state.header_bands or {}) do
+                if b.win == w then
+                    mine = true
+                end
+            end
+            if on_float then
+                -- editing the peek → `<C-j>` drops back to the list, `<C-k>` steps UP out to the editor (the
+                -- opener) — bound on the real file buffer only while the float is focused.
+                local fb = api.nvim_win_get_buf(w)
+                state.dyn._navbuf = fb
+                pcall(vim.keymap.set, "n", "<C-j>", function()
+                    if list and list.win and api.nvim_win_is_valid(list.win) then
+                        api.nvim_set_current_win(list.win)
+                    end
+                end, { buffer = fb, nowait = true, silent = true })
+                pcall(vim.keymap.set, "n", "<C-k>", function()
+                    if state.cfg.on_escape_above then
+                        state.cfg.on_escape_above()
+                    end
+                end, { buffer = fb, nowait = true, silent = true })
+            else
+                if state.dyn._navbuf and api.nvim_buf_is_valid(state.dyn._navbuf) then
+                    pcall(vim.keymap.del, "n", "<C-j>", { buffer = state.dyn._navbuf })
+                    pcall(vim.keymap.del, "n", "<C-k>", { buffer = state.dyn._navbuf })
+                end
+                state.dyn._navbuf = nil
+                if mine then
+                    dyn_show(state)
+                else
+                    dyn_hide(state)
+                end
+            end
+        end,
+    })
+    dyn_show(state)
+end
+
+--- Turn the dynamic peek OFF: drop the autocmds + close the float.
+---@param state table
+function dyn_disable(state)
+    local d = state.dyn
+    if not d then
+        return
+    end
+    if d.aug then
+        pcall(api.nvim_del_augroup_by_id, d.aug)
+        d.aug = nil
+    end
+    if d._navbuf and api.nvim_buf_is_valid(d._navbuf) then
+        pcall(vim.keymap.del, "n", "<C-j>", { buffer = d._navbuf })
+        pcall(vim.keymap.del, "n", "<C-k>", { buffer = d._navbuf })
+        d._navbuf = nil
+    end
+    dyn_hide(state)
+end
+
+--- Re-derive the DOCKED center panels from the live preview state (side / hidden / dynamic) and reflow: a
+--- single full-width list for `hide`/`dynamic`, the re-docked list+preview otherwise. The dropped preview is
+--- PARKED behind the list (never closed — a WinClosed would bounce focus to the editor via the user's window
+--- managers); re-docking just returns it to `state.panels`. No-op on a surface without a "preview" panel.
+---@param state table
+function restack_panels(state)
+    local pv, list = state.preview_panel, state.list_panel
+    if not (pv and list) then
+        return
+    end
+    local undocked = state.preview_hidden or state.preview_side == "dynamic"
+    local vert = (state.preview_side == "above" or state.preview_side == "below") and not undocked
+    local preview_first = state.preview_side == "above" or state.preview_side == "left"
+    local docked = undocked and { list } or (preview_first and { pv, list } or { list, pv })
+    state.panels = docked
+    state.cfg.direction = vert and "vertical" or nil
+    if state.cfg.separator and state.cfg.separator ~= "" then
+        state.cfg.separator = vert and "─" or "│"
+    end
+    local stack_axis = vert and "height" or "width"
+    for _, pan in ipairs(docked) do
+        pan.weight = pan.size and (pan.size[stack_axis] or {}).fixed or nil
+    end
+    apply_dock_height(state, state.preview_side)
+    state.sectors = build_sectors(state)
+    relayout(state) -- positions the docked panels (place_panels)
+    -- The DROPPED preview is PARKED (not closed) behind the list: a WinClosed would fire the user's window
+    -- managers (BufSurf, …) and bounce focus to the editor. Re-docking just returns it to `state.panels`, so the
+    -- next relayout repositions it. (The list float — higher zindex + opaque — fully covers the parked one.)
+    if undocked and pv.win and api.nvim_win_is_valid(pv.win) then
+        local lp = state._geom and state._geom.panels and state._geom.panels[1]
+        if lp then
+            pcall(api.nvim_win_set_config, pv.win, {
+                relative = "editor",
+                row = lp.row,
+                col = lp.col,
+                width = math.max(1, lp.width),
+                height = math.max(1, lp.height),
+                zindex = state.zindex or 50,
+            })
+        end
+    end
+end
+
+--- Pull focus back to the list AFTER the event loop (closing a preview float bounces focus to the editor on a
+--- DEFERRED tick, so a synchronous re-focus is undone). Used by the runtime rotate / hide toggle — never at
+--- open, where the input band should keep focus.
+---@param state table
+function refocus_list(state)
+    vim.schedule(function()
+        if state._closed then
+            return
+        end
+        local w = state.list_panel and state.list_panel.win
+        if w and api.nvim_win_is_valid(w) then
+            pcall(api.nvim_set_current_win, w)
+        end
+    end)
+end
+
+--- Apply the live `preview_side` (+ `preview_hidden`): reflow the docked panels, then arm/disarm the dynamic
+--- peek. The single entry point for both the rotation and the hide toggle.
+---@param state table
+function apply_preview_side(state)
+    restack_panels(state)
+    if state.preview_side == "dynamic" then
+        dyn_enable(state)
+    else
+        dyn_disable(state)
+    end
+    -- re-render the preview next tick: a just re-docked panel (un-hide / rotate back) can read empty until the
+    -- next selection change, and the dynamic float needs its content after the windows settle.
+    vim.schedule(function()
+        if state._closed then
+            return
+        end
+        local pv = state.preview_panel
+        if pv and pv.provider and pv.provider.reset then
+            pv.provider.reset()
+        end
+        if pv and pv.refresh then
+            pv.refresh()
+        end
+    end)
+end
+
 --- Tear the frame down: close every window, restore the cursor + focus, fire `cfg.on_close` once.
 ---@param state table
 local function close(state)
@@ -1888,12 +2220,25 @@ local function close(state)
     if state.augroup then
         pcall(api.nvim_del_augroup_by_id, state.augroup)
     end
+    dyn_disable(state) -- close the dynamic peek float + its autocmds, if armed
     -- Let providers release any external state before we drop the windows (the frame's own scratch panel
     -- buffers are deleted below, taking their keymaps/extmarks with them, but a provider may hold things
     -- outside them — e.g. autocommands, or keymaps on a real buffer).
     for _, pan in ipairs(state.panels or {}) do
         if pan.provider and pan.provider.on_close then
             pcall(pan.provider.on_close, pan)
+        end
+    end
+    -- A PARKED preview (hidden / dynamic) is not in `state.panels`, so close it explicitly too.
+    if state.preview_panel and state.preview_panel.win and api.nvim_win_is_valid(state.preview_panel.win) then
+        local docked = false
+        for _, p in ipairs(state.panels or {}) do
+            if p == state.preview_panel then
+                docked = true
+            end
+        end
+        if not docked then
+            pcall(api.nvim_win_close, state.preview_panel.win, true)
         end
     end
     for _, pan in ipairs(state.panels or {}) do
@@ -1903,6 +2248,9 @@ local function close(state)
         if pan.buf and api.nvim_buf_is_valid(pan.buf) then
             pcall(api.nvim_buf_delete, pan.buf, { force = true })
         end
+    end
+    if state.preview_panel and state.preview_panel.buf and api.nvim_buf_is_valid(state.preview_panel.buf) then
+        pcall(api.nvim_buf_delete, state.preview_panel.buf, { force = true })
     end
     for _, band in ipairs(state.header_bands or {}) do -- editable input bands' overlay windows
         if band.input then

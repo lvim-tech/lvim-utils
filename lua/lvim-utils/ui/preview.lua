@@ -143,6 +143,12 @@ function M.new(opts)
     end
 
     return {
+        item = opts.item, -- exposed so the dynamic peek float can read the focused location (lnum/col) directly
+        -- Forget the shown file so the NEXT `update` re-asserts the winbar — used when the provider is
+        -- re-rendered into a FRESH window (the dynamic peek float, recreated on each show), which has no winbar.
+        reset = function()
+            cur_file = nil
+        end,
         on_close = function()
             remove_nav()
             if augroup then
