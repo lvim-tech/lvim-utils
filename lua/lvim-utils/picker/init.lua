@@ -15,6 +15,7 @@ local fuzzy = require("lvim-utils.fuzzy")
 local utils = require("lvim-utils.utils")
 local status = require("lvim-utils.chrome.overlay")
 local ui_filters = require("lvim-utils.ui.filters")
+local preview = require("lvim-utils.ui.preview")
 -- The listing commands / preview reader / async streamer live in picker.source so BOTH backends (this tint
 -- one and the fzf-TUI one) list + ignore identically (config.picker.source). Aliased as locals to keep the
 -- call sites here unchanged.
@@ -183,6 +184,7 @@ end
 ---@field preview_wrap? boolean  soft-wrap the preview (default false)
 ---@field list_wrap? boolean  soft-wrap the list rows (no "↳" marker) so far-right matches stay visible (default false)
 ---@field empty_text? string  shown when there are no results (list body + preview winbar)
+---@field empty_preview? string  the "nothing to preview" placeholder bar text (default "Nothing to preview")
 ---@field title? string  the float title / the statusline action title
 ---@field icon? string  an optional leading glyph for the title (statusline)
 ---@field subtitle? fun(item: any): string  per-selection subtitle shown after the title in the statusline (e.g. the file name)
@@ -244,6 +246,7 @@ function M.open(opts)
         return phl[key] or default
     end
     local empty_text = opts.empty_text or pkcfg.empty_text or "[no matches]"
+    local empty_preview = opts.empty_preview or pkcfg.empty_preview or "Nothing to preview"
     local prevcfg = pkcfg.preview or {}
     -- list wrap: per-call `opts.list_wrap` wins; else the shared `config.picker.list_wrap`.
     local list_wrap = opts.list_wrap
@@ -439,6 +442,7 @@ function M.open(opts)
         return has_results() and (list_h() + 1) or 1
     end
     local function preview_panel_h()
+        -- empty ⇒ a SINGLE styled row (the "nothing to preview" bar, no winbar → no blank body row beneath)
         return has_results() and (preview_h() + 1) or 1
     end
     local function content_h()
@@ -479,8 +483,8 @@ function M.open(opts)
         if not (pan and pan.win and api.nvim_win_is_valid(pan.win)) then
             return
         end
-        -- No results ⇒ NO winbar; the `[no matches]` label is drawn as the panel's single tinted row instead
-        -- (see the preview provider `update`).
+        -- No results ⇒ NO winbar; the "nothing to preview" bar is the panel's single styled row instead (drawn
+        -- in the preview provider `update` via `preview.render_empty`), so there is no empty body row.
         if not has_results() then
             vim.wo[pan.win].winbar = ""
             return
@@ -623,13 +627,14 @@ function M.open(opts)
     --   • `opts.preview(src)` — a read-only scratch buffer of the returned `lines` (+ filetype, focus line).
     local preview_provider
     if opts.preview_file then
-        local up = require("lvim-utils.ui.preview").new({
+        local up = preview.new({
             item = function()
                 local it = state.filtered[state.sel]
                 local s = it and it._src
                 return (s and s.path and s.path ~= "") and { filename = s.path, lnum = s.lnum, col = s.col } or nil
             end,
             number = (opts.preview_numbers == false) and "none" or "normal",
+            empty = empty_preview, -- the configurable "nothing to preview" placeholder text
         })
         preview_provider = {
             size = function()
@@ -656,7 +661,8 @@ function M.open(opts)
                 end,
                 update = function(pan)
                     set_preview_winbar(pan, state.filtered[state.sel] and state.filtered[state.sel]._src or nil)
-                    -- No results: a single yellow-tinted `[no matches]` row (no winbar, no number, no syntax).
+                    -- No results: a SINGLE styled "nothing to preview" row (no winbar, no number, no syntax) —
+                    -- the same bar `ui.preview` paints for the editable file preview, so the two read identically.
                     if not has_results() then
                         if pan.win and api.nvim_win_is_valid(pan.win) then
                             vim.wo[pan.win].number = false
@@ -664,15 +670,7 @@ function M.open(opts)
                         if vim.bo[pan.buf].filetype ~= "" then
                             pcall(api.nvim_set_option_value, "filetype", "", { buf = pan.buf })
                         end
-                        vim.bo[pan.buf].modifiable = true
-                        pcall(api.nvim_buf_set_lines, pan.buf, 0, -1, false, { " " .. empty_text })
-                        vim.bo[pan.buf].modifiable = false
-                        api.nvim_buf_clear_namespace(pan.buf, NS, 0, -1)
-                        pcall(api.nvim_buf_set_extmark, pan.buf, NS, 0, 0, {
-                            end_row = 1,
-                            hl_group = hl("preview_file", "LvimUiPeekFile"),
-                            hl_eol = true,
-                        })
+                        preview.render_empty(pan.buf, NS, empty_preview)
                         return
                     end
                     if pan.win and api.nvim_win_is_valid(pan.win) then

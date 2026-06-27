@@ -28,6 +28,27 @@ local function empty_buffer()
     return shared_empty
 end
 
+local NS = api.nvim_create_namespace("lvim-utils-preview-empty")
+
+--- Paint `buf` as the "nothing to preview" placeholder: ONE full-width row styled like the file title bar
+--- (the `LvimUiPeekEmpty` tint), so the empty state reads as a title bar with NO blank body beneath it. The
+--- picker reuses this for its lines preview and the fzf backend, so the empty preview is IDENTICAL everywhere.
+--- `ns` is the caller's extmark namespace (the caller wipes it when its own results render, so the title-bar
+--- tint never bleeds onto a real preview line).
+---@param buf integer
+---@param ns integer
+---@param message? string  the text (config.picker.empty_preview / opts.empty_preview; default "Nothing to preview")
+function M.render_empty(buf, ns, message)
+    if not (buf and api.nvim_buf_is_valid(buf)) then
+        return
+    end
+    vim.bo[buf].modifiable = true
+    pcall(api.nvim_buf_set_lines, buf, 0, -1, false, { " " .. (message or "Nothing to preview") })
+    vim.bo[buf].modifiable = false
+    api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+    pcall(api.nvim_buf_set_extmark, buf, ns, 0, 0, { end_row = 1, hl_group = "LvimUiPeekEmpty", hl_eol = true })
+end
+
 -- The frame nav keys bound on the focused preview buffer → the method/dir they drive on the frame.
 local NAV = {
     { "<C-h>", "panel", -1 },
@@ -58,6 +79,7 @@ end
 ---@class LvimUiPreviewOpts
 ---@field item fun(): table|nil   returns the current location { filename, lnum, col, end_lnum?, end_col? }
 ---@field number? string          preview gutter: "none" | "normal" | "relative"
+---@field empty? string           the "nothing to preview" placeholder text (default "Nothing to preview")
 
 --- Create a preview provider.
 ---@param opts LvimUiPreviewOpts
@@ -142,7 +164,8 @@ function M.new(opts)
                         api.nvim_win_set_buf(pan.win, eb)
                     end
                     cur_file = nil
-                    vim.wo[pan.win].winbar = ""
+                    vim.wo[pan.win].winbar = "" -- a plain styled row (no winbar → no empty body row)
+                    M.render_empty(eb, NS, opts.empty)
                 end
                 return
             end

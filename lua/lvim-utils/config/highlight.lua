@@ -72,7 +72,7 @@ return function(c)
         LvimUiPickerInput = { fg = c.blue, bg = mtint(c.blue, 0.1) }, -- the typed-text area (blue text)
         LvimUiPickerCursor = { bg = c.blue, fg = c.bg }, -- the fzf input caret (a thin blue bar via guicursor)
         LvimUiPickerMarker = { fg = c.red, bold = true }, -- the multi-select mark dot (●) — red, in the front column
-        LvimUiPickerSeparator = { fg = mtint(c.fg, 0.35), bg = panel_bg }, -- the panel divider — a THIN faint line
+        LvimUiPickerSeparator = { fg = c.red, bg = panel_bg }, -- the panel divider — a THIN red line
         -- the preview winbar's PATH (dir): the tint's OWN accent fg on the WINBAR's bg (the "fg = the tint"
         -- canon), so it blends into the bar; the file name stays the brighter LvimUiPeekFile.
         LvimUiPickerPreviewDir = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
@@ -91,8 +91,8 @@ return function(c)
         LvimUiDashboardNormal = { fg = c.fg, bg = c.bg }, -- the buffer background / plain text
         LvimUiDashboardCursorLine = { bg = mtint(c.blue, 0.12) }, -- the active item's row cell (a subtle tint)
         LvimUiMsgAreaItemSource = { fg = c.comment, bg = c.bg_dark }, -- the right-aligned [source] tag, dim
-        LvimUiMsgAreaRowOdd = { fg = c.blue, bg = mtint(c.blue, 0.1) }, -- odd grid row stripe (blue)
-        LvimUiMsgAreaRowEven = { fg = c.yellow, bg = mtint(c.yellow, 0.1) }, -- even grid row stripe (yellow)
+        LvimUiMsgAreaRowOdd = { fg = c.blue, bg = mtint(c.blue, 0.05) }, -- odd grid row stripe (blue)
+        LvimUiMsgAreaRowEven = { fg = c.yellow, bg = mtint(c.yellow, 0.05) }, -- even grid row stripe (yellow)
         LvimUiMsgAreaSelOdd = { fg = c.blue, bg = mtint(c.blue, 0.2), bold = true }, -- selected cell, blue row
         LvimUiMsgAreaSelEven = { fg = c.yellow, bg = mtint(c.yellow, 0.2), bold = true }, -- selected cell, yellow row
         -- The fuzzy-matched characters within an item — bold + a contrasting accent so the typed query
@@ -220,6 +220,9 @@ return function(c)
         -- the path follows on the bar. Both keep the real yellow fg.
         LvimUiPeekFileBar = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
         LvimUiPeekFile = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
+        -- The "nothing to preview" placeholder: yellow fg on a light yellow tint (0.3) across the whole width
+        -- (a plain styled row imitating the title bar — no winbar, so it leaves no empty body row below it).
+        LvimUiPeekEmpty = { fg = c.yellow, bg = mtint(c.yellow, 0.3), bold = true },
         -- The filetype icon shown before the file name — its own group (yellow), independent of the
         -- per-filetype devicon colour; shares the file name's strong yellow tint cell.
         LvimUiPeekFileIcon = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },

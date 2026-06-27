@@ -21,6 +21,9 @@ local api = vim.api
 local uv = vim.uv or vim.loop
 local source = require("lvim-utils.picker.source")
 local status = require("lvim-utils.chrome.overlay")
+local preview = require("lvim-utils.ui.preview")
+
+local NS = api.nvim_create_namespace("lvim-utils-fzf-preview")
 
 local M = {}
 
@@ -198,8 +201,7 @@ end
 --- the same bar the tint picker draws, so both backends share one preview chrome.
 ---@param pan table
 ---@param item table?
----@param empty_text string
-local function set_preview_winbar(pan, item, empty_text)
+local function set_preview_winbar(pan, item)
     if not (pan and pan.win and api.nvim_win_is_valid(pan.win)) then
         return
     end
@@ -228,7 +230,8 @@ local function set_preview_winbar(pan, item, empty_text)
             BAR
         )
     else
-        vim.wo[pan.win].winbar = ("%%#%s# %s %%#%s#%%="):format(FILE, esc((item and item.text) or empty_text), BAR)
+        -- a focused result with no path → its text (the no-item case is handled in `render_preview`)
+        vim.wo[pan.win].winbar = ("%%#%s# %s %%#%s#%%="):format(FILE, esc(item and item.text or ""), BAR)
     end
 end
 
@@ -245,7 +248,7 @@ end
 ---@field preview? fun(item: table): string[], string?, integer?  preview lines (+ filetype, + focus line)
 ---@field on_confirm fun(item: table)  called with the chosen item
 ---@field on_cancel? fun()  called when dismissed without a choice
----@field empty_text? string  preview placeholder when nothing is focused
+---@field empty_preview? string  the "nothing to preview" placeholder bar text (default "Nothing to preview")
 ---@field layout? "float"|"bottom"|"area"
 ---@field height? integer  rows for the docked layouts
 ---@field max_rows? integer  list/preview height (default 15)
@@ -262,7 +265,9 @@ function M.open(opts)
 
     local surface = require("lvim-utils.ui.surface")
     local maxr = opts.max_rows or 15
-    local empty_text = opts.empty_text or "[no preview]"
+    local empty_preview = opts.empty_preview
+        or (require("lvim-utils.config").picker or {}).empty_preview
+        or "Nothing to preview"
     local opener = api.nvim_get_current_win()
     local parse = opts.parse or function(line)
         return { path = line, text = line }
@@ -420,12 +425,19 @@ function M.open(opts)
         if not (pan and pan.win and api.nvim_win_is_valid(pan.win) and pan.buf and api.nvim_buf_is_valid(pan.buf)) then
             return
         end
-        set_preview_winbar(pan, item, empty_text)
+        if not item then
+            -- NOTHING focused → the single styled "nothing to preview" bar (no winbar → no empty body row)
+            vim.wo[pan.win].winbar = ""
+            preview.render_empty(pan.buf, NS, empty_preview)
+            return
+        end
+        set_preview_winbar(pan, item)
+        api.nvim_buf_clear_namespace(pan.buf, NS, 0, -1) -- drop any prior empty-bar tint before the real preview
         ---@type string[], string?, integer?
-        local lines, ft, focus = { empty_text }, "", nil
-        if item and opts.preview then
+        local lines, ft, focus = { "" }, "", nil
+        if opts.preview then
             local pl, pf, fo = opts.preview(item)
-            lines = (type(pl) == "table" and pl) or (pl and { tostring(pl) }) or { empty_text }
+            lines = (type(pl) == "table" and pl) or (pl and { tostring(pl) }) or { "" }
             ft, focus = pf, fo
         end
         vim.bo[pan.buf].modifiable = true
@@ -839,7 +851,8 @@ function M.open(opts)
     local preview_provider = opts.preview
             and {
                 size = function()
-                    return math.max(40, math.floor(vim.o.columns * 0.5)), file_rows() + 1 -- the PREVIEW: file lines + winbar
+                    -- with a focus: file lines + winbar; nothing focused: a SINGLE styled "nothing to preview" row
+                    return math.max(40, math.floor(vim.o.columns * 0.5)), (state.cur_item and file_rows() + 1) or 1
                 end,
                 update = function(pan)
                     state.preview_pan = pan

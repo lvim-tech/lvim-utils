@@ -135,6 +135,10 @@ return {
     -- would be). A per-call `opts.empty_text` overrides it.
     empty_text = "[no matches]",
 
+    -- The PREVIEW placeholder text — the styled "nothing to preview" bar (LvimUiPeekEmpty) shown when nothing
+    -- is focused. Identical across all backends. A per-call `opts.empty_preview` overrides it.
+    empty_preview = "Nothing to preview",
+
     -- Soft-wrap the LIST rows (no "↳" continuation marker) so a match far to the right of a long row stays
     -- visible instead of being truncated off-screen. A per-call `opts.list_wrap` overrides it.
     list_wrap = false,
