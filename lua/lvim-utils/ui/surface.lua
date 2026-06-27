@@ -434,18 +434,34 @@ local function compute_geom(state, place)
         -- exactly, instead of spilling past the container (which pushed the divider + the scoped input band down
         -- into the list, and the last panel off-screen).
         if fixed > avail and #flex == 0 and #auto_idx > 0 then
-            local auto_total = 0
+            -- The auto panels together exceed `avail` (the stack hit the area cap / the room left between the
+            -- splits). Shrink them to fit EXACTLY. `shrink_first` panels (the preview) give up their rows BEFORE
+            -- the rest, so a PROTECTED panel (the list) keeps its own content and its height never jumps as you
+            -- navigate files of different lengths; within a group the shrink is proportional. Every panel keeps
+            -- at least 1 row. (No marks ⇒ one proportional shrink over all of them, the old behaviour.)
+            local first, rest = {}, {}
             for _, i in ipairs(auto_idx) do
-                auto_total = auto_total + sizes[i]
+                local g = panels[i].shrink_first and first or rest
+                g[#g + 1] = i
             end
-            local auto_avail = math.max(#auto_idx, avail - (fixed - auto_total)) -- room left for the auto panels
-            local acc = 0
-            for k, i in ipairs(auto_idx) do
-                sizes[i] = (k < #auto_idx) and math.max(1, math.floor(sizes[i] * auto_avail / auto_total))
-                    or math.max(1, auto_avail - acc) -- the last auto panel takes the remainder (no rounding gap)
-                acc = acc + sizes[i]
+            -- Remove `amount` rows from `group`, proportional to each panel's room above 1; return the remainder.
+            local function shrink(group, amount)
+                local pool = 0
+                for _, i in ipairs(group) do
+                    pool = pool + (sizes[i] - 1)
+                end
+                local take = math.min(amount, math.max(0, pool))
+                local acc = 0
+                for k, i in ipairs(group) do
+                    local share = (k < #group) and math.floor(take * (sizes[i] - 1) / math.max(1, pool)) or (take - acc) -- the last panel takes the remainder (no rounding gap)
+                    sizes[i] = math.max(1, sizes[i] - share)
+                    acc = acc + share
+                end
+                return amount - take
             end
-            fixed = (fixed - auto_total) + auto_avail
+            local over = shrink(first, fixed - avail)
+            over = shrink(rest, over)
+            fixed = avail + math.max(0, over)
         end
         local rest = math.max(0, avail - fixed)
         if #flex > 0 then
@@ -1061,9 +1077,11 @@ local function apply_dock_height(state, side)
         return
     end
     local rows = math.max(1, v <= 1 and math.floor(vim.o.lines * v) or math.floor(v))
-    -- AUTO-fit the docked area to its content (the panels' natural heights), CAPPED at the configured value —
-    -- so it shrinks when there are few matches / a short file, but never exceeds the cap. (cfg.size is only
-    -- normalised once at open, so we set the fields compute_geom reads directly; relayout re-reserves the host.)
+    -- AUTO-fit the docked area to its content (each panel fits ITS OWN content, capped at `max_rows`), bounded
+    -- by the configured value. When the room (or this cap) can't hold the stack, the overflow shrink in
+    -- compute_geom keeps the LIST at its content and shrinks the PREVIEW first (it scrolls) — so the list height
+    -- never jumps as you navigate files of different lengths. (cfg.size is only normalised once at open, so we
+    -- set the fields compute_geom reads directly; relayout re-reserves the host.)
     state.cfg.auto_height = true
     state.cfg.height = nil
     state.cfg.max_height = rows
@@ -2469,7 +2487,14 @@ function M.open(cfg)
     local stack_axis = cfg.direction == "vertical" and "height" or "width"
     for i, blk in ipairs((cfg.content or {}).blocks or {}) do
         local bw = (blk.size or {})[stack_axis] or {}
-        panels[i] = { id = blk.id, provider = blk.provider, size = blk.size, weight = bw.fixed, border = blk.border }
+        panels[i] = {
+            id = blk.id,
+            provider = blk.provider,
+            size = blk.size,
+            weight = bw.fixed,
+            border = blk.border,
+            shrink_first = blk.shrink_first, -- give up rows before protected panels when the stack overflows
+        }
     end
 
     -- A FLOAT carries the brand as its border title (built in open_windows). A SPLIT has no border, so the

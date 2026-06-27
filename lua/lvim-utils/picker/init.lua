@@ -669,9 +669,7 @@ function M.open(opts)
                         if pan.win and api.nvim_win_is_valid(pan.win) then
                             vim.wo[pan.win].number = false
                         end
-                        if vim.bo[pan.buf].filetype ~= "" then
-                            pcall(api.nvim_set_option_value, "filetype", "", { buf = pan.buf })
-                        end
+                        preview.set_syntax(pan.buf, nil)
                         preview.render_empty(pan.buf, NS, empty_preview)
                         return
                     end
@@ -683,10 +681,7 @@ function M.open(opts)
                     vim.bo[pan.buf].modifiable = true
                     pcall(api.nvim_buf_set_lines, pan.buf, 0, -1, false, lines)
                     vim.bo[pan.buf].modifiable = false
-                    local ft = state.preview_ft
-                    if ft and ft ~= "" and vim.bo[pan.buf].filetype ~= ft then
-                        pcall(api.nvim_set_option_value, "filetype", ft, { buf = pan.buf })
-                    end
+                    preview.set_syntax(pan.buf, state.preview_ft) -- highlight WITHOUT a `filetype` (no LSP attach)
                     -- `focus` (a 1-based line) scrolls the preview to that row and centres it — used by grep
                     -- to jump the preview to the matched line.
                     local focus = state.preview_focus
@@ -942,7 +937,11 @@ function M.open(opts)
         -- the match count (the surface re-derives the weight per stack axis on rotation).
         size = { width = { fixed = 0.4 } },
     }
-    local preview_block = preview_provider and { id = "preview", provider = preview_provider, border = pbord }
+    -- `shrink_first`: when a stacked (above/below) area can't hold both panels, the PREVIEW gives up rows first
+    -- (it scrolls to the focused line) so the LIST keeps its own content height — its height never jumps as you
+    -- navigate files of different lengths.
+    local preview_block = preview_provider
+        and { id = "preview", provider = preview_provider, border = pbord, shrink_first = true }
     local blocks
     if not preview_block then
         blocks = { list_block }

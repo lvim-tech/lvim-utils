@@ -28,7 +28,8 @@ local M = {}
 ---@class UiOpts
 ---@field title? string|false        -- border-title (false hides it for M.info)
 ---@field items? any[]               -- select / multiselect items
----@field tabs? table[]              -- tabs: { { label, icon?, rows } , … }
+---@field tabs? table[]              -- tabs: { { label, icon?, rows, menu? } , … }
+---@field menu? boolean              -- tabs: render the rows as a navigable MENU (action rows stay a selectable BODY list, not footer buttons); per-tab via `tab.menu`
 ---@field callback? fun(...): any    -- result callback (signature varies per presenter)
 ---@field on_change? fun(row: table) -- tabs: fired on every typed-row edit
 ---@field subtitle? string|table|table[]  -- tabs: message line(s) under the title. A string, ONE line `{ text, type?, hl?, icon?, blank_below? }`, or a LIST of such lines. `type` ∈ "info"|"warn"|"error" (predefined fg colour); `hl` overrides; `icon` is fronted when given.
@@ -481,14 +482,20 @@ function M.tabs(opts)
     -- owns `children` is an expandable accordion SECTION, not a leaf button — it stays in the content body
     -- (its caret + label render in place and its children flatten under it). Only childless action rows are
     -- footer buttons.
+    -- MENU mode (`opts.menu` or per-tab `tab.menu`): a tab is a navigable MENU, not a form — its childless
+    -- action rows STAY IN THE BODY as a selectable list (the form provider runs `row.run` on <CR>/<Space>),
+    -- instead of collapsing into footer buttons. (A long list — e.g. every saved quickfix — needs a scrollable
+    -- body, not N keyed footer chips.)
+    local menu = opts.menu == true
     local function split(ti)
         local content, actions, bars = {}, {}, {}
+        local tab_menu = menu or (tabset[ti] and tabset[ti].menu == true)
         for _, r in ipairs((tabset[ti] or {}).rows or {}) do
             if r.type == "bar" then
                 -- A TOP-LEVEL toolbar bar becomes its own header-band SECTOR (reached with C-j/C-k), like the
                 -- picker's filter bar. (Nested bar rows — e.g. a per-item action bar — stay in the content.)
                 bars[#bars + 1] = r
-            elseif r.type == "action" and not r.children then
+            elseif r.type == "action" and not r.children and not tab_menu then
                 actions[#actions + 1] = r
             else
                 content[#content + 1] = r

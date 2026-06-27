@@ -49,6 +49,31 @@ function M.render_empty(buf, ns, message)
     pcall(api.nvim_buf_set_extmark, buf, ns, 0, 0, { end_row = 1, hl_group = "LvimUiPeekEmpty", hl_eol = true })
 end
 
+--- Syntax-highlight a SCRATCH preview buffer via treesitter (regex `:syntax` fallback) WITHOUT ever setting
+--- its `filetype`. A `filetype` set fires the FileType autocmds, which attach the LSP to every previewed file
+--- → "install missing server" prompts, spurious diagnostics, and the autocmd cascade that can pop the quickfix
+--- open while you scroll a finder. Treesitter / `:syntax` give the same colours with none of that machinery.
+--- The buffer is reused across previews, so the prior parser/syntax is dropped first. (NOT for the editable
+--- real-file preview below — that IS the real buffer and keeps its filetype + LSP on purpose.)
+---@param buf integer
+---@param ft string?  the source filetype (mapped to a treesitter language); nil/"" clears highlighting
+function M.set_syntax(buf, ft)
+    if not (buf and api.nvim_buf_is_valid(buf)) then
+        return
+    end
+    pcall(vim.treesitter.stop, buf)
+    vim.bo[buf].syntax = ""
+    if not ft or ft == "" then
+        return
+    end
+    local lang = vim.treesitter.language.get_lang(ft) or ft
+    if not pcall(vim.treesitter.start, buf, lang) then
+        pcall(function() -- no parser for this language → regex syntax (still no FileType autocmd)
+            vim.bo[buf].syntax = ft
+        end)
+    end
+end
+
 -- The frame nav keys bound on the focused preview buffer → the method/dir they drive on the frame.
 local NAV = {
     { "<C-h>", "panel", -1 },

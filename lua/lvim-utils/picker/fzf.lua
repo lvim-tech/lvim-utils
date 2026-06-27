@@ -319,10 +319,13 @@ function M.open(opts)
     end
     local function file_rows()
         local it = state.cur_item
-        if it and it.path and it.path ~= "" then
-            local b = vim.fn.bufadd(it.path)
-            pcall(vim.fn.bufload, b)
-            return math.min(api.nvim_buf_line_count(b), maxr)
+        if it and it.path and it.path ~= "" and vim.fn.filereadable(it.path) == 1 then
+            -- Count lines with `readfile` (first `maxr` only) — NEVER `bufadd`+`bufload`: loading the real file
+            -- buffer fires its FileType autocmds → the LSP attaches to every focused file → "install missing
+            -- server" prompts, spurious diagnostics, and the autocmd cascade that pops the quickfix open. We
+            -- only need the row count for the preview height, and reading the file gives it with no buffer.
+            local ok, lines = pcall(vim.fn.readfile, it.path, "", maxr)
+            return ok and math.max(1, #lines) or 1
         end
         return 1
     end
@@ -403,10 +406,8 @@ function M.open(opts)
     end
 
     -- ── preview rendering (the real Neovim window) ──
-    -- The preview window's options — re-asserted on EVERY render, because setting the file's real `filetype`
-    -- (below) fires its ftplugin / FileType autocmds, which on some filetypes (e.g. markdown) flip `number`
-    -- off or install their own statuscolumn. Forcing them AFTER the ft keeps the preview consistent across
-    -- files: plain line numbers, no sign / fold / statuscolumn gutter, the blue cursorline.
+    -- The preview window's options, asserted on every render so the preview stays consistent across files:
+    -- plain line numbers, no sign / fold / statuscolumn gutter, the blue cursorline.
     local function apply_preview_opts(win)
         if not (win and api.nvim_win_is_valid(win)) then
             return
@@ -443,12 +444,8 @@ function M.open(opts)
         vim.bo[pan.buf].modifiable = true
         pcall(api.nvim_buf_set_lines, pan.buf, 0, -1, false, lines)
         vim.bo[pan.buf].modifiable = false
-        if ft and ft ~= "" and vim.bo[pan.buf].filetype ~= ft then
-            pcall(api.nvim_set_option_value, "filetype", ft, { buf = pan.buf })
-        elseif (not ft or ft == "") and vim.bo[pan.buf].filetype ~= "" then
-            pcall(api.nvim_set_option_value, "filetype", "", { buf = pan.buf })
-        end
-        apply_preview_opts(pan.win) -- re-assert after the ft so an ftplugin can't strip the numbers / gutter
+        preview.set_syntax(pan.buf, ft) -- highlight WITHOUT a `filetype` (no FileType → no LSP attach / install prompts)
+        apply_preview_opts(pan.win)
         if focus then
             pcall(api.nvim_win_set_cursor, pan.win, { math.max(1, math.min(focus, #lines)), 0 })
             api.nvim_win_call(pan.win, function()
