@@ -625,12 +625,16 @@ local function render_chrome(state, L)
         -- while the user is back in a normal buffer.
         local focused = not state._blurred and state.focus and state.focus.kind == "bar" and state.focus.band == band
         local sel = focused and band._sel or nil
+        -- A `_follow` band keeps its `_sel` in view even when UNFOCUSED — the TAB bar scrolls to the active tab
+        -- when it's switched from the body (h/l), so an off-screen tab doesn't go active-but-hidden. The hover
+        -- styling still only shows when focused (`hover = sel`); the active tab carries its own `active` styling.
+        local scroll = sel or (band._follow and band._sel) or nil
         local res = uibar.render({
             items = band.buttons or {},
             width = W,
             align = band.align or "center",
             chevrons = band.chevrons or state.cfg.chevrons,
-            sel = sel,
+            sel = scroll,
             hover = sel,
             off = band._off,
         })

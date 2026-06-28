@@ -449,6 +449,43 @@ function M.tabs(opts)
     local active = 1
     local done = false
 
+    -- Back-compat item-list PICKER mode: a tab with `.items` (each item = label/icon + a payload) is a simple
+    -- selectable list, NOT typed rows. Convert each to a navigable MENU row carrying the item, so
+    -- `on_item_change(item)` fires on cursor move (live preview), <CR> returns `{ tab, index, item }`, and
+    -- `current_item` (an item REFERENCE) focuses its row + gets a ➤ marker on open.
+    local item_focus -- the row `name` to focus on open (the current item)
+    for ti, t in ipairs(tabset) do
+        if t.items and not t.rows then
+            t.menu = true
+            local rs = {}
+            for j, it in ipairs(t.items) do
+                local rname = ("__item_%d_%d"):format(ti, j)
+                local is_current = opts.current_item ~= nil and it == opts.current_item
+                if is_current then
+                    item_focus = rname
+                end
+                rs[j] = {
+                    type = "action",
+                    flat = true,
+                    -- The CURRENT item's lead glyph is the ➤ pointer (in FRONT, where its own icon would be) —
+                    -- so it stays column-aligned with the others at NO extra indent; the variant is in the label.
+                    icon = is_current and "➤" or (it.icon or ""),
+                    name = rname,
+                    label = it.label or "",
+                    _item = it,
+                    run = function(_, close)
+                        done = true
+                        if close then
+                            close()
+                        end
+                        cb(true, { tab = t, index = j, item = it })
+                    end,
+                }
+            end
+            t.rows = rs
+        end
+    end
+
     -- Layout: "float" (default centred modal) | "area" (the Emacs-minibuffer cmdline zone, like the area
     -- finder + the fzf pickers) | "bottom" (a bottom dock). Docked layouts publish their title to the
     -- statusline overlay, render the bars centered, and (area) host themselves in the msgarea zone.
@@ -541,6 +578,13 @@ function M.tabs(opts)
         on_cursor = opts.footer_hints and function()
             if update_footer then
                 update_footer()
+            end
+        end or nil,
+        -- Item-list picker live preview: fire the consumer's `on_item_change` with the focused item on EVERY
+        -- cursor move (raw, no dedup — the variant rows are all `action`, so a sig-deduped hook would miss them).
+        on_move = opts.on_item_change and function(r)
+            if r and r._item then
+                opts.on_item_change(r._item)
             end
         end or nil,
     })
@@ -682,13 +726,18 @@ function M.tabs(opts)
                 },
             }
         end
-        tab_bar = { items = tab_btns, align = "center" }
+        -- `_follow` + `_sel` keep the ACTIVE tab scrolled into view on an overflowing tab bar, even when the
+        -- bar isn't the focused sector (tabs are usually switched with h/l from the body).
+        tab_bar = { items = tab_btns, align = "center", _sel = active, _follow = true }
         set_active_tab = function(st, i)
             i = math.max(1, math.min(i, #tabset))
             if i == active then
                 return
             end
             active = i
+            -- header_spec() REUSES the static tab_bar (it doesn't rebuild it), so update the scroll anchor + the
+            -- per-button active flags HERE — this is what makes the bar follow the active tab (with `_follow`)
+            -- when it's switched from the body, not only when the bar itself is focused.
             tab_bar._sel = active
             for _, b in ipairs(tab_btns) do
                 b.active = (b._tab == active)
@@ -830,6 +879,14 @@ function M.tabs(opts)
         if p then
             opts.on_open(p.buf, p.win)
         end
+    end
+
+    -- Item-list picker: focus the CURRENT item's row on open (after the form's own initial-cursor schedule), so
+    -- the cursor starts on the active theme instead of the first row (which would live-preview the wrong one).
+    if item_focus then
+        vim.schedule(function()
+            pcall(form_p.focus_name, item_focus)
+        end)
     end
 
     -- `l` / `h` switch tabs from the content body too (multi-tab) — not only while the tab bar is focused,

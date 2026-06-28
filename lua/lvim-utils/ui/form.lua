@@ -392,6 +392,9 @@ function M.new(opts)
                         return
                     end
                     local r = flat()[cur_line()]
+                    if opts.on_move then
+                        opts.on_move(r) -- raw, every move (no dedup) — drives an item-list picker's live preview
+                    end
                     local is_bar = r ~= nil and r.type == "bar"
                     vim.wo[pan.win].cursorline = not is_bar
                     if is_bar or was_bar then
