@@ -59,11 +59,17 @@ local function build(colors)
     g.LvimUiChromeGitAdd = { fg = c.git.add, bg = bg }
     g.LvimUiChromeGitChange = { fg = c.git.change, bg = bg }
     g.LvimUiChromeGitDelete = { fg = c.git.delete, bg = bg }
-    -- diagnostics
-    g.LvimUiChromeDiagError = { fg = c.red, bg = bg }
-    g.LvimUiChromeDiagWarn = { fg = c.yellow, bg = bg }
-    g.LvimUiChromeDiagInfo = { fg = c.blue, bg = bg }
-    g.LvimUiChromeDiagHint = { fg = c.cyan, bg = bg }
+    -- diagnostics — the fg comes from the EDITOR's own diagnostic groups (Diagnostic{Error,Warn,Info,Hint}),
+    -- so a statusline count matches the gutter signs / virtual text / every other diagnostic UI; the palette
+    -- accent is only a fallback for a theme that leaves a group undefined.
+    local function diag_fg(group, fallback)
+        local h = api.nvim_get_hl(0, { name = group, link = false })
+        return (h and h.fg) or fallback
+    end
+    g.LvimUiChromeDiagError = { fg = diag_fg("DiagnosticError", c.red), bg = bg }
+    g.LvimUiChromeDiagWarn = { fg = diag_fg("DiagnosticWarn", c.yellow), bg = bg }
+    g.LvimUiChromeDiagInfo = { fg = diag_fg("DiagnosticInfo", c.blue), bg = bg }
+    g.LvimUiChromeDiagHint = { fg = diag_fg("DiagnosticHint", c.cyan), bg = bg }
     -- tabline cells
     g.LvimUiChromeTabLogo = { bg = c.green, fg = bg, bold = true }
     g.LvimUiChromeTabActive = { bg = c.green, fg = bg, bold = true }
