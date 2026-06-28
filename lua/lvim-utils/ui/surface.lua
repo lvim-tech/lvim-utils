@@ -1417,7 +1417,13 @@ local function open_panel_win(state, pan, i, pl, has_input, docked)
             vim.bo[pan.buf].filetype = FRAME_FT
         end
     end
-    pan.win = api.nvim_open_win(pan.buf, i == 1 and state.cfg.enter ~= false and not has_input, {
+    -- Open the panel UNFOCUSED, then focus it AFTER the `w:lvim_frame` mark below. Entering it inside
+    -- `nvim_open_win` (enter=true) fires WinEnter WHILE the mark is still unset — a foreign WinEnter hook (e.g.
+    -- lvim-space's auto-close, which tears down every window it doesn't recognise) would then treat the panel as
+    -- a stray and close it mid-open → "Window was closed immediately". Mark first, focus second, so by the time
+    -- WinEnter fires those hooks already see it's a managed frame.
+    local want_focus = i == 1 and state.cfg.enter ~= false and not has_input
+    pan.win = api.nvim_open_win(pan.buf, false, {
         relative = "editor",
         width = pl.width,
         height = pl.height,
@@ -1430,8 +1436,11 @@ local function open_panel_win(state, pan, i, pl, has_input, docked)
     })
     -- Mark EVERY panel window (float-mode too, not just docked) as managed UI — same as the container — so a
     -- generic "close all floating windows" / "focus next float" helper skips it instead of tearing the panel
-    -- out from under the frame (which races the panel's own `enter=true` open → "Window was closed immediately").
+    -- out from under the frame.
     vim.w[pan.win].lvim_frame = true
+    if want_focus then
+        pcall(api.nvim_set_current_win, pan.win)
+    end
     vim.wo[pan.win].wrap = false
     if pan.provider and pan.provider.cursorline then
         local cl = (type(pan.provider.cursorline) == "string" and pan.provider.cursorline)

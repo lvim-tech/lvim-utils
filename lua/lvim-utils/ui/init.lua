@@ -36,7 +36,7 @@ local M = {}
 ---@field default? any               -- input: initial value
 ---@field value? any                 -- input: alias for default
 ---@field prompt? string             -- input: prompt → title fallback
----@field width? number              -- info: FIXED width (fraction ≤1 or count)
+---@field width? number              -- info / select: FIXED width (fraction ≤1 or count); tabs too
 ---@field height? number             -- info: FIXED height (fraction ≤1 or count)
 ---@field max_width? number          -- auto-fit cap (fraction ≤1 or count)
 ---@field max_height? number         -- auto-fit cap (fraction ≤1 or count)
@@ -54,7 +54,7 @@ local M = {}
 ---@field on_open? fun(buf: integer, win: integer)  -- info: after open
 ---@field footer? boolean            -- info: false → no footer
 ---@field footer_fill? boolean       -- tabs: false → no tinted strip under the footer action bar (buttons float on the panel bg)
----@field footer_hints? boolean      -- tabs: show a live key-hint LEGEND footer (panel keys • focused-row keys); updates on cursor move
+---@field footer_hints? boolean|table[] -- tabs: `true` → live key-hint LEGEND footer (panel keys • focused-row keys); a list `{ {key,label} }` → footer hint BUTTONS wired to `opts.keymaps[key].fn`
 ---@field cursorline_hl? string      -- tabs: name a bg-only cursorline group so the hover changes only the bg (a row's own fg highlights survive)
 ---@field footer_items? table[]      -- info: extra footer action buttons { { key, name, run } } before `q close`
 ---@field hide_cursor? boolean       -- info: hide the hardware cursor (read-only viewer)
@@ -144,7 +144,8 @@ function M.select(opts)
         title = opts.title or "Select", -- a plain string → a single blue-tinted border-title text box
         panel_border = "none",
         size = {
-            width = { auto = true, max = opts.max_width or 0.6 },
+            -- a given `width` is FIXED (e.g. a 0.9-wide prompt); else auto-fit to the items, capped at max_width
+            width = opts.width and { fixed = opts.width } or { auto = true, max = opts.max_width or 0.6 },
             height = { auto = true, max = opts.max_height or 0.6 },
         },
         content = { blocks = { { id = "list", provider = provider } } },
@@ -575,8 +576,9 @@ function M.tabs(opts)
         on_change = opts.on_change,
         cursorline_hl = opts.cursorline_hl,
         pad = opts.pad, -- body content lpad (default 2); a compact picker can drop it (e.g. 0)
-        -- a footer key-hint legend tracks the focused row: re-notify on cursor move
-        on_cursor = opts.footer_hints and function()
+        -- a footer key-hint legend tracks the focused row: re-notify on cursor move (legend only, not the
+        -- static button-list form of `footer_hints`)
+        on_cursor = opts.footer_hints == true and function()
             if update_footer then
                 update_footer()
             end
@@ -600,6 +602,35 @@ function M.tabs(opts)
                     done = true
                     if a.run then
                         a.run(a.value, function(confirmed, r)
+                            st.close()
+                            if confirmed ~= nil then
+                                cb(confirmed == true, r or collect())
+                            end
+                        end)
+                    else
+                        st.close()
+                    end
+                end,
+            }
+        end
+        return specs
+    end
+
+    -- `footer_hints` as a LIST `{ {key, label}, … }` renders FOOTER BUTTONS (the installer prompt's
+    -- All/Selected/Cancel, diagnostics next/prev) wired to the matching `opts.keymaps[key].fn` — distinct from
+    -- `footer_hints = true`, which is the live key-hint legend. Pressing the key OR clicking the button fires it.
+    local function footer_hint_specs(hints)
+        local specs = {}
+        for _, h in ipairs(hints) do
+            local key = h.key
+            specs[#specs + 1] = {
+                key = key,
+                name = h.label or h.name or "",
+                run = function(st)
+                    local km = opts.keymaps and opts.keymaps[key]
+                    if km and km.fn then
+                        done = true
+                        km.fn(function(confirmed, r)
                             st.close()
                             if confirmed ~= nil then
                                 cb(confirmed == true, r or collect())
@@ -672,7 +703,7 @@ function M.tabs(opts)
         }
     end
     update_footer = function()
-        if st and st.set_footer then
+        if opts.footer_hints == true and st and st.set_footer then
             st.set_footer(footer_hints_spec())
         end
     end
@@ -819,7 +850,16 @@ function M.tabs(opts)
         },
         header = (#header_spec().bars > 0) and header_spec() or nil,
         content = { blocks = { { id = "form", provider = form_p } } },
-        footer = opts.footer_hints and footer_hints_spec()
+        footer = (opts.footer_hints == true and footer_hints_spec())
+            or (type(opts.footer_hints) == "table" and {
+                bars = {
+                    {
+                        items = footer_hint_specs(opts.footer_hints),
+                        align = "center",
+                        fill = opts.footer_fill ~= false,
+                    },
+                },
+            })
             or (
                 (#actions1 > 0)
                     and {
@@ -1040,9 +1080,10 @@ function M.info(content, opts)
             end
         end,
     }
-    -- Footer: the consumer's extra action buttons (`opts.footer_items` — e.g. fold all / unfold all),
-    -- then the standard `q close`. Each is a footer action shorthand `{ key, name, run }`.
-    local footer_items = {}
+    -- Footer: a plain 1-space lead (so the first key badge does not sit flush against the left edge), the
+    -- consumer's extra action buttons (`opts.footer_items` — e.g. fold all / unfold all, or diagnostics
+    -- next/prev), then the standard `q close`. Each is a footer action shorthand `{ key, name, run }`.
+    local footer_items = { { type = "separator", text = " " } }
     for _, it in ipairs(opts.footer_items or {}) do
         footer_items[#footer_items + 1] = it
     end
@@ -1070,7 +1111,7 @@ function M.info(content, opts)
             height = opts.height and { fixed = opts.height } or { auto = true, max = opts.max_height or 0.85 },
         },
         content = { blocks = { { id = "info", provider = provider } } },
-        footer = opts.footer == false and nil or { bars = { { items = footer_items } } },
+        footer = opts.footer == false and nil or { bars = { { items = footer_items, align = "left" } } },
     })
     return buf_ref, win_ref
 end
