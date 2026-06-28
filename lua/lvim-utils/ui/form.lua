@@ -269,9 +269,12 @@ function M.new(opts)
                     end
                 elseif not rows.is_selectable(r) then
                     lines[i] = r.center and util.center(disp, width) or util.lpad(disp, width, 2)
-                    -- A spacer / divider row (the `──────` between groups) takes the separator colour.
+                    -- A spacer / divider row (the `──────` between groups) takes the separator colour — UNLESS it
+                    -- carries an explicit `hl` (e.g. a wrapped value's continuation SPACER), in which case honour
+                    -- hl.inactive so the wrap matches its field's value instead of taking the separator colour.
                     if r.type == "spacer" or r.type == "spacer_line" then
-                        hls[#hls + 1] = { i - 1, 0, #lines[i], "LvimUiSeparator" }
+                        local sep = (r.hl and type(r.hl.inactive) == "string") and r.hl.inactive or "LvimUiSeparator"
+                        hls[#hls + 1] = { i - 1, 0, #lines[i], sep }
                     end
                 else
                     lines[i] = util.lpad(disp, width, 2)
