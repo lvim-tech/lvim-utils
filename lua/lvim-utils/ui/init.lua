@@ -1080,10 +1080,9 @@ function M.info(content, opts)
             end
         end,
     }
-    -- Footer: a plain 1-space lead (so the first key badge does not sit flush against the left edge), the
-    -- consumer's extra action buttons (`opts.footer_items` — e.g. fold all / unfold all, or diagnostics
-    -- next/prev), then the standard `q close`. Each is a footer action shorthand `{ key, name, run }`.
-    local footer_items = { { type = "separator", text = " " } }
+    -- Footer: the consumer's extra action buttons (`opts.footer_items` — e.g. fold all / unfold all),
+    -- then the standard `q close`. Each is a footer action shorthand `{ key, name, run }`.
+    local footer_items = {}
     for _, it in ipairs(opts.footer_items or {}) do
         footer_items[#footer_items + 1] = it
     end
@@ -1111,7 +1110,7 @@ function M.info(content, opts)
             height = opts.height and { fixed = opts.height } or { auto = true, max = opts.max_height or 0.85 },
         },
         content = { blocks = { { id = "info", provider = provider } } },
-        footer = opts.footer == false and nil or { bars = { { items = footer_items, align = "left" } } },
+        footer = opts.footer == false and nil or { bars = { { items = footer_items } } },
     })
     return buf_ref, win_ref
 end
