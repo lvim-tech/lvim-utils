@@ -114,7 +114,10 @@ function M.row_display(row, ico)
     elseif t == "string" or t == "text" then
         return ico.string .. "  " .. ri .. label .. ": " .. val
     elseif t == "action" then
-        return (row.flat and "" or ico.action) .. "  " .. ri .. label .. (row.suffix and (" " .. row.suffix) or "")
+        -- a `tight` flat row drops the 2-space lead entirely (its own `icon` carries any leading marker) — a
+        -- compact list (e.g. a picker's items) where the row content sits right at the panel edge.
+        local lead = row.flat and (row.tight and "" or "  ") or (ico.action .. "  ")
+        return lead .. ri .. label .. (row.suffix and (" " .. row.suffix) or "")
     elseif t == "spacer" then
         return (row.flat and "" or ico.spacer) .. "  " .. ri .. label .. (row.suffix and (" " .. row.suffix) or "")
     elseif t == "spacer_line" then

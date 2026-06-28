@@ -270,7 +270,7 @@ function M.new(opts)
                         hls[#hls + 1] = { i - 1, s[1], s[2], s[3] }
                     end
                 elseif not rows.is_selectable(r) then
-                    lines[i] = r.center and util.center(disp, width) or util.lpad(disp, width, 2)
+                    lines[i] = r.center and util.center(disp, width) or util.lpad(disp, width, opts.pad or 2)
                     -- A spacer / divider row (the `──────` between groups) takes the separator colour — UNLESS it
                     -- carries an explicit `hl` (e.g. a wrapped value's continuation SPACER), in which case honour
                     -- hl.inactive so the wrap matches its field's value instead of taking the separator colour.
@@ -279,7 +279,7 @@ function M.new(opts)
                         hls[#hls + 1] = { i - 1, 0, #lines[i], sep }
                     end
                 else
-                    lines[i] = util.lpad(disp, width, 2)
+                    lines[i] = util.lpad(disp, width, opts.pad or 2)
                     -- Colour the leading type icon; the rest reads on the panel background.
                     local icon_str = rows.row_icon_info(r, ico)
                     if icon_str and #icon_str > 0 then

@@ -467,11 +467,11 @@ function M.tabs(opts)
                 rs[j] = {
                     type = "action",
                     flat = true,
-                    -- The CURRENT item's lead glyph is the ➤ pointer (in FRONT, where its own icon would be) —
-                    -- so it stays column-aligned with the others at NO extra indent; the variant is in the label.
-                    icon = is_current and "➤" or (it.icon or ""),
+                    tight = true, -- a compact list: no 2-space lead (the body lpad gives a single space)
+                    icon = it.icon or "",
                     name = rname,
-                    label = it.label or "",
+                    -- the CURRENT item is marked with a "(current)" suffix on its label
+                    label = (it.label or "") .. (is_current and "  (current)" or ""),
                     _item = it,
                     run = function(_, close)
                         done = true
@@ -574,6 +574,7 @@ function M.tabs(opts)
         rows = content1,
         on_change = opts.on_change,
         cursorline_hl = opts.cursorline_hl,
+        pad = opts.pad, -- body content lpad (default 2); a compact picker can drop it (e.g. 0)
         -- a footer key-hint legend tracks the focused row: re-notify on cursor move
         on_cursor = opts.footer_hints and function()
             if update_footer then
