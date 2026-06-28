@@ -151,10 +151,13 @@ function M.render(spec, state)
     if not spec.key_badge and (spec.key or spec.key_pos) and txt ~= "" then
         local pos = M.key_pos(txt, spec.key, spec.key_pos)
         put(txt:sub(1, pos - 1), thl)
+        -- The shortcut hint takes the lead/accent colour — but FALLS BACK to the text colour when the button
+        -- defines no lead box (no `style.icon`), so `[X]`/brackets read as part of the caption instead of a
+        -- stray default colour.
         if spec.key_brackets == false then
-            put(txt:sub(pos, pos), ihl) -- just the hotkey letter in the lead/accent colour — no brackets
+            put(txt:sub(pos, pos), ihl or thl) -- just the hotkey letter, no brackets
         else
-            put("[" .. txt:sub(pos, pos) .. "]", ihl) -- the bracketed key takes the lead/accent colour
+            put("[" .. txt:sub(pos, pos) .. "]", ihl or thl) -- the bracketed key
         end
         put(txt:sub(pos + 1), thl)
     else
