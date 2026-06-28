@@ -501,16 +501,19 @@ function M.tabs(opts)
                 content[#content + 1] = r
             end
         end
-        -- Drop trailing AND leading spacer / divider rows from the body: they separated the fields from the
-        -- action rows (now in the FOOTER) and from the toolbar bars (now in the HEADER), so otherwise they
-        -- dangle (a stray ────── at the top / bottom of the content).
-        local function is_spacer(r)
-            return r and (r.type == "spacer" or r.type == "spacer_line")
+        -- Drop trailing/leading BLANK spacer rows from the body: they separated the fields from the action rows
+        -- (now in the FOOTER) and the toolbar bars (now in the HEADER), so otherwise they dangle (a stray ──────
+        -- at the top/bottom). A LABELED spacer is a section HEADER (e.g. "Frontend" atop the Projects menu), not
+        -- a stray divider — it must survive even as the first/last row.
+        local function is_blank_spacer(r)
+            return r
+                and (r.type == "spacer" or r.type == "spacer_line")
+                and not (type(r.label) == "string" and vim.trim(r.label) ~= "")
         end
-        while #content > 0 and is_spacer(content[#content]) do
+        while #content > 0 and is_blank_spacer(content[#content]) do
             content[#content] = nil
         end
-        while #content > 0 and is_spacer(content[1]) do
+        while #content > 0 and is_blank_spacer(content[1]) do
             table.remove(content, 1)
         end
         return content, actions, bars
