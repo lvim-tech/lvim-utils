@@ -89,7 +89,7 @@ function M.new(opts)
     end
 
     --- Cycle a SELECT / SEGMENTED row's value by `delta` options (wrapping both ways). Returns true if it
-    --- acted on such a row. The ONE engine for forward (<CR>/<Space>) and backward (<BS>) value cycling.
+    --- acted on such a row. The ONE engine for forward (<CR>) and backward (<BS>) value cycling.
     ---@param delta integer
     ---@return boolean
     local function cycle_value(delta)
@@ -338,7 +338,7 @@ function M.new(opts)
             map({ "k", "<Up>" }, function()
                 move(-1)
             end)
-            map({ "<CR>", "<Space>" }, function()
+            map({ "<CR>" }, function()
                 activate(st)
             end)
             -- ←/→ cycle a select/segmented value (← back, → forward); on a toolbar `bar` row they instead move
