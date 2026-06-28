@@ -1428,9 +1428,10 @@ local function open_panel_win(state, pan, i, pl, has_input, docked)
         focusable = not docked,
         zindex = not docked and (state.zindex + 1) or nil,
     })
-    if docked then
-        vim.w[pan.win].lvim_frame = true
-    end
+    -- Mark EVERY panel window (float-mode too, not just docked) as managed UI — same as the container — so a
+    -- generic "close all floating windows" / "focus next float" helper skips it instead of tearing the panel
+    -- out from under the frame (which races the panel's own `enter=true` open → "Window was closed immediately").
+    vim.w[pan.win].lvim_frame = true
     vim.wo[pan.win].wrap = false
     if pan.provider and pan.provider.cursorline then
         local cl = (type(pan.provider.cursorline) == "string" and pan.provider.cursorline)
