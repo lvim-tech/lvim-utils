@@ -156,7 +156,7 @@ return function(c)
         -- (right). Its OWN red box — a STRONG 0.6 red-tint bg with a lighter 0.3 red-tint dot — so it pops
         -- against the blue keys / yellow labels around it.
         LvimUiFooterSep = { fg = mtint(c.red, 0.3), bg = mtint(c.red, 0.6), bold = true },
-        LvimUiBarChevron = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true }, -- bar overflow chevron BOX (‹ ›)
+        LvimUiBarChevron = { fg = mtint(c.red, 0.3), bg = mtint(c.red, 0.6), bold = true }, -- bar overflow chevron BOX (‹ ›) — red, matching the footer legend's LvimUiFooterSep
         -- A continuous full-width bg STRIP under a bar's buttons, so the whole row reads as one tinted bar (the
         -- buttons + the blue 0.05 hover sit on top). A FAINT blue tint, below the hover so the selection pops.
         LvimUiBarFill = { bg = mtint(c.blue, 0.02) },
