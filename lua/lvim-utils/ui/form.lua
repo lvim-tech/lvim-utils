@@ -232,6 +232,24 @@ function M.new(opts)
                     if icon_str and #icon_str > 0 then
                         hls[#hls + 1] = { i - 1, 2, 2 + #icon_str, "LvimUiRowIconInactive" }
                     end
+                    -- Per-part colours an action / accordion row can request: `icon_hl` on its `icon` column,
+                    -- `text_hl` on the label/value, `suffix_hl` on the trailing suffix — at their byte offsets in
+                    -- `disp`, which lays out as: lead-icon + "  " + icon + " " + label [+ " " + suffix].
+                    if (r.type == "action" or r.children) and (r.icon_hl or r.text_hl or r.suffix_hl) then
+                        local base = 2 + #(icon_str or "") + 2 -- past the lead icon + its 2-space separator
+                        local ricon = (r.icon and r.icon ~= "") and r.icon or nil
+                        if ricon and r.icon_hl then
+                            hls[#hls + 1] = { i - 1, base, base + #ricon, r.icon_hl }
+                        end
+                        local label = r.label or r.name or ""
+                        if r.text_hl and label ~= "" then
+                            local ls = base + (ricon and (#ricon + 1) or 0)
+                            hls[#hls + 1] = { i - 1, ls, ls + #label, r.text_hl }
+                        end
+                        if r.suffix and r.suffix ~= "" and r.suffix_hl then
+                            hls[#hls + 1] = { i - 1, 2 + #disp - #r.suffix, 2 + #disp, r.suffix_hl }
+                        end
+                    end
                     -- A file row's label = "<dimmed path>/<bright name>". `r.dim_to` is a byte count into the
                     -- LABEL (the SUFFIX of `disp`) up to the name; offset by the lpad indent (2), clamped to
                     -- the rendered line. Dim the path, brighten the name, so the name stands out.

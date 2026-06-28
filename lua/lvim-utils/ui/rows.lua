@@ -28,6 +28,7 @@ local M = {}
 ---@field hl?      { active?: HlDef, inactive?: HlDef }
 ---@field suffix?       string
 ---@field expanded?     boolean
+---@field flat?         boolean  -- drop the lead type icon / expand caret (the row carries its own `icon`)
 ---@field children?     Row[]
 ---@field option_icons? table<string, string>
 ---@field bracket_key?  boolean
@@ -94,7 +95,7 @@ function M.row_display(row, ico)
 
     -- Expandable rows (accordion) show a caret instead of their type icon.
     if row.children then
-        return caret(row, ico) .. "  " .. ri .. label
+        return (row.flat and "" or caret(row, ico)) .. "  " .. ri .. label
     end
 
     if t == "bool" or t == "boolean" then
@@ -113,9 +114,9 @@ function M.row_display(row, ico)
     elseif t == "string" or t == "text" then
         return ico.string .. "  " .. ri .. label .. ": " .. val
     elseif t == "action" then
-        return ico.action .. "  " .. ri .. label .. (row.suffix and (" " .. row.suffix) or "")
+        return (row.flat and "" or ico.action) .. "  " .. ri .. label .. (row.suffix and (" " .. row.suffix) or "")
     elseif t == "spacer" then
-        return ico.spacer .. "  " .. ri .. label .. (row.suffix and (" " .. row.suffix) or "")
+        return (row.flat and "" or ico.spacer) .. "  " .. ri .. label .. (row.suffix and (" " .. row.suffix) or "")
     elseif t == "spacer_line" then
         return ""
     end
@@ -164,6 +165,9 @@ end
 function M.row_icon_info(row, ico)
     local t = row.type or "string"
     ico = ico or M.icons()
+    if row.flat then
+        return "", 2 -- no lead icon; keep the 2-byte separator so the row's own `icon` column stays aligned
+    end
     if row.children then
         return caret(row, ico), 2
     end
