@@ -587,9 +587,15 @@ function M.tabs(opts)
                     st.close()
                 end,
             },
-            { type = "separator", text = "●", style = { padding = { 1, 1 }, hl = "LvimUiFooterSep" } },
         }
-        for _, h in ipairs(form_p.hints and form_p.hints() or {}) do
+        local hints = form_p.hints and form_p.hints() or {}
+        -- The ● divider + chevrons only appear when there ARE focused-row keys to the right; on a row with no
+        -- keys of its own (e.g. a display-only detail field) the divider would dangle, so drop it.
+        if #hints > 0 then
+            items[#items + 1] =
+                { type = "separator", text = "●", style = { padding = { 1, 1 }, hl = "LvimUiFooterSep" } }
+        end
+        for _, h in ipairs(hints) do
             items[#items + 1] = {
                 key = h.key,
                 name = h.label,

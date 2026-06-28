@@ -139,7 +139,9 @@ function M.new(opts)
         elseif t == "bool" or t == "boolean" then
             return { { key = "↵", label = "Toggle", act = "activate" } }
         elseif t == "action" then
-            return { { key = "↵", label = "Run", act = "activate" } }
+            -- only a RUNNABLE action advertises ↵ Run; display-only action rows (e.g. a package's State /
+            -- Status / Version detail fields carry `type = "action"` for styling but no `run`) advertise nothing.
+            return row.run and { { key = "↵", label = "Run", act = "activate" } } or {}
         elseif t == "int" or t == "integer" or t == "float" or t == "number" or t == "string" or t == "text" then
             return { { key = "↵", label = "Edit", act = "activate" } }
         end
@@ -399,7 +401,19 @@ function M.new(opts)
                     -- The footer legend's RIGHT half tracks the row's hints, which depend only on the row TYPE
                     -- (+ an accordion's expand state) — so re-notify only when THAT changes, not on every row.
                     if opts.on_cursor then
-                        local sig = r and (r.children and ("acc:" .. tostring(r.expanded)) or r.type) or ""
+                        -- Signature of the row's HINTS — re-notify the footer only when it changes. It is the row
+                        -- TYPE, plus an accordion's expand state, plus an action row's run-ness (a runnable action
+                        -- advertises ↵ Run, a display-only one advertises nothing — so they must differ here).
+                        local sig
+                        if not r then
+                            sig = ""
+                        elseif r.children then
+                            sig = "acc:" .. tostring(r.expanded)
+                        elseif r.type == "action" then
+                            sig = "act:" .. tostring(r.run ~= nil)
+                        else
+                            sig = r.type or ""
+                        end
                         if sig ~= last_hint_sig then
                             last_hint_sig = sig
                             opts.on_cursor()
