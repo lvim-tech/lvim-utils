@@ -54,6 +54,7 @@ local M = {}
 ---@field on_open? fun(buf: integer, win: integer)  -- info: after open
 ---@field footer? boolean            -- info: false → no footer
 ---@field footer_fill? boolean       -- tabs: false → no tinted strip under the footer action bar (buttons float on the panel bg)
+---@field footer_hints? boolean      -- tabs: show a live key-hint LEGEND footer (panel keys • focused-row keys); updates on cursor move
 ---@field cursorline_hl? string      -- tabs: name a bg-only cursorline group so the hover changes only the bg (a row's own fg highlights survive)
 ---@field footer_items? table[]      -- info: extra footer action buttons { { key, name, run } } before `q close`
 ---@field hide_cursor? boolean       -- info: hide the hardware cursor (read-only viewer)
@@ -530,7 +531,19 @@ function M.tabs(opts)
     end
 
     local content1, actions1 = split(active)
-    local form_p = form.new({ rows = content1, on_change = opts.on_change, cursorline_hl = opts.cursorline_hl })
+    local st -- forward decl: the frame state (assigned by frame.open below); reached by the footer's deferred callbacks
+    local update_footer -- forward decl: rebuild the live key-hint footer (assigned once footer_hints_spec exists)
+    local form_p = form.new({
+        rows = content1,
+        on_change = opts.on_change,
+        cursorline_hl = opts.cursorline_hl,
+        -- a footer key-hint legend tracks the focused row: re-notify on cursor move
+        on_cursor = opts.footer_hints and function()
+            if update_footer then
+                update_footer()
+            end
+        end or nil,
+    })
 
     local function action_specs(actions)
         local specs = {}
@@ -554,6 +567,50 @@ function M.tabs(opts)
             }
         end
         return specs
+    end
+
+    -- A live key-hint LEGEND footer (opt-in `footer_hints`): a ui.bar of PANEL keys (constant) • the focused
+    -- row's keys (dynamic, from the form's `hints()`). Clickable: q closes; a row hint cycles / activates the
+    -- focused row. The h/l Tabs and j/k Move chips are an informational legend (the real keys live in the body).
+    local function footer_hints_spec()
+        -- `no_hotkey` on every chip: this is a LEGEND — the keys it shows (h/l, j/k, q, ↵/→ …) are already
+        -- mapped by the body/frame. Registering the multi-char LABELS ("j/k") as keymaps would make "j" a
+        -- mapping prefix → a `timeoutlen` stall on every "j". They stay mouse-clickable via `run`.
+        local items = {
+            { key = "h/l", name = "Tabs", run = function() end, no_hotkey = true },
+            { key = "j/k", name = "Move", run = function() end, no_hotkey = true },
+            {
+                key = "q",
+                name = "Close",
+                no_hotkey = true,
+                run = function(st)
+                    st.close()
+                end,
+            },
+            { type = "separator", text = "•", style = { padding = { 1, 1 }, hl = "LvimUiBarChevron" } },
+        }
+        for _, h in ipairs(form_p.hints and form_p.hints() or {}) do
+            items[#items + 1] = {
+                key = h.key,
+                name = h.label,
+                no_hotkey = true,
+                run = function(st)
+                    if h.act == "next" then
+                        form_p.cycle(1)
+                    elseif h.act == "prev" then
+                        form_p.cycle(-1)
+                    elseif form_p.act then
+                        form_p.act(st)
+                    end
+                end,
+            }
+        end
+        return { bars = { { items = items, align = "center" } } }
+    end
+    update_footer = function()
+        if st and st.set_footer then
+            st.set_footer(footer_hints_spec())
+        end
     end
 
     -- Header bars: an optional subtitle text bar + a tab bar (live switch) when more than one tab, then the
@@ -637,8 +694,7 @@ function M.tabs(opts)
 
     -- (HOSTED area) reserve our rows ABOVE the messages in the msgarea zone (priority 5) — the host grows ITS
     -- cmdheight and hands us the rect; we follow it via `reposition`. Else the surface grows cmdheight itself.
-    -- `st` is forward-declared so these deferred callbacks can reach the frame state once `frame.open` returns.
-    local st
+    -- (`st` is forward-declared near the top so the host's + footer's deferred callbacks reach the frame state.)
     local host = msgarea
             and function(h)
                 local seg = msgarea.segment("lvim-utils-tabs-host", { priority = 5 })
@@ -694,9 +750,16 @@ function M.tabs(opts)
         },
         header = (#header_spec().bars > 0) and header_spec() or nil,
         content = { blocks = { { id = "form", provider = form_p } } },
-        footer = (#actions1 > 0)
-                and { bars = { { items = action_specs(actions1), align = "center", fill = opts.footer_fill ~= false } } }
-            or nil,
+        footer = opts.footer_hints and footer_hints_spec()
+            or (
+                (#actions1 > 0)
+                    and {
+                        bars = {
+                            { items = action_specs(actions1), align = "center", fill = opts.footer_fill ~= false },
+                        },
+                    }
+                or nil
+            ),
         on_close = function()
             if docked then
                 pcall(function()

@@ -88,6 +88,64 @@ function M.new(opts)
         return true
     end
 
+    --- Cycle a SELECT / SEGMENTED row's value by `delta` options (wrapping both ways). Returns true if it
+    --- acted on such a row. The ONE engine for forward (<CR>/<Space>) and backward (<BS>) value cycling.
+    ---@param delta integer
+    ---@return boolean
+    local function cycle_value(delta)
+        local row = flat()[cur_line()]
+        if not (row and (row.type == "select" or row.type == "segmented")) then
+            return false
+        end
+        local list = row.options or {}
+        if #list == 0 then
+            return false
+        end
+        local cur = 1
+        for i, o in ipairs(list) do
+            if o == row.value then
+                cur = i
+                break
+            end
+        end
+        row.value = list[((cur - 1 + delta) % #list) + 1]
+        if row.run then
+            row.run(row.value)
+        end
+        if on_change then
+            on_change(row)
+        end
+        refresh()
+        return true
+    end
+
+    --- Context hints for the focused row: `{ { key, label }, … }` describing what the keys do on THIS row
+    --- (the dynamic RIGHT half of a footer legend). Empty for a spacer / nil row.
+    ---@param row Row|nil
+    ---@return { key: string, label: string, act: string }[]  `act`: "next" | "prev" | "activate" (for clicks)
+    local function row_hints(row)
+        if not row then
+            return {}
+        end
+        if row.children then
+            return { { key = "↵", label = row.expanded and "Collapse" or "Expand", act = "activate" } }
+        end
+        local t = row.type
+        if t == "select" or t == "segmented" then
+            return {
+                { key = "↵/→", label = "Next", act = "next" },
+                { key = "⌫/←", label = "Prev", act = "prev" },
+            }
+        elseif t == "bool" or t == "boolean" then
+            return { { key = "↵", label = "Toggle", act = "activate" } }
+        elseif t == "action" then
+            return { { key = "↵", label = "Run", act = "activate" } }
+        elseif t == "int" or t == "integer" or t == "float" or t == "number" or t == "string" or t == "text" then
+            return { { key = "↵", label = "Edit", act = "activate" } }
+        end
+        return {}
+    end
+
     --- Act on the focused row by type. `st` is the frame state (for action rows that close).
     ---@param st table
     local function activate(st)
@@ -126,24 +184,7 @@ function M.new(opts)
             end
             refresh()
         elseif t == "select" or t == "segmented" then
-            local list = row.options or {}
-            if #list > 0 then
-                local cur = 1
-                for i, o in ipairs(list) do
-                    if o == row.value then
-                        cur = i
-                        break
-                    end
-                end
-                row.value = list[(cur % #list) + 1]
-                if row.run then
-                    row.run(row.value)
-                end
-                if on_change then
-                    on_change(row)
-                end
-                refresh()
-            end
+            cycle_value(1) -- forward; <BS> calls cycle_value(-1) for backward
         elseif t == "int" or t == "integer" or t == "float" or t == "number" or t == "string" or t == "text" then
             local numeric = t ~= "string" and t ~= "text"
             vim.ui.input({
@@ -171,6 +212,13 @@ function M.new(opts)
     return {
         hide_cursor = true,
         cursorline = opts.cursorline_hl or true,
+        -- Exposed for an external footer legend: the focused row's context hints, plus the actions a hint click
+        -- runs (cycle a value by ±1; activate = run/toggle/edit the focused row).
+        hints = function()
+            return row_hints(flat()[cur_line()])
+        end,
+        cycle = cycle_value,
+        act = activate,
         size = function()
             local fr = flat()
             local w = 1
@@ -288,12 +336,20 @@ function M.new(opts)
             map({ "<CR>", "<Space>" }, function()
                 activate(st)
             end)
-            -- ←/→ move the focused button when the cursor is on a toolbar `bar` row (no-op elsewhere).
+            -- ←/→ cycle a select/segmented value (← back, → forward); on a toolbar `bar` row they instead move
+            -- the focused button. ⌫ also cycles a value backward (the documented key).
             map({ "<Left>" }, function()
-                bar_nav(-1)
+                if not cycle_value(-1) then
+                    bar_nav(-1)
+                end
             end)
             map({ "<Right>" }, function()
-                bar_nav(1)
+                if not cycle_value(1) then
+                    bar_nav(1)
+                end
+            end)
+            map({ "<BS>" }, function()
+                cycle_value(-1)
             end)
             -- Click a toolbar (`type="bar"`) button: hit-test the click column against the row's rendered
             -- button cells and run that button. Any other click falls back to plain cursor positioning.
@@ -323,6 +379,7 @@ function M.new(opts)
             -- re-render so the hover follows the cursor; off a bar row, restore cursorline. Refresh only on a
             -- boundary cross, so plain list navigation stays cheap.
             local was_bar = false
+            local last_hint_sig -- the footer legend's last hint SIGNATURE — re-notify only when the hints change
             api.nvim_create_autocmd("CursorMoved", {
                 buffer = p.buf,
                 callback = function()
@@ -335,6 +392,15 @@ function M.new(opts)
                     if is_bar or was_bar then
                         was_bar = is_bar
                         refresh()
+                    end
+                    -- The footer legend's RIGHT half tracks the row's hints, which depend only on the row TYPE
+                    -- (+ an accordion's expand state) — so re-notify only when THAT changes, not on every row.
+                    if opts.on_cursor then
+                        local sig = r and (r.children and ("acc:" .. tostring(r.expanded)) or r.type) or ""
+                        if sig ~= last_hint_sig then
+                            last_hint_sig = sig
+                            opts.on_cursor()
+                        end
                     end
                 end,
             })

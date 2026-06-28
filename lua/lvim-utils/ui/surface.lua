@@ -116,6 +116,7 @@ local function bar_items(items, footer)
                 text = it.name or it.text or "",
                 run = it.run,
                 active = it.active,
+                no_hotkey = it.no_hotkey, -- carry the display-only flag so map_hotkeys skips it (no keymap)
                 style = it.style or FOOTER_STYLE,
             }
         end
@@ -1706,6 +1707,18 @@ local function open_windows(state)
         end
         relayout(state)
     end
+    --- Rebuild the FOOTER band(s) in place — for a live key-hint legend that tracks the focused row. The legend
+    --- is a constant-height bar, so it just re-paints the chrome (render_chrome re-derives the footer line from
+    --- the new bands and writes the CONTAINER buffer); the body float is untouched.
+    ---@param spec table
+    state.set_footer = function(spec)
+        state.cfg.footer = spec
+        state.footer_bands = build_bands(spec, true)
+        state.sectors = build_sectors(state)
+        if state._geom then
+            render_chrome(state, state._geom)
+        end
+    end
     -- (HOSTED) Re-place over a fresh host-zone rect WITHOUT re-reserving (the host called us because it
     -- reflowed). Wired by the caller as the host segment's `on_rect`, so the surface follows the zone.
     state.reposition = function(rect)
@@ -1790,7 +1803,17 @@ local function open_windows(state)
         for _, sec in ipairs(state.sectors) do
             if sec.kind == "bar" then
                 for _, spec in ipairs(sec.band.buttons or {}) do
-                    if spec.key and spec.run and spec.type ~= "separator" and not skip[spec.key] then
+                    -- `no_hotkey` marks a DISPLAY button (e.g. a key-hint LEGEND like "j/k", "h/l") — it is shown
+                    -- and mouse-clickable, but its `key` is a label, NOT a real keymap: registering a multi-char
+                    -- label ("j/k") would make its first char ("j") a mapping PREFIX → nvim waits `timeoutlen` on
+                    -- every "j" press. The real keys are already mapped by the content/frame.
+                    if
+                        spec.key
+                        and spec.run
+                        and spec.type ~= "separator"
+                        and not spec.no_hotkey
+                        and not skip[spec.key]
+                    then
                         vim.keymap.set("n", spec.key, function()
                             spec.run(state)
                         end, { buffer = buf, nowait = true, silent = true })
