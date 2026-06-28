@@ -152,6 +152,10 @@ return function(c)
         LvimUiFooterKeyHover = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
         LvimUiFooterLabelHover = { fg = c.yellow, bg = mtint(c.yellow, 0.4) },
         LvimUiFooterChevron = { fg = c.yellow, bold = true }, -- overflow scroll chevrons (‹ ›)
+        -- The key-hint legend's part-separator (•) dividing the panel keys (left) from the focused-row keys
+        -- (right). Its OWN red box — a STRONG 0.6 red-tint bg with a lighter 0.3 red-tint dot — so it pops
+        -- against the blue keys / yellow labels around it.
+        LvimUiFooterSep = { fg = mtint(c.red, 0.3), bg = mtint(c.red, 0.6), bold = true },
         LvimUiBarChevron = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true }, -- bar overflow chevron BOX (‹ ›)
         -- A continuous full-width bg STRIP under a bar's buttons, so the whole row reads as one tinted bar (the
         -- buttons + the blue 0.05 hover sit on top). A FAINT blue tint, below the hover so the selection pops.

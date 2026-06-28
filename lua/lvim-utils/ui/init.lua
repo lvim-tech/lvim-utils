@@ -587,7 +587,7 @@ function M.tabs(opts)
                     st.close()
                 end,
             },
-            { type = "separator", text = "•", style = { padding = { 1, 1 }, hl = "LvimUiBarChevron" } },
+            { type = "separator", text = "●", style = { padding = { 1, 1 }, hl = "LvimUiFooterSep" } },
         }
         for _, h in ipairs(form_p.hints and form_p.hints() or {}) do
             items[#items + 1] = {
@@ -605,7 +605,20 @@ function M.tabs(opts)
                 end,
             }
         end
-        return { bars = { { items = items, align = "center" } } }
+        return {
+            bars = {
+                {
+                    items = items,
+                    align = "center",
+                    -- the overflow chevrons borrow the separator's accent (same box as the ● divider) and use
+                    -- the HEAVY angle glyphs ❮ ❯ — a bolder version of the default ‹ ›.
+                    chevrons = {
+                        left = { text = "❮", style = { hl = "LvimUiFooterSep" } },
+                        right = { text = "❯", style = { hl = "LvimUiFooterSep" } },
+                    },
+                },
+            },
+        }
     end
     update_footer = function()
         if st and st.set_footer then
