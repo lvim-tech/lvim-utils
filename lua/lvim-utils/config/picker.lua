@@ -43,6 +43,14 @@ return {
     -- backends. A small, vertically-centred bullet reads cleanly in that single space.
     marker = "•",
 
+    -- (fzf grep) MULTILINE grep entries — the fzf-lua "2-line" result layout: each match is shown as a
+    -- LOCATION row (`<icon> path:lnum:col`) with the matched TEXT indented on a second row beneath it, so a
+    -- long line + its path are both readable. `1` (default) = 2 rows, no gap between matches; `2` = 2 rows
+    -- plus a blank gap row between matches; `false` / `0` = the classic single-row `path:lnum:col:text`.
+    -- Needs fzf >= 0.53 (uses `--read0` / `--print0` / `--gap`); silently falls back to the 1-row layout on
+    -- older fzf. Only the fzf-TUI grep backend honours this; the tint/Lua grep list is always single-row.
+    grep_multiline = 1,
+
     -- Publish the finder's title + match counter + query to the bottom statusline (lvim-utils.chrome.overlay) for
     -- EVERY docked finder (area/bottom) — diagnostics, buffers, any plugin's picker. false = each finder draws
     -- the title/counter IN its own navigator instead. A per-call `opts.statusline` overrides this global.

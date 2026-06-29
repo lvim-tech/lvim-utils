@@ -49,23 +49,63 @@ function M.render_empty(buf, ns, message)
     pcall(api.nvim_buf_set_extmark, buf, ns, 0, 0, { end_row = 1, hl_group = "LvimUiPeekEmpty", hl_eol = true })
 end
 
---- Syntax-highlight a SCRATCH preview buffer with vim's regex `:syntax` — NOT its `filetype` and NOT a
---- treesitter highlighter. Setting the `filetype` would fire the FileType autocmds → LSP attach to every
---- previewed file (install prompts, spurious diagnostics, the autocmd cascade that pops the quickfix). And a
---- treesitter highlighter is WORSE here: starting/stopping a parser on the SAME reused buffer for each file
---- you scroll past churns native trees and corrupts the heap (it overwrites global `tostring` with the
---- treesitter-node one — every `tostring(number)`, incl. the LSP's, then throws). Regex `:syntax` colours the
---- preview with none of that — no FileType, no native trees. (NOT for the editable real-file preview below —
---- that IS the real buffer and keeps its filetype + LSP + treesitter on purpose.)
+--- Highlight a SCRATCH preview buffer WITHOUT ever setting its `filetype`. Setting the filetype would fire the
+--- FileType autocmds → lvim-ls / lvim-ts attach + the unified install prompt on every previewed file (and a
+--- real LSP attach: spurious diagnostics, the autocmd cascade that pops the quickfix). So instead — exactly
+--- like fzf-lua's previewer:
+---   1. start the treesitter highlighter BY LANGUAGE (`vim.treesitter.start(buf, lang)`, never the filetype)
+---      when the parser is installed → full treesitter colours, no FileType event, no offers, no LSP attach;
+---   2. fall back to vim's regex `:syntax` (coarser) ONLY when no parser is installed.
+--- The buffer is REUSED for each file scrolled past, so the previous file's highlighter is stopped first. (The
+--- old reused-buffer treesitter heap-corruption — global `tostring` overwritten by the node one — is gone on
+--- current Neovim; verified by stress test.) NOT for the editable real-file preview below — that IS the real
+--- buffer and keeps its filetype + LSP + treesitter on purpose.
 ---@param buf integer
 ---@param ft string?  the source filetype; nil/"" clears highlighting
 function M.set_syntax(buf, ft)
     if not (buf and api.nvim_buf_is_valid(buf)) then
         return
     end
-    local want = (ft and ft ~= "") and ft or ""
-    if vim.bo[buf].syntax ~= want then
-        pcall(api.nvim_set_option_value, "syntax", want, { buf = buf })
+    pcall(vim.treesitter.stop, buf) -- drop the previous file's highlighter (the buffer is reused per file)
+    ft = (ft and ft ~= "") and ft or ""
+    -- Rich path: treesitter keyed by LANGUAGE, so no `filetype` is set → no FileType autocmd → no install
+    -- offers and no LSP. Only fires when the parser is actually installed (pcall fails cleanly otherwise).
+    local lang = ft ~= "" and vim.treesitter.language.get_lang(ft) or nil
+    if lang then
+        vim.bo[buf].syntax = "" -- no regex syntax double-painting under the treesitter highlighter
+        if pcall(vim.treesitter.start, buf, lang) then
+            return
+        end
+    end
+    -- Fallback: vim's regex `:syntax` (coarser) when no parser exists for the language — still no filetype.
+    if vim.bo[buf].syntax ~= ft then
+        pcall(api.nvim_set_option_value, "syntax", ft, { buf = buf })
+    end
+end
+
+--- Render a previewed file into a panel using a FRESH scratch buffer each call, then swap it into the panel
+--- window and wipe the previous one. Treesitter caches ONE parser per buffer (the first language), so a reused
+--- buffer cannot switch languages as you scroll between file types — `start()` then fails ("No parser for …")
+--- and the highlight silently degrades to regex `:syntax`. A new buffer per file sidesteps that entirely — the
+--- same reason fzf-lua swaps its preview buffer. The preview panel is display-only (its navigation keymaps live
+--- on the LIST buffer), so swapping its buffer is safe; window-local options are reapplied by the caller.
+---@param pan table     the preview panel (`pan.win`, `pan.buf`); `pan.buf` is updated to the new buffer
+---@param lines string[]
+---@param ft string?
+function M.render_file(pan, lines, ft)
+    if not (pan and pan.win and api.nvim_win_is_valid(pan.win)) then
+        return
+    end
+    local new = api.nvim_create_buf(false, true)
+    vim.bo[new].bufhidden = "wipe"
+    pcall(api.nvim_buf_set_lines, new, 0, -1, false, lines)
+    vim.bo[new].modifiable = false
+    M.set_syntax(new, ft)
+    local old = pan.buf
+    pcall(api.nvim_win_set_buf, pan.win, new)
+    pan.buf = new
+    if old and old ~= new and api.nvim_buf_is_valid(old) then
+        pcall(api.nvim_buf_delete, old, { force = true })
     end
 end
 

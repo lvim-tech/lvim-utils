@@ -53,7 +53,10 @@ local function pick_items(spec)
     if b then
         local contents = {}
         for i, it in ipairs(items) do
-            contents[i] = i .. "\t" .. ((it.text or ""):gsub("[\t\n]", " "))
+            -- `spec.icon` → prefix the coloured ft devicon (display only; the parse recovers the item by INDEX,
+            -- so the icon never has to be stripped). Keyed on the file path when present, else the text.
+            local icon = spec.icon and source.file_icon(it.path or it.text) or ""
+            contents[i] = i .. "\t" .. icon .. ((it.text or ""):gsub("[\t\n]", " "))
         end
         b.open(vim.tbl_extend("force", {
             title = spec.title,
@@ -91,12 +94,21 @@ local function normalize(items, format)
         if type(it) == "string" then
             out[i] = { text = it, _src = it }
         else
-            out[i] = {
+            local item = {
                 text = (format and format(it)) or it.text or tostring(it),
                 icon = it.icon,
                 icon_hl = it.icon_hl,
                 _src = it,
             }
+            -- auto ft devicon for items that name a file (lsp locations / diagnostics / quickfix / jumplist /
+            -- file lists) on the tint backend — drawn as a coloured extmark; the fzf backend gets the ANSI icon.
+            if not item.icon then
+                local p = it.path or (it.bufnr and api.nvim_buf_is_valid(it.bufnr) and api.nvim_buf_get_name(it.bufnr))
+                if p and p ~= "" then
+                    item.icon, item.icon_hl = source.devicon(p)
+                end
+            end
+            out[i] = item
         end
     end
     return out
@@ -1332,7 +1344,7 @@ function M.buffers(opts)
         -- `--delimiter`/`--with-nth`, but hands back the whole line so we recover the bufnr.
         local contents = {}
         for _, it in ipairs(items) do
-            contents[#contents + 1] = ("%d\t%s"):format(it.bufnr, it.text)
+            contents[#contents + 1] = ("%d\t%s%s"):format(it.bufnr, source.file_icon(it.text), it.text)
         end
         fb.open(vim.tbl_extend("force", {
             title = "Buffers",
@@ -1340,10 +1352,11 @@ function M.buffers(opts)
             fzf_args = { "--delimiter=\t", "--with-nth=2" },
             parse = function(line)
                 local bufnr, name = line:match("^(%d+)\t(.*)$")
+                name = name and source.strip_icon(name) or line -- drop the leading coloured ft icon
                 -- a real file name doubles as the preview `path` (drives the devicon winbar); "[No Name]" stays
                 -- text-only.
-                local path = (name and name ~= "[No Name]") and name or nil
-                return { bufnr = tonumber(bufnr), text = name or line, path = path }
+                local path = (name ~= "[No Name]") and name or nil
+                return { bufnr = tonumber(bufnr), text = name, path = path }
             end,
             preview = function(it)
                 return buf_preview(it.bufnr, it.text or "")
@@ -1398,7 +1411,11 @@ function M.files(opts)
         -- real-Neovim preview + the open action.
         b.open(vim.tbl_extend("force", {
             title = "Files",
-            cmd = file_list_cmd(),
+            cmd = source.with_icons(file_list_cmd()),
+            parse = function(line)
+                return { path = source.strip_icon(line) }
+            end,
+            fzf_args = { "--nth", "2.." }, -- fuzzy-match the path, not the leading coloured icon
             preview = function(it)
                 return read_preview(it.path)
             end,
@@ -1444,7 +1461,11 @@ function M.directories(opts)
     if b then
         b.open(vim.tbl_extend("force", {
             title = "Directories",
-            cmd = dir_list_cmd(),
+            cmd = source.with_dir_icon(dir_list_cmd()),
+            parse = function(line)
+                return { path = source.strip_icon(line) }
+            end,
+            fzf_args = { "--nth", "2.." }, -- match the path, not the leading folder icon
             preview = function(it)
                 return run_lines({ "ls", "-A", it.path }), ""
             end,
@@ -1489,9 +1510,11 @@ function M.grep(opts)
         vim.notify("lvim-utils.picker.grep needs ripgrep (rg)", vim.log.levels.WARN)
         return
     end
-    -- Parse a ripgrep `--vimgrep` line (`file:lnum:col:text`) into a location item.
+    -- Parse a ripgrep `--vimgrep` line into a location item. The col is followed by `:text` in the 1-row
+    -- layout and by `\n    text` in the fzf-lua 2-row layout, so the match stops right after the col number.
     local function parse_grep(line)
-        local file, lnum, col = line:match("^(.-):(%d+):(%d+):")
+        line = source.strip_icon(line) -- drop the leading coloured ft icon (+ any ANSI) before parsing
+        local file, lnum, col = line:match("^(.-):(%d+):(%d+)")
         if file then
             return { path = file, lnum = tonumber(lnum), col = tonumber(col), text = line }
         end
@@ -1501,10 +1524,10 @@ function M.grep(opts)
     if b then
         -- fzf live mode: each keystroke RELOADS ripgrep with the query — fzf re-renders the matches
         -- continuously. fzf does no fuzzy ranking of its own (`--disabled`); rg IS the search.
-        b.open(vim.tbl_extend("force", {
-            title = "Grep",
-            reload = source.grep_reload(opts.regex),
+        local backend = {
+            title = opts.title or "Grep",
             parse = parse_grep,
+            multiline = source.fzf_multiline(), -- fzf-lua 2-row layout (location row + indented text row)
             preview = function(it)
                 local lines, ft = read_preview(it.path)
                 return lines, ft, it.lnum -- focus the matched line
@@ -1516,7 +1539,15 @@ function M.grep(opts)
                     vim.cmd("normal! zz")
                 end
             end,
-        }, opts))
+        }
+        if opts.query and opts.query ~= "" then
+            -- fixed-query grep (cword / cWORD / selection / prompt): rg runs ONCE, fzf fuzzy-filters the matches
+            backend.cmd = source.grep_static_cmd(opts.query, opts.regex)
+            backend.fzf_args = { "--nth", "2.." } -- match the path/text, not the leading coloured icon
+        else
+            backend.reload = source.grep_reload(opts.regex, opts.file) -- live grep (opts.file → curbuf only)
+        end
+        b.open(vim.tbl_extend("force", backend, opts))
         return
     end
     M.open(vim.tbl_extend("force", {
@@ -1562,6 +1593,65 @@ function M.grep(opts)
     }, opts or {}))
 end
 
+--- Grep the word under the cursor (`<cword>`), then fuzzy-filter the matches.
+---@param opts? table
+function M.grep_cword(opts)
+    opts = opts or {}
+    opts.query = opts.query or vim.fn.expand("<cword>")
+    opts.title = opts.title or ("Grep: " .. opts.query)
+    return M.grep(opts)
+end
+
+--- Grep the WORD under the cursor (`<cWORD>` — includes punctuation), then fuzzy-filter the matches.
+---@param opts? table
+function M.grep_cWORD(opts)
+    opts = opts or {}
+    opts.query = opts.query or vim.fn.expand("<cWORD>")
+    opts.title = opts.title or ("Grep: " .. opts.query)
+    return M.grep(opts)
+end
+
+--- Grep the last visual selection (`'<`..`'>`), then fuzzy-filter the matches.
+---@param opts? table
+function M.grep_visual(opts)
+    opts = opts or {}
+    local s, e = vim.fn.getpos("'<"), vim.fn.getpos("'>")
+    local lines = vim.fn.getline(s[2], e[2])
+    if #lines > 0 then
+        lines[#lines] = lines[#lines]:sub(1, e[3])
+        lines[1] = lines[1]:sub(s[3])
+    end
+    opts.query = (table.concat(lines, " "):gsub("%s+", " "))
+    opts.title = "Grep: " .. opts.query
+    return M.grep(opts)
+end
+
+--- Prompt for a search string, then grep it (fixed) and fuzzy-filter the matches.
+---@param opts? table
+function M.grep_word(opts)
+    opts = opts or {}
+    vim.ui.input({ prompt = "Grep: " }, function(q)
+        if q and q ~= "" then
+            opts.query, opts.title = q, "Grep: " .. q
+            M.grep(opts)
+        end
+    end)
+end
+
+--- Live-grep the CURRENT file only.
+---@param opts? table
+function M.grep_curbuf(opts)
+    opts = opts or {}
+    local file = api.nvim_buf_get_name(0)
+    if file == "" or vim.fn.filereadable(file) ~= 1 then
+        vim.notify("lvim-utils.picker.grep_curbuf: current buffer has no file on disk", vim.log.levels.WARN)
+        return
+    end
+    opts.file = file
+    opts.title = "Grep (buf): " .. vim.fn.fnamemodify(file, ":t")
+    return M.grep(opts)
+end
+
 --- Fuzzy finder over RECENT files (`v:oldfiles`, readable only), newest first; confirming edits the file.
 ---@param opts? table
 function M.oldfiles(opts)
@@ -1575,6 +1665,7 @@ function M.oldfiles(opts)
     pick_items({
         title = "Recent",
         items = items,
+        icon = true, -- coloured ft devicon per recent file
         opts = opts,
         on_confirm = function(it)
             if it and it.path then
@@ -1620,7 +1711,11 @@ function M.git_files(opts)
     if b then
         b.open(vim.tbl_extend("force", {
             title = "Git files",
-            cmd = { "git", "ls-files" },
+            cmd = source.with_icons({ "git", "ls-files" }),
+            parse = function(line)
+                return { path = source.strip_icon(line) }
+            end,
+            fzf_args = { "--nth", "2.." }, -- fuzzy-match the path, not the leading coloured icon
             preview = function(it)
                 return read_preview(it.path)
             end,
@@ -1846,6 +1941,11 @@ end
 local FINDERS = {
     "files",
     "grep",
+    "grep_cword",
+    "grep_cWORD",
+    "grep_word",
+    "grep_visual",
+    "grep_curbuf",
     "buffers",
     "oldfiles",
     "git_files",

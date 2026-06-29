@@ -244,6 +244,7 @@ end
 ---@field contents? string[]  a STATIC candidate list (e.g. buffers) — fed to fzf via a temp file
 ---@field reload? string  a shell command with a literal `{q}` placeholder (grep): fzf RE-RUNS it per keystroke
 ---@field fzf_args? string[]  extra raw fzf flags for this finder (e.g. `--delimiter` / `--with-nth`)
+---@field multiline? integer  grep 2-row layout level (0/nil = off); adds `--read0`/`--print0` (+`--gap` if 2)
 ---@field parse? fun(line: string): table  turn a selected/focused fzf line into an item (default `{ path = line }`)
 ---@field preview? fun(item: table): string[], string?, integer?  preview lines (+ filetype, + focus line)
 ---@field on_confirm fun(item: table)  called with the chosen item
@@ -442,10 +443,10 @@ function M.open(opts)
             lines = (type(pl) == "table" and pl) or (pl and { tostring(pl) }) or { "" }
             ft, focus = pf, fo
         end
-        vim.bo[pan.buf].modifiable = true
-        pcall(api.nvim_buf_set_lines, pan.buf, 0, -1, false, lines)
-        vim.bo[pan.buf].modifiable = false
-        preview.set_syntax(pan.buf, ft) -- highlight WITHOUT a `filetype` (no FileType → no LSP attach / install prompts)
+        -- Fresh buffer per previewed file so the treesitter highlighter can switch languages as you scroll
+        -- (a reused buffer caches one parser/language). Still WITHOUT a `filetype` → no FileType → no LSP
+        -- attach / install offers.
+        preview.render_file(pan, lines, ft)
         apply_preview_opts(pan.win)
         if focus then
             pcall(api.nvim_win_set_cursor, pan.win, { math.max(1, math.min(focus, #lines)), 0 })
@@ -581,7 +582,11 @@ function M.open(opts)
         }
         -- the focus → preview fifo bind (only when a preview + fifo are live)
         if opts.preview and state.fifo then
-            local w = ("echo {} > %s"):format(shellesc(state.fifo.path))
+            -- 2-row grep: `{}` is the whole record (location row + `\n` + indented text row); the preview only
+            -- needs the LOCATION row, so emit just its first line — else the fifo reader sees the text row and
+            -- `parse` fails (preview shows "[unreadable]").
+            local emit = (opts.multiline and opts.multiline > 0) and "echo {} | head -n1" or "echo {}"
+            local w = ("%s > %s"):format(emit, shellesc(state.fifo.path))
             args[#args + 1] = "--bind=focus:execute-silent(" .. w .. ")"
         end
         -- the match/total → title-bar stats: fzf sets $FZF_MATCH_COUNT / $FZF_TOTAL_COUNT for bind children;
@@ -613,6 +618,17 @@ function M.open(opts)
         -- extra per-finder fzf flags (e.g. buffers: `--delimiter` / `--with-nth` to hide the bufnr field)
         for _, a in ipairs(opts.fzf_args or {}) do
             args[#args + 1] = a
+        end
+        -- fzf-lua 2-row grep: read/print records NUL-separated so each entry's embedded `\n` (location row +
+        -- indented text row) is part of ONE record, not a row split. `--gap` adds a blank line between results
+        -- (only when multiline == 2). Gated by source.fzf_multiline() to fzf >= 0.53.
+        if opts.multiline and opts.multiline > 0 then
+            args[#args + 1] = "--read0"
+            args[#args + 1] = "--print0"
+            if opts.multiline > 1 then
+                args[#args + 1] = "--gap"
+                args[#args + 1] = tostring(opts.multiline - 1)
+            end
         end
         local parts = {}
         for _, a in ipairs(args) do
@@ -701,8 +717,17 @@ function M.open(opts)
                     local lines = {}
                     local f = io.open(state.outfile)
                     if f then
-                        for line in f:lines() do
-                            lines[#lines + 1] = line
+                        if opts.multiline and opts.multiline > 0 then
+                            -- --print0 → NUL-separated records (each may contain a `\n`); split on NUL and drop
+                            -- the trailing empty the final NUL leaves. An `--expect` key stays as record 1.
+                            lines = vim.split(f:read("*a") or "", "\0", { plain = true })
+                            if lines[#lines] == "" then
+                                lines[#lines] = nil
+                            end
+                        else
+                            for line in f:lines() do
+                                lines[#lines + 1] = line
+                            end
                         end
                         f:close()
                     end
