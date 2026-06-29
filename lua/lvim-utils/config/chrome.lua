@@ -8,15 +8,6 @@
 --
 ---@module "lvim-utils.config.chrome"
 
--- Nerd-font glyphs are built from their codepoints with nr2char (utf8 = 1) so they survive editing/encoding
--- intact — a literal multibyte glyph can be silently lost in transit; a codepoint cannot. The user can still
--- override any icon with a literal glyph string (utils.merge replaces the value).
----@param cp integer
----@return string
-local function nf(cp)
-    return vim.fn.nr2char(cp, 1)
-end
-
 return {
     -- ── statusline ────────────────────────────────────────────────────────────
     -- The bottom line, rendered by lvim-utils.chrome.engine. There are NO predefined segments (like heirline) —
@@ -129,41 +120,41 @@ return {
 
     -- ── icons (single-width Nerd-font; override any with a literal glyph) ────────
     icons = {
-        vim = nf(0xE62B), -- mode pill leader / tabline logo
-        folder = nf(0xF0256), -- cwd
-        git = nf(0xF418), -- branch
-        commit = nf(0xEAFC), -- hunk position
-        separator = nf(0x27A4), -- breadcrumb / sequence separator (➤)
-        lock = nf(0xEBE7), -- readonly
-        save = nf(0xF0C7), -- modified
-        vline = nf(0x258C), -- statuscolumn git gutter bar (▌)
-        terminal = nf(0xF489), -- winbar terminal label
-        lsp = nf(0xF085), -- lsp/lint/format segment
-        unix = nf(0xE712),
-        dos = nf(0xE70F),
-        mac = nf(0xE711),
+        vim = "", -- mode pill leader / tabline logo
+        folder = "󰉖", -- cwd
+        git = "", -- branch
+        commit = "", -- hunk position
+        separator = "➤", -- breadcrumb / sequence separator (➤)
+        lock = "", -- readonly
+        save = "", -- modified
+        vline = "▌", -- statuscolumn git gutter bar (▌)
+        terminal = "", -- winbar terminal label
+        lsp = "", -- lsp/lint/format segment
+        unix = "",
+        dos = "",
+        mac = "",
         git_status = {
-            added = nf(0xF457),
-            deleted = nf(0xF458),
-            modified = nf(0xF459),
+            added = "",
+            deleted = "",
+            modified = "",
         },
         diagnostics = {
-            error = nf(0xF057),
-            warn = nf(0xF06A),
-            info = nf(0xF05A),
-            hint = nf(0xF0335),
-            global = nf(0xEAAF),
+            error = "",
+            warn = "",
+            info = "",
+            hint = "󰌵",
+            global = "",
         },
         -- the 8 scrollbar block chars, tallest (top) → shortest (bottom): █▇▆▅▄▃▂▁
         scrollbar = {
-            nf(0x2588),
-            nf(0x2587),
-            nf(0x2586),
-            nf(0x2585),
-            nf(0x2584),
-            nf(0x2583),
-            nf(0x2582),
-            nf(0x2581),
+            "█",
+            "▇",
+            "▆",
+            "▅",
+            "▄",
+            "▃",
+            "▂",
+            "▁",
         },
     },
 }

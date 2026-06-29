@@ -75,6 +75,13 @@ return {
 
     -- Highlight groups for every element — all overridable, all default to the self-themed LvimUiDashboard*
     -- groups (registered in config/highlight.lua, derived from the live palette).
+    -- Leading glyphs the render engine falls back to for `file` items resolving to "file"/"directory"
+    -- when nvim-web-devicons has no specific icon. Real Nerd glyphs.
+    icons = {
+        file = "", -- nf-fa-file
+        directory = "", -- nf-fa-folder
+    },
+
     hl = {
         header = "LvimUiDashboardHeader", -- the ASCII banner
         footer = "LvimUiDashboardFooter", -- a footer line

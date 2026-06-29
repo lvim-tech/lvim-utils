@@ -97,11 +97,9 @@ end
 
 -- ─── field formatting ─────────────────────────────────────────────────────────
 
--- Fallback glyphs (built by codepoint so they survive editing) for when nvim-web-devicons is NOT ready yet —
--- the dashboard auto-opens early in startup, before the lazy devicons plugin has run its setup(), so get_icon
--- returns nil then. A directory always uses the folder glyph (devicons is file-oriented).
-local ICON_FILE = vim.fn.nr2char(0xF15B) -- nf-fa-file
-local ICON_DIR = vim.fn.nr2char(0xF07B) -- nf-fa-folder
+-- Fallback glyphs for when nvim-web-devicons is NOT ready yet — the dashboard auto-opens early in startup,
+-- before the lazy devicons plugin has run its setup(), so get_icon returns nil then. A directory always uses
+-- the folder glyph (devicons is file-oriented). Sourced from config.dashboard.icons (the live config).
 
 --- The icon chunk for a file/directory item: the per-type devicon when available, else a generic file/folder
 --- glyph (so a row always has an icon).
@@ -110,8 +108,9 @@ local ICON_DIR = vim.fn.nr2char(0xF07B) -- nf-fa-folder
 ---@param kind string  "file" | "directory"
 ---@return table
 local function devicon(self, file, kind)
+    local icons = require("lvim-utils.config").dashboard.icons
     if kind == "directory" then
-        return { ICON_DIR .. " ", hl = rhl(self, "icon") }
+        return { icons.directory .. " ", hl = rhl(self, "icon") }
     end
     local ok, dev = pcall(require, "nvim-web-devicons")
     if ok then
@@ -121,7 +120,7 @@ local function devicon(self, file, kind)
             return { glyph .. " ", hl = hl }
         end
     end
-    return { ICON_FILE .. " ", hl = rhl(self, "icon") }
+    return { icons.file .. " ", hl = rhl(self, "icon") }
 end
 
 --- A `file` item → a shortened path split into a dimmed DIR chunk + a bright FILE chunk.

@@ -352,7 +352,7 @@ local function _render_prog_channel(id, win_w)
     end
 
     local pad_s = string.rep(" ", _cfg.padding or 1)
-    local hdr_icon = ch.icon or (_cfg.icons or {}).progress or ""
+    local hdr_icon = ch.icon or (_cfg.icons or {}).progress or ""
     local hdr_name = ch.name or tostring(id)
     local hdr_hl = ch.header_hl or "LvimNotifyHeaderInfo"
     local hdr_text = pad_s .. hdr_icon .. " " .. hdr_name
