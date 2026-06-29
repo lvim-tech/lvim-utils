@@ -7,6 +7,7 @@ local M = {}
 M.config = require("lvim-utils.config")
 M.colors = require("lvim-utils.colors")
 M.cursor = require("lvim-utils.cursor")
+M.colorcolumn = require("lvim-utils.colorcolumn")
 M.highlight = require("lvim-utils.highlight")
 M.ui = require("lvim-utils.ui")
 M.quit = require("lvim-utils.quit")
@@ -20,7 +21,7 @@ M.picker = require("lvim-utils.picker")
 M.dashboard = require("lvim-utils.dashboard")
 
 ---Setup lvim-utils.
----@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table, dashboard?: table }
+---@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, colorcolumn?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table, dashboard?: table }
 function M.setup(opts)
     opts = opts or {}
 
@@ -59,6 +60,12 @@ function M.setup(opts)
 
     if opts.cursor then
         M.cursor.setup(opts.cursor)
+    end
+
+    -- colorcolumn: keep 'colorcolumn' meaningful under 'wrap' (drop entries that would otherwise wrap to a
+    -- stray cell on a continuation row). Opt-in; `colorcolumn.enabled = false` sets up but stays inert.
+    if opts.colorcolumn then
+        M.colorcolumn.setup(opts.colorcolumn)
     end
 
     if opts.gx then
