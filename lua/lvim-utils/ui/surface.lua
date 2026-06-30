@@ -2922,11 +2922,13 @@ function M.open(cfg)
     end
     cfg.mode = cfg.mode or "float"
     -- Shared title / counter placement: per-open override < `config.ui` default < the hardcoded fallback.
-    -- `title_line` ("border" | "statusline") routes an AREA / cmdline frame's title to the border-title or
-    -- the chrome overlay; `counter` ("title" | "footer") places a supplied `count` in the border-title or
-    -- the native border-footer. See the title/counter helpers above (build_brand / build_border_footer).
+    -- `title_line` ("row" | "statusline" | "border") places the title: a CONTENT row at the top (the canon —
+    -- flush-left, counter flush-right), the chrome overlay (area minibuffer style), or the native border-title.
+    -- The hardcoded fallback is "row", NOT "border": the native border-title has visual quirks (nvim's 1-col
+    -- corner inset, and it vanishes when the container border is "none"), so it is opt-in only, never a default.
+    -- `counter` ("title" | "footer") places a supplied `count` beside the title or in the native border-footer.
     local ui_conf = config.ui or {}
-    cfg.title_line = cfg.title_line or ui_conf.title_line or "border"
+    cfg.title_line = cfg.title_line or ui_conf.title_line or "row"
     cfg.counter = cfg.counter or ui_conf.counter or "footer"
     -- Inter-panel divider: LEFT as the consumer passed it (nil = use the configurable default `config.ui.separator`,
     -- resolved live at render via `resolve_divider`; false / a string / a { h, v } table = a per-surface override).
@@ -2980,7 +2982,17 @@ function M.open(cfg)
 
     -- A FLOAT carries the brand as its border title (built in open_windows). A SPLIT has no border, so the
     -- title becomes the top CONTENT row of the chrome instead (the icon + text, flattened).
-    local hbands = build_bands(cfg.header, false, cfg.header_air)
+    -- The SURFACE owns the title-row air: when the title is a CONTENT row, IT adds the single air row below the
+    -- title (the `elseif` branch) and suppresses build_bands' own header air, so a consumer never has to manage
+    -- it and the result is exactly ONE blank row under the title — no matter what `header_air` the consumer set.
+    local row_title = cfg.mode ~= "split" and cfg.title_line == "row" and cfg.title and cfg.title ~= ""
+    -- (NB: `row_title and false or cfg.header_air` is the Lua ternary trap — `and false` always falls through to
+    -- the `or`; use an explicit guard so the row-title genuinely suppresses build_bands' own header air.)
+    local header_air = cfg.header_air
+    if row_title then
+        header_air = false
+    end
+    local hbands = build_bands(cfg.header, false, header_air)
     if cfg.mode == "split" then
         local t = cfg.title
         -- UPPERCASE the title text (the canon), keep the icon glyph
@@ -2993,7 +3005,7 @@ function M.open(cfg)
         if s ~= "" then
             table.insert(hbands, 1, { meta = s, hl = "LvimUiPeekTitle" })
         end
-    elseif cfg.title_line == "row" and cfg.title and cfg.title ~= "" then
+    elseif row_title then
         -- The title (+ counter) as the FIRST content row — a `title_counter` band. The native border-title
         -- reserves a 1-col corner margin (so it can't be flush-left), but a content row is drawn into the buffer
         -- from column 0, so the tinted title block hugs the left and the counter hugs the right. `build_brand`
