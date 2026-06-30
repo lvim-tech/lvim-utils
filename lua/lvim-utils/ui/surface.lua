@@ -945,28 +945,59 @@ local function render_chrome(state, L)
             return
         end
         if band.title_counter then
-            -- A title (left) + a re-evaluated COUNTER (right) — rendered THROUGH ui.bar (the title is its
-            -- left prefix, the counter a right-aligned item), so it matches the message bar exactly.
+            -- A title + a re-evaluated COUNTER. `title_pos` places the title: LEFT (default) renders THROUGH
+            -- ui.bar (title = its left prefix, counter a right-aligned item) so it matches the message bar exactly;
+            -- CENTER / RIGHT place the title by hand (ui.bar's title is prefix-only), with the counter still
+            -- flush-right. UPPERCASE in every case (the title-bar canon).
             local cnt = band.count and tostring((type(band.count) == "function" and band.count()) or band.count) or ""
-            local items = {}
-            if cnt ~= "" then
-                items[1] = {
-                    type = "button",
-                    text = cnt,
-                    style = { text = { padding = { 1, 1 }, normal = band.count_hl or "LvimUiSubtitle" } },
-                }
+            local tpos = band.title_pos or "left"
+            if tpos == "left" then
+                local items = {}
+                if cnt ~= "" then
+                    items[1] = {
+                        type = "button",
+                        text = cnt,
+                        style = { text = { padding = { 1, 1 }, normal = band.count_hl or "LvimUiSubtitle" } },
+                    }
+                end
+                local res = uibar.render({
+                    items = items,
+                    width = W,
+                    align = "right",
+                    title = band.text,
+                    title_hl = band.hl or "LvimUiPeekTitle",
+                })
+                lines[ln] = res.line
+                placements[#placements + 1] = { ln - 1, 0, #res.line, "LvimUiBarFill", 150 } -- the continuous row strip
+                for _, sp in ipairs(res.spans) do
+                    placements[#placements + 1] = { ln - 1, sp[1], sp[2], sp[3], 200 }
+                end
+                return
             end
-            local res = uibar.render({
-                items = items,
-                width = W,
-                align = "right",
-                title = band.text,
-                title_hl = band.hl or "LvimUiPeekTitle",
-            })
-            lines[ln] = res.line
-            placements[#placements + 1] = { ln - 1, 0, #res.line, "LvimUiBarFill", 150 } -- the continuous row strip
-            for _, sp in ipairs(res.spans) do
-                placements[#placements + 1] = { ln - 1, sp[1], sp[2], sp[3], 200 }
+            -- CENTER / RIGHT: place the (uppercased) title manually. Leading run is spaces (1 byte = 1 cell), so
+            -- the title's byte offset == its display column; the counter is appended flush-right after it.
+            local title = tostring(band.text or ""):upper()
+            local tw = util.dw(title)
+            local cw = cnt ~= "" and util.dw(cnt) or 0
+            local tcol = (tpos == "center") and math.max(0, math.floor((W - tw) / 2))
+                or math.max(0, W - tw - (cw > 0 and cw + 1 or 0)) -- "right": sit before the counter
+            local body = string.rep(" ", tcol) .. title
+            local tstart, tend = tcol, tcol + #title
+            local cstart, cend
+            if cnt ~= "" then
+                local ccol = math.max(util.dw(body), W - cw - 1) -- flush right, 1-col margin, never over the title
+                body = body .. string.rep(" ", math.max(0, ccol - util.dw(body)))
+                cstart = #body
+                body = body .. cnt
+                cend = #body
+            end
+            body = body .. string.rep(" ", math.max(0, W - util.dw(body)))
+            lines[ln] = body
+            placements[#placements + 1] = { ln - 1, 0, #body, "LvimUiBarFill", 150 }
+            placements[#placements + 1] =
+                { ln - 1, math.max(0, tstart - 1), math.min(#body, tend + 1), band.hl or "LvimUiPeekTitle", 200 }
+            if cstart then
+                placements[#placements + 1] = { ln - 1, cstart, cend, band.count_hl or "LvimUiPeekCounter", 200 }
             end
             return
         end
@@ -2968,6 +2999,9 @@ function M.open(cfg)
     local ui_conf = config.ui or {}
     cfg.title_line = cfg.title_line or ui_conf.title_line or "row"
     cfg.counter = cfg.counter or ui_conf.counter or "footer"
+    -- Title ALIGNMENT (shared by the content-row title AND the native border-title): per-open override <
+    -- `config.ui.title_pos` < "left". "left" | "center" | "right".
+    cfg.title_pos = cfg.title_pos or ui_conf.title_pos or "left"
     -- Inter-panel divider: LEFT as the consumer passed it (nil = use the configurable default `config.ui.separator`,
     -- resolved live at render via `resolve_divider`; false / a string / a { h, v } table = a per-surface override).
     -- It only ever draws between adjacent panels (n-1 gaps), so a single-panel surface (select / info / input /
@@ -3069,6 +3103,7 @@ function M.open(cfg)
             end,
             hl = thl,
             count_hl = "LvimUiPeekCounter",
+            title_pos = cfg.title_pos, -- "left" (default) | "center" | "right" — placement of the content-row title
         })
     end
 

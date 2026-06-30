@@ -60,6 +60,11 @@ return {
     --                "footer" (a right-aligned native bottom border-FOOTER).
     title_line = "row",
     counter = "title",
+    -- Title ALIGNMENT, shared by the content-row title (`title_line="row"`) AND the native border-title:
+    -- "left" (default — flush-left, counter flush-right), "center", or "right". A single `surface.open` may
+    -- override per-open with its own `title_pos`. Lets a panel (e.g. LvimControlCenter) center its title
+    -- consistently without needing a border.
+    title_pos = "left",
 
     -- Background tint strengths (blend factor toward c.bg) for the themed chrome cells,
     -- matching the notify/Messages look: `strong` paints prominent/active cells (title,

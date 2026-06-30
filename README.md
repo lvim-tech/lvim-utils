@@ -496,7 +496,8 @@ Instance `highlights` override the global `LvimUi*` groups **only for popups ope
 | `content_border` | `"none"` (per-panel ring off)    | THE per-panel ring (see below); off by default |
 | `group_border`   | `{ "", "", … }` (off) / ring     | THE single GROUP frame around the panels (see below) |
 | `separator`      | `{ h = "│", v = "─", hl = … }`   | THE single inter-panel divider (see below)  |
-| `title_line`     | `"border"`                       | Area/cmdline frame title placement (below)  |
+| `title_line`     | `"row"`                          | Frame title placement (below)               |
+| `title_pos`      | `"left"`                         | Title alignment — left / center / right (below) |
 | `counter`        | `"title"`                        | Count placement on the frame (below)        |
 | `position`   | `"editor"`                       | Default popup position                      |
 | `width`      | `0.8`                            | Popup width as fraction of editor           |
@@ -522,11 +523,12 @@ re-borders or re-titles the whole set on the next open.
 | `content_border` | 8-cell ring / `"none"`       | THE per-panel ring — drawn around EACH DATA block INSIDE the container (a picker's list + preview, the tabs content panel). Independent of `border` and `group_border`. Default `"none"` (panels BORDERLESS): the `group_border` frames the two panels as a group and the `separator` divides them, so a per-panel ring would just double the lines. Set an 8-element ring to also frame each panel. |
 | `group_border`   | 8-cell ring `{ …, hl }` / `false` | THE one canonical GROUP ring — a COMMON frame drawn around the DATA panels as a group (a picker's list + preview together), INSIDE the container but OUTSIDE the header / footer nav bands. The third, "unifying" ring: container › group › each panel's `content_border`. Drawn ONLY with ≥2 content panels (one panel needs no grouping); a 1-col gutter sits between container↔group and group↔panels so no edge doubles. `false` disables it. |
 | `separator`      | `{ h, v, hl }` / string / `false` | THE one canonical INTER-PANEL divider — the rule drawn BETWEEN adjacent content panels. Auto-oriented (`h` = `"│"` side-by-side, `v` = `"─"` stacked), `hl` tints it (default the border tint). Drawn only at `n-1` gaps, so a single-panel surface shows none. `false` disables it; a plain string is used verbatim for both axes. |
-| `title_line`     | `"border"` \| `"statusline"` | Where an **area / cmdline-docked** frame's TITLE goes — the native LEFT-aligned border-title (default), or published to the chrome statusline overlay (minibuffer style, suppressing the border-title). Float / bottom modes always use the border-title. |
-| `counter`        | `"title"` \| `"footer"`      | Where a supplied count (item / match total) renders — RIGHT-aligned on the SAME top-border line as the title (default, reads `NAME ………… 8/62`), or as a right-aligned native bottom border-FOOTER. |
+| `title_line`     | `"row"` \| `"border"` \| `"statusline"` | Where a frame's TITLE goes — a top CONTENT row drawn from column 0 (default; flush-left title, flush-right counter), the native border-title (needs a top border, which the default `border = "none"` lacks), or published to the chrome statusline overlay (area only, minibuffer style). |
+| `title_pos`      | `"left"` \| `"center"` \| `"right"` | Title ALIGNMENT, honoured by BOTH the content-row title and the native border-title. `"left"` (default) puts the title flush-left + the counter flush-right; `"center"` / `"right"` place the title accordingly (counter stays right). Lets a panel (e.g. the control center) centre its title with no border. |
+| `counter`        | `"title"` \| `"footer"`      | Where a supplied count (item / match total) renders — RIGHT-aligned on the SAME line as the title (default, reads `NAME ………… 8/62`), or as a right-aligned native bottom border-FOOTER. |
 
 A single `ui.surface.open` / presenter call may override `border` / `content_border` /
-`separator` / `title_line` / `counter` per-open, but the defaults above govern every consumer.
+`separator` / `title_line` / `title_pos` / `counter` per-open, but the defaults above govern every consumer.
 
 **Default icons**
 

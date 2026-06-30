@@ -181,6 +181,33 @@ function M.resolve_border(b)
     return t
 end
 
+--- The shared FRAME border, resolved from the single `config.ui.border` (default "none") to the 8-element
+--- form `nvim_open_win` accepts. ONE source for every plugin that opens its own float (lvim-keys-helper,
+--- lvim-qf-loc, lvim-shell) instead of each re-resolving the config — so the frame border is consistent
+--- everywhere. Standalone callers (lvim-utils absent) keep their own fallback by guarding the require.
+---@return table  an 8-element resolved border
+function M.frame_border()
+    local ok, conf = pcall(require, "lvim-utils.config")
+    local b = (ok and conf.ui and conf.ui.border) or "none"
+    return M.resolve_border(b)
+end
+
+--- The border for a NATIVE float that carries its own TITLE / action FOOTER on the border (hover / diagnostic
+--- peeks, the keys cheatsheet). It follows the shared `config.ui.border`, BUT when that is "none" (the chassis
+--- panels are borderless because they put the title in a CONTENT row) it returns an INVISIBLE all-" " padding
+--- ring — a native border-title / footer cannot render without a border, so this keeps them VISIBLE while still
+--- looking borderless (the padding draws no glyph). A real configured ring is used as-is.
+---@return table  an 8-element resolved border
+function M.chrome_border()
+    local fb = M.frame_border()
+    for _, e in ipairs(fb) do
+        if e ~= "" then
+            return fb -- a real (visible) border is configured — use it
+        end
+    end
+    return M.resolve_border({ " ", " ", " ", " ", " ", " ", " ", " " }) -- borderless → invisible padding ring
+end
+
 --- Per-side insets (top, right, bottom, left) of a resolved 8-element border: 1 cell for any side
 --- whose element is a non-empty string (a glyph OR a " " pad), 0 for an empty "" side.
 ---@param b table|nil  a border resolved by M.resolve_border ({ tl, t, tr, r, br, b, bl, l })

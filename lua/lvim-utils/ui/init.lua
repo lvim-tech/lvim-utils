@@ -45,6 +45,7 @@ local M = {}
 ---@field tab_selector? integer|string -- tabs: initial active tab — an index or a tab `name`
 ---@field title_count? fun(): integer|table  -- tabs: a live count for the chassis border counter — a total `number` or `{ current, total }` (placed per `counter`; default the bottom-right border-footer)
 ---@field title_line? string         -- tabs (area): "border" (title in the top border, default) | "statusline" (publish to the chrome overlay)
+---@field title_pos? string           -- title alignment: "left" (default) | "center" | "right"
 ---@field counter? string            -- tabs: "footer" (count in the bottom-right border, default) | "title" (count folded into the border-title)
 ---@field max_items? integer         -- tabs (docked): cap the content rows (it scrolls past the cap)
 ---@field area_height? integer       -- tabs (docked): the docked content row budget (default AREA_CAP); scrolls past it
@@ -847,6 +848,7 @@ function M.tabs(opts)
         border = opts.border or FRAME_BORDER,
         title = opts.title,
         title_line = opts.title_line,
+        title_pos = opts.title_pos, -- "left" (default) | "center" | "right" — title alignment
         counter = opts.counter,
         count = opts.title_count,
         close_keys = opts.close_keys,

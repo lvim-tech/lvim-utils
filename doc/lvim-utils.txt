@@ -183,10 +183,16 @@ changing one key re-borders or re-titles the whole set on the next open.
                    ("─") stacked (auto-oriented), `hl` the tint (default the border
                    tint). Drawn only at n-1 gaps, so a single-panel surface shows
                    none. `separator = false` disables it; a plain string = both axes.
-  `title_line`     "border" (default) | "statusline". Where an AREA / cmdline-docked
-                   frame's TITLE goes: the native LEFT-aligned border-title, or the
-                   chrome statusline overlay (minibuffer style, border-title
-                   suppressed). Float / bottom modes always use the border-title.
+  `title_line`     "row" (default) | "border" | "statusline". Where a frame's TITLE
+                   goes: a top CONTENT row drawn from column 0 (flush-left title,
+                   flush-right counter), the native border-title (needs a top border,
+                   which the default border="none" lacks), or the chrome statusline
+                   overlay (area only, minibuffer style).
+  `title_pos`      "left" (default) | "center" | "right". Title ALIGNMENT, honoured by
+                   both the content-row title and the native border-title. "left" =
+                   title flush-left + counter flush-right; "center"/"right" place the
+                   title accordingly (counter stays right). Lets a panel centre its
+                   title with no border.
   `counter`        "title" (default) | "footer". Where a supplied count renders:
                    RIGHT-aligned on the SAME top-border line as the title
                    ("NAME ………… 8/62"), or a right-aligned native bottom border-FOOTER.
