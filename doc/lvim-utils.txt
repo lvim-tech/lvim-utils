@@ -157,19 +157,27 @@ reference, `ui.new()` isolated instances, and popup positioning.
                                                        *lvim-utils-ui-frame*
 FRAME BORDER & TITLE ~
 
-Five `ui` config keys are the single source of truth for the windowed-UI "frame".
+Six `ui` config keys are the single source of truth for the windowed-UI "frame".
 EVERY panel across all lvim-tech plugins (pickers, ui.tabs panels, lvim-lsp hover /
 diagnostic peeks, lvim-space, the control center, …) now resolves to them, so
 changing one key re-borders or re-titles the whole set on the next open.
 
-  `border`         THE one canonical popup ring — the CONTAINER frame, a full 8-cell
-                   border { topleft, top, topright, right, botright, bot, botleft,
-                   left }. Empty "" corners are normalised by `resolve_border`.
-                   Default the rounded ring { "╭","─","╮","│","╯","─","╰","│" }.
-  `content_border` THE one canonical CONTENT-PANEL ring — drawn around the DATA blocks
-                   INSIDE the container (a picker's list + preview, the tabs content).
-                   Independent of `border`; nav bands (footer / filter / tab / input)
-                   stay borderless. Default the same rounded ring.
+  `border`         THE CONTAINER frame, a full 8-cell border { topleft, top, topright,
+                   right, botright, bot, botleft, left }. Default { "", " ", "", "", "",
+                   "", "", "" } — ONLY a top " " bar carrying the title + counter; no
+                   side/bottom ring (the group_border frames the panels). Set a full
+                   ring to box the whole container.
+  `content_border` THE per-panel ring — drawn around EACH DATA block INSIDE the container
+                   (a picker's list + preview, the tabs content). Independent of `border`
+                   and `group_border`. Default "none" (panels BORDERLESS): the group_border
+                   frames the two panels and the separator divides them, so a per-panel ring
+                   would double the lines. Set an 8-element ring to frame each panel too.
+  `group_border`   THE one canonical GROUP ring — a COMMON frame around the DATA panels
+                   as a group (a picker's list + preview together), INSIDE the container
+                   but OUTSIDE the header / footer nav bands. The third "unifying" ring:
+                   container › group › each panel's content_border. Drawn ONLY with ≥2
+                   panels; a 1-col gutter sits between container↔group and group↔panels
+                   so no edge doubles. `{ …, hl }` table, or false to disable.
   `separator`      THE one canonical INTER-PANEL divider — the rule BETWEEN adjacent
                    content panels. A { h, v, hl } table: `h` ("│") side-by-side, `v`
                    ("─") stacked (auto-oriented), `hl` the tint (default the border

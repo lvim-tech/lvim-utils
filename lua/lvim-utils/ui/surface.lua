@@ -192,8 +192,7 @@ local function build_bands(spec, footer, add_air)
     end
     if footer then
         if #bands > 0 then
-            table.insert(bands, 1, { meta = "" }) -- 1 air row ABOVE the footer content
-            bands[#bands + 1] = { meta = "" } -- 1 air row BELOW it (breathing space off the bottom border)
+            table.insert(bands, 1, { meta = "" }) -- 1 air row ABOVE the footer content (the only footer air)
         end
     elseif add_air ~= false then
         table.insert(bands, 1, { meta = "" }) -- 1 air row under the (border-)title (skip when add_air=false)
@@ -311,6 +310,9 @@ local function build_brand(state, width)
     if is_area_dock(cfg) and cfg.title_line == "statusline" then
         return nil -- the title lives on the chrome overlay (suppress the border-title)
     end
+    if cfg.title_line == "row" then
+        return nil -- the title lives in a CONTENT row (a title_counter band), not the native border-title
+    end
     local chunks = title_chunks(cfg.title) or {}
     if cfg.counter == "title" then
         local ct = counter_text(cfg)
@@ -418,6 +420,41 @@ local function divider_hl(cfg)
     return cfg.separator_hl or (type(d) == "table" and d.hl) or "LvimUiPeekBorder"
 end
 
+-- ─── group frame (the "unifying ring" around the content-panel group) ──────────
+-- A COMMON ring drawn around the DATA panels as one group (a picker's list + preview), INSIDE the container
+-- but OUTSIDE the header / footer nav bands. Third ring level: container (outer) › group › each panel's own
+-- content_border. Only when there are ≥2 content panels (one panel needs no grouping). Resolution: a per-surface
+-- `cfg.group_border` overrides the configurable default `config.ui.group_border` (false to disable, or an
+-- 8-element border table `{ …, hl }`). The layout reserves a 1-col gutter on each side between the container and
+-- the group, and between the group and the panels, so no edge doubles.
+
+--- The resolved group-frame border (8-element) + its hl, or nil when disabled / fewer than 2 panels.
+---@param cfg table
+---@param n integer  the content-panel count
+---@return string[]|nil border, string? hl
+local function group_frame(cfg, n)
+    if n < 2 then
+        return nil
+    end
+    local g = cfg.group_border
+    if g == nil then
+        g = config.ui.group_border
+    end
+    if g == false or g == "none" then
+        return nil
+    end
+    local b = util.resolve_border(g)
+    -- A border whose every edge is "" has ZERO insets — it draws nothing and must add NO geometry overhead
+    -- (no gutters), else the content would sit inset from the edges for an invisible frame. Treat it as OFF so
+    -- the panels lay out flush. (resolve_border keeps "" as 0-inset; " " is a real 1-inset blank edge.)
+    local t, r, bo, l = util.insets(b)
+    if (t + r + bo + l) == 0 then
+        return nil
+    end
+    local hl = (type(g) == "table" and g.hl) or "LvimUiPeekBorder"
+    return b, hl
+end
+
 -- ─── geometry ─────────────────────────────────────────────────────────────────
 
 --- The largest `cmdheight` the current window layout can give up without "E36: Not enough room": the
@@ -488,6 +525,21 @@ local function compute_geom(state, place)
     -- per-surface overridable); 0 otherwise. Only consumed as `sep_w * (n - 1)`, so a single panel reserves none.
     local sep_w = resolve_divider(cfg.separator, vertical) and 1 or 0
 
+    -- GROUP frame overhead (the common ring around the panel group). HORIZONTAL per side = outer gutter (1,
+    -- container ↔ group) + the group border (its left/right inset) + inner gutter (1, group ↔ panels). VERTICAL
+    -- = the group border's top + bottom inset, with NO row gutters (rows are sequential, so no doubling — this
+    -- keeps the area short). `gh` is the per-SIDE horizontal overhead, `gv_t` / `gv_b` the top / bottom.
+    local gbord, ghl = group_frame(cfg, n)
+    local g_on = gbord ~= nil
+    local git_t, git_r, git_b, git_l = util.insets(gbord or util.resolve_border("none"))
+    local g_og = g_on and 1 or 0 -- outer gutter (container ↔ group)
+    local g_ig = g_on and 1 or 0 -- inner gutter (group ↔ panels)
+    local gh_l = g_og + git_l + g_ig -- left horizontal overhead
+    local gh_r = g_ig + git_r + g_og -- right horizontal overhead
+    local gh = gh_l + gh_r -- total horizontal overhead
+    local gv_t, gv_b = git_t, git_b -- top / bottom overhead (group border only)
+    local gv = gv_t + gv_b -- total vertical overhead
+
     -- Per-panel border insets + natural content size (provider.size()). Track BOTH axes so either layout
     -- direction can auto-size: sum along the stacking axis, max across it.
     local pin = {}
@@ -532,7 +584,9 @@ local function compute_geom(state, place)
     end
     -- Stacking axis sums; cross axis is the max. Horizontal: width sums (+ column separators), height = the
     -- tallest panel. Vertical: width = the widest panel, height sums (+ row separators).
-    local content_w = vertical and math.max(bars_w, nat_w_max) or math.max(bars_w, nat_w_sum + sep_w * (n - 1))
+    -- The panel footprints carry the GROUP frame overhead too (gh), so auto-width reserves room for the ring.
+    local content_w = vertical and math.max(bars_w, nat_w_max + gh)
+        or math.max(bars_w, nat_w_sum + sep_w * (n - 1) + gh)
 
     -- Container CONTENT width/height (W excludes the container's own border columns). With `place` the rect is
     -- the OUTER footprint the host reserved (or the split window's actual size), so the container's own border
@@ -558,13 +612,16 @@ local function compute_geom(state, place)
         end
     end
     local footer_h = #state.footer_bands
-    local content_h = header_h + footer_h + (vertical and (nat_h_sum + sep_w * (n - 1)) or nat_h_max)
+    local content_h = header_h + footer_h + gv + (vertical and (nat_h_sum + sep_w * (n - 1)) or nat_h_max)
     -- A split takes the full height nvim gives it (place.H); a float sizes per auto/explicit height. The
     -- center never shrinks below `min_content_height` VISIBLE rows — counted on the panel content, so the
     -- panel borders are added on top (the header/footer bands are fixed-height). Stacked panels need room
     -- for ALL of them. `min_h` is the resulting minimum container height, exported for the resize clamp.
-    local min_center = vertical and (n * math.max(1, cfg.min_content_height or 1) + border_rows + sep_w * (n - 1))
-        or (math.max(1, cfg.min_content_height or 1) + max_vborder)
+    local min_center = gv
+        + (
+            vertical and (n * math.max(1, cfg.min_content_height or 1) + border_rows + sep_w * (n - 1))
+            or (math.max(1, cfg.min_content_height or 1) + max_vborder)
+        )
     local min_h = header_h + footer_h + min_center
     local H = place and (place.H - ct - cb)
         or util.axis_size(cfg.auto_height, cfg.height, cfg.max_height, content_h, vim.o.lines)
@@ -680,19 +737,22 @@ local function compute_geom(state, place)
         return sizes
     end
 
+    -- The panels lay out INSIDE the group frame: the available extent shrinks by the group overhead (gh / gv)
+    -- and the origin shifts in by the LEFT / TOP overhead (gh_l / gv_t). With no group (g_on=false) every g* is
+    -- 0, so this is identical to the un-grouped layout.
     if vertical then
-        local heights = allocate(math.max(n, center_h - border_rows - sep_w * (n - 1)), function(i)
+        local heights = allocate(math.max(n, center_h - gv - border_rows - sep_w * (n - 1)), function(i)
             return pin[i].nat_h
         end, cfg.auto_height)
-        -- Lay footprints top→bottom; each panel is full center width; dividers sit in the row gaps.
-        local y = center_top
+        -- Lay footprints top→bottom; each panel is full (grouped) center width; dividers sit in the row gaps.
+        local y = center_top + gv_t
         for i = 1, n do
             local pi = pin[i]
             out[i] = {
-                width = math.max(1, W - pi.l - pi.r),
+                width = math.max(1, W - gh - pi.l - pi.r),
                 height = heights[i],
                 row = y,
-                col = cc_col,
+                col = cc_col + gh_l,
                 border = pi.b,
             }
             y = y + pi.t + heights[i] + pi.bo
@@ -702,17 +762,17 @@ local function compute_geom(state, place)
             end
         end
     else
-        local widths = allocate(math.max(n, W - border_cols - sep_w * (n - 1)), function(i)
+        local widths = allocate(math.max(n, W - gh - border_cols - sep_w * (n - 1)), function(i)
             return pin[i].nat_w
         end, cfg.auto_width)
         -- Lay footprints left→right; each panel's col is its LEFT-BORDER position; dividers sit in the gaps.
-        local x = cc_col
+        local x = cc_col + gh_l
         for i = 1, n do
             local pi = pin[i]
             out[i] = {
                 width = widths[i],
-                height = math.max(1, center_h - pi.t - pi.bo),
-                row = center_top,
+                height = math.max(1, center_h - gv - pi.t - pi.bo),
+                row = center_top + gv_t,
                 col = x,
                 border = pi.b,
             }
@@ -739,6 +799,21 @@ local function compute_geom(state, place)
         panels = out,
         dividers = dividers,
         vertical = vertical, -- dividers are ROW offsets (a horizontal rule) when true, else column offsets
+        -- The common GROUP ring around the panels (drawn by render_chrome), or nil when ungrouped. Coords are
+        -- 0-based within the container buffer: `line0`..`line0+lines-1` rows, `col0`..`col0+cols-1` cols. `ptop`
+        -- / `pbot` are the panel insets within it (so the divider rule spans only the panel rows, not the ring).
+        group = g_on and {
+            line0 = header_h,
+            lines = center_h,
+            col0 = g_og,
+            cols = W - 2 * g_og,
+            border = gbord,
+            hl = ghl,
+            ptop = gv_t,
+            pbot = gv_b,
+            pcol0 = gh_l, -- 0-based buffer col where the PANELS (and so the divider) start, inside the ring
+            pcols = W - gh, -- the panel-area width inside the ring
+        } or nil,
     }
 end
 
@@ -759,26 +834,90 @@ local function render_chrome(state, L)
         divider_set[d] = true
     end
 
-    -- A center row. Horizontal layout: vertical separator glyphs at the divider COLUMNS (the 1-col gaps
-    -- between side-by-side panels). Vertical layout: the whole row is a separator rule when it IS a divider
-    -- ROW (the 1-row gap between stacked panels), else blank. The panels (floats) overlay the rest.
-    local function center_line(center_off)
-        if not sep_char then
-            return string.rep(" ", W)
+    -- A center row (`i` 1-based buffer line). It carries, in this order, on a blank W-wide row:
+    --  • the inter-panel DIVIDER — a vertical glyph at the divider COLUMNS (horizontal layout), drawn only on
+    --    the PANEL rows; or a full panel-width rule on a divider ROW (vertical/stacked layout);
+    --  • the common GROUP ring box (when `L.group`) — its corners / top-bottom rules / left-right verticals,
+    --    drawn ON TOP so the ring edges always read cleanly around the panels.
+    local grp = L.group
+    local sep_hl = sep_char and util.resolve_hl(divider_hl(state.cfg)) or nil
+    local grp_hl = grp and util.resolve_hl(grp.hl or "LvimUiPeekBorder") or nil
+    -- Highlights for the center rows, keyed by 0-based buffer line → { { byte0, byte1, hl }, … }. We compute
+    -- BYTE columns (not cell columns) because the group ring + divider glyphs are multi-byte, so a cell index is
+    -- NOT its byte offset — emitting extmarks at cell indices would mis-place the tint.
+    local center_hls = {}
+    local function center_line(i)
+        local i0 = i - 1 -- 0-based buffer line
+        local center_off = i - L.header_h - 1 -- 0-based offset within the center (matches vertical dividers)
+        local cells, chl = {}, {}
+        for c = 1, W do
+            cells[c] = " "
         end
-        if L.vertical then
-            return divider_set[center_off] and string.rep(sep_char, W) or string.rep(" ", W)
+        local pcol0 = grp and grp.pcol0 or 0 -- the panel-area column range (where the divider lives)
+        local pcols = grp and grp.pcols or W
+        if sep_char then
+            if L.vertical then
+                if divider_set[center_off] then
+                    for c = pcol0, pcol0 + pcols - 1 do
+                        cells[c + 1], chl[c + 1] = sep_char, sep_hl
+                    end
+                end
+            else
+                -- only on the PANEL rows (a grouped ring's top/bottom rows are NOT panel rows)
+                local in_panel = not grp or (i0 >= grp.line0 + grp.ptop and i0 <= grp.line0 + grp.lines - 1 - grp.pbot)
+                if in_panel then
+                    for c = 0, W - 1 do
+                        if divider_set[c] then
+                            cells[c + 1], chl[c + 1] = sep_char, sep_hl
+                        end
+                    end
+                end
+            end
         end
-        local cells = {}
-        for c = 0, W - 1 do
-            cells[c + 1] = divider_set[c] and sep_char or " "
+        if grp then
+            local gtop, gbot = grp.line0, grp.line0 + grp.lines - 1
+            local gl, gr = grp.col0, grp.col0 + grp.cols - 1
+            local b = grp.border -- { tl, t, tr, r, br, bo, bl, l }
+            local function put(c, ch)
+                if ch and ch ~= "" then
+                    cells[c + 1], chl[c + 1] = ch, grp_hl
+                end
+            end
+            if i0 == gtop then
+                put(gl, b[1])
+                put(gr, b[3])
+                for c = gl + 1, gr - 1 do
+                    put(c, b[2])
+                end
+            elseif i0 == gbot then
+                put(gl, b[7])
+                put(gr, b[5])
+                for c = gl + 1, gr - 1 do
+                    put(c, b[6])
+                end
+            elseif i0 > gtop and i0 < gbot then
+                put(gl, b[8])
+                put(gr, b[4])
+            end
+        end
+        -- Convert the per-cell highlights to BYTE-accurate spans for this row.
+        local hls, byte = {}, 0
+        for c = 1, W do
+            local w = #cells[c]
+            if chl[c] then
+                hls[#hls + 1] = { byte, byte + w, chl[c] }
+            end
+            byte = byte + w
+        end
+        if #hls > 0 then
+            center_hls[i0] = hls
         end
         return table.concat(cells)
     end
 
     local lines = {}
     for i = 1, H do
-        lines[i] = (i > L.header_h and i <= H - L.footer_h) and center_line(i - L.header_h - 1) or string.rep(" ", W)
+        lines[i] = (i > L.header_h and i <= H - L.footer_h) and center_line(i) or string.rep(" ", W)
     end
 
     -- Place each header/footer band, recording where its bar buttons land (for the next layer's
@@ -886,28 +1025,13 @@ local function render_chrome(state, L)
             priority = p[5],
         })
     end
-    if sep_char then
-        local sep_hl = util.resolve_hl(divider_hl(state.cfg))
-        if L.vertical then
-            -- VERTICAL stack: each divider is a full-width ROW ("─") at `header_h + d` — highlight the WHOLE line
-            -- (a `d` here is a ROW offset, not a column), so the rule reads with `sep_hl` exactly like the
-            -- horizontal "│" instead of the default fg.
-            for _, d in ipairs(L.dividers) do
-                pcall(api.nvim_buf_set_extmark, state.container_buf, NS, L.header_h + d, 0, {
-                    end_col = W * #sep_char,
-                    hl_group = sep_hl,
-                })
-            end
-        else
-            -- HORIZONTAL: each divider is a COLUMN ("│") — highlight it on every center row.
-            for ln = L.header_h, H - L.footer_h - 1 do
-                for _, d in ipairs(L.dividers) do
-                    pcall(api.nvim_buf_set_extmark, state.container_buf, NS, ln, d, {
-                        end_col = d + #sep_char,
-                        hl_group = sep_hl,
-                    })
-                end
-            end
+    -- The center-row tints (the GROUP ring + the divider), at BYTE-accurate columns computed in center_line.
+    for line0, hls in pairs(center_hls) do
+        for _, h in ipairs(hls) do
+            pcall(api.nvim_buf_set_extmark, state.container_buf, NS, line0, h[1], {
+                end_col = h[2],
+                hl_group = h[3],
+            })
         end
     end
 end
@@ -1539,7 +1663,11 @@ local function host_geom(state, L)
     if state.cfg.host then
         local rect = state.cfg.host(L.H + pad) -- reserve content + the container border; host grows cmdheight + returns our rect
         if rect then
-            return compute_geom(state, { row = rect.row, col = rect.col, W = rect.width, H = L.H })
+            -- Fill the reserved rect EXACTLY: hand compute_geom the rect's own height (rect.height when the host
+            -- reports it, else the amount we asked for) so the container total = the reserved zone — no blank
+            -- rows left below the bottom border, and the content keeps its natural size (rect.height - border).
+            local rh = rect.height or (L.H + pad)
+            return compute_geom(state, { row = rect.row, col = rect.col, W = rect.width, H = rh })
         end
         return L
     end
@@ -2017,6 +2145,11 @@ local function open_windows(state)
                     footer_pos = bfooter and "right" or nil,
                 })
             end
+        end
+        -- title_line="row": the count lives in the title_counter CONTENT row, so re-render the chrome to refresh
+        -- it (the band re-evaluates its `count` closure, which reads the live state).
+        if state.cfg.title_line == "row" and state._geom then
+            render_chrome(state, state._geom)
         end
         publish_overlay_title(state)
     end
@@ -2860,6 +2993,33 @@ function M.open(cfg)
         if s ~= "" then
             table.insert(hbands, 1, { meta = s, hl = "LvimUiPeekTitle" })
         end
+    elseif cfg.title_line == "row" and cfg.title and cfg.title ~= "" then
+        -- The title (+ counter) as the FIRST content row — a `title_counter` band. The native border-title
+        -- reserves a 1-col corner margin (so it can't be flush-left), but a content row is drawn into the buffer
+        -- from column 0, so the tinted title block hugs the left and the counter hugs the right. `build_brand`
+        -- returns nil for "row", so the title is NOT also on the border; `set_title`/`set_counter` re-render this
+        -- band (refresh_chrome) instead of touching the border.
+        local t = cfg.title
+        local text, thl
+        if type(t) == "table" then
+            text = (t.icon and t.icon .. " " or "") .. (t.text and tostring(t.text) or "")
+            thl = (t.style and t.style.text and t.style.text.hl) or "LvimUiPeekTitle"
+        else
+            text = tostring(t)
+            thl = "LvimUiPeekTitle"
+        end
+        table.insert(hbands, 1, { meta = "" }) -- 1 air row UNDER the title bar (before the panels / other bands)
+        table.insert(hbands, 1, {
+            title_counter = true,
+            text = text,
+            -- format the count to the canon "cur/tot" string (cfg.count is an int / { current, total } / fn);
+            -- the band handler tostring()s whatever it gets, so hand it the already-formatted text (or "")
+            count = function()
+                return counter_text(cfg) or ""
+            end,
+            hl = thl,
+            count_hl = "LvimUiPeekCounter",
+        })
     end
 
     local state = {

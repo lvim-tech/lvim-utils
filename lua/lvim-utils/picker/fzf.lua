@@ -321,7 +321,10 @@ function M.open(opts)
     -- focused file's line count — both capped at `max_rows`. `refit` relayouts when either changes, so the
     -- panels + the auto-fit area track the content live.
     local function list_rows()
-        return math.min(math.max(state.counts.match or 0, 1), maxr)
+        -- the MATCH rows only (the search/prompt row is the provider's separate "+1"); 0 on an empty result, so
+        -- the list footprint collapses to the single prompt row — the panels + the divider then match the
+        -- visible content height instead of leaving a stray empty row (and an over-tall divider).
+        return math.min(state.counts.match or 0, maxr)
     end
     local function file_rows()
         local it = state.cur_item
@@ -335,9 +338,27 @@ function M.open(opts)
         end
         return 1
     end
+    -- The preview panel's CONTENT height when a file is focused: the file rows + 1 for the file WINBAR, floored
+    -- at PREVIEW_MIN. Neovim does NOT paint a window's winbar once the window gets too short (empirically a panel
+    -- shorter than 4 rows drops it), so a 1- or 2-line file would otherwise show its content with NO name winbar
+    -- — the floor keeps the panel tall enough that the winbar always renders. With nothing focused: a single row.
+    local PREVIEW_MIN = 4
+    local function preview_rows()
+        return state.cur_item and math.max(file_rows() + 1, PREVIEW_MIN) or 1
+    end
     local last_fit
     local function refit()
-        local key = list_rows() .. ":" .. file_rows()
+        -- Key on the actual PANEL footprints (list = matches + fzf prompt row; preview = preview_rows, which
+        -- already floors at the winbar minimum) so the key tracks the real area height.
+        local lr, fr = list_rows() + 1, preview_rows()
+        -- The auto-fit AREA height is driven by the panel STACK, not the raw pair: side-by-side (right/left) →
+        -- the TALLER panel (max); stacked (above/below) → their SUM. Key on THAT, so moving onto a file whose
+        -- row count changes but does NOT change the area height (a long list dwarfing a shorter preview → max
+        -- unchanged) does NOT relayout — which is what made the whole panel flicker on J/K. The preview CONTENT
+        -- still updates via render_preview (on_focus); only the needless relayout is skipped.
+        local side = (state.st and state.st.preview_side) or opts.preview_side or "right"
+        local vertical = side == "above" or side == "below"
+        local key = vertical and (lr + fr) or math.max(lr, fr)
         if key ~= last_fit and state.st and state.st.relayout then
             last_fit = key
             state.st.relayout()
@@ -799,12 +820,18 @@ function M.open(opts)
                 pcall(vim.fn.chansend, state.term_chan, keys)
             end
         end
+        local curmod = require("lvim-utils.cursor")
         local function to_insert()
             state.normal = false
+            pcall(curmod.mark_hide_buffer, tbuf, false) -- restore the input caret (terminal mode shows it again)
             vim.cmd("startinsert")
         end
         vim.keymap.set("t", "<Esc>", function()
             state.normal = true
+            -- NORMAL mode on the list: the REAL focus is fzf's own selection (down in the list), so HIDE the
+            -- hardware cursor — otherwise it lingers on the (now-inactive) prompt row, visible and movable. The
+            -- caret returns on `i`/`a` (to_insert). Horizontal motion is also disabled below so it can't wander.
+            pcall(curmod.mark_hide_buffer, tbuf, true)
             -- LEAVE terminal-mode (stopinsert does NOT exit it) → NORMAL on the terminal buffer; fzf keeps running
             vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-\\><C-n>", true, false, true), "n", false)
         end, kopts)
@@ -854,7 +881,40 @@ function M.open(opts)
                 end, kopts)
             end
         end
-        for _, lhs in ipairs({ "<C-f>", "<C-b>", "<C-e>", "<C-y>", "<PageDown>", "<PageUp>", "gg", "G", "H", "M", "L" }) do
+        for _, lhs in ipairs({
+            "<C-f>",
+            "<C-b>",
+            "<C-e>",
+            "<C-y>",
+            "<PageDown>",
+            "<PageUp>",
+            "gg",
+            "G",
+            "H",
+            "M",
+            "L",
+            -- block CURSOR MOTION too: the cursor is hidden in NORMAL mode (the fzf selection is the real focus),
+            -- so it must not wander off the prompt row — disable horizontal + word + line motions.
+            "h",
+            "l",
+            "<Left>",
+            "<Right>",
+            "0",
+            "$",
+            "^",
+            "w",
+            "b",
+            "e",
+            "W",
+            "B",
+            "E",
+            "<Home>",
+            "<End>",
+            "f",
+            "F",
+            "t",
+            "T",
+        }) do
             vim.keymap.set("n", lhs, "<Nop>", kopts)
         end
         -- the preview-scroll keys scroll the PREVIEW (a real nvim window) instead of going to fzf — matching
@@ -890,8 +950,9 @@ function M.open(opts)
     local preview_provider = opts.preview
             and {
                 size = function()
-                    -- with a focus: file lines + winbar; nothing focused: a SINGLE styled "nothing to preview" row
-                    return math.max(40, math.floor(vim.o.columns * 0.5)), (state.cur_item and file_rows() + 1) or 1
+                    -- with a focus: file lines + winbar (floored so the winbar always paints — see preview_rows);
+                    -- nothing focused: a SINGLE styled "nothing to preview" row
+                    return math.max(40, math.floor(vim.o.columns * 0.5)), preview_rows()
                 end,
                 update = function(pan)
                     state.preview_pan = pan

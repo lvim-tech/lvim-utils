@@ -492,8 +492,9 @@ Instance `highlights` override the global `LvimUi*` groups **only for popups ope
 
 | Key              | Default                          | Description                                 |
 | ---------------- | -------------------------------- | ------------------------------------------- |
-| `border`         | rounded ring `{ "╭", "─", … }`   | THE single frame-border source (see below)  |
-| `content_border` | rounded ring `{ "╭", "─", … }`   | THE single content-panel ring (see below)   |
+| `border`         | `"none"`                         | THE container frame source (off by default; see below) |
+| `content_border` | `"none"` (per-panel ring off)    | THE per-panel ring (see below); off by default |
+| `group_border`   | `{ "", "", … }` (off) / ring     | THE single GROUP frame around the panels (see below) |
 | `separator`      | `{ h = "│", v = "─", hl = … }`   | THE single inter-panel divider (see below)  |
 | `title_line`     | `"border"`                       | Area/cmdline frame title placement (below)  |
 | `counter`        | `"title"`                        | Count placement on the frame (below)        |
@@ -517,8 +518,9 @@ re-borders or re-titles the whole set on the next open.
 
 | Key          | Values                       | Meaning                                                                                                                                                                          |
 | ------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `border`         | 8-cell ring / string         | THE one canonical popup ring — the container frame (a full `{ topleft, top, topright, right, botright, bot, botleft, left }`). Empty `""` corners are normalised by `ui.util.resolve_border`. Default the rounded ring `{ "╭", "─", "╮", "│", "╯", "─", "╰", "│" }`. |
-| `content_border` | 8-cell ring / string         | THE one canonical CONTENT-PANEL ring — drawn around the DATA blocks INSIDE the container (a picker's list + preview, the tabs content panel). Independent of `border`; the NAV bands (footer / filter / tab / input) stay borderless. Default the same rounded ring. |
+| `border`         | 8-cell ring / `"none"`       | THE container frame. Default `"none"` — no outer frame; the title + counter live in a top CONTENT row (`title_line = "row"`) and the panels are framed by `group_border` / divided by `separator`. Set an 8-element ring to box the whole container. |
+| `content_border` | 8-cell ring / `"none"`       | THE per-panel ring — drawn around EACH DATA block INSIDE the container (a picker's list + preview, the tabs content panel). Independent of `border` and `group_border`. Default `"none"` (panels BORDERLESS): the `group_border` frames the two panels as a group and the `separator` divides them, so a per-panel ring would just double the lines. Set an 8-element ring to also frame each panel. |
+| `group_border`   | 8-cell ring `{ …, hl }` / `false` | THE one canonical GROUP ring — a COMMON frame drawn around the DATA panels as a group (a picker's list + preview together), INSIDE the container but OUTSIDE the header / footer nav bands. The third, "unifying" ring: container › group › each panel's `content_border`. Drawn ONLY with ≥2 content panels (one panel needs no grouping); a 1-col gutter sits between container↔group and group↔panels so no edge doubles. `false` disables it. |
 | `separator`      | `{ h, v, hl }` / string / `false` | THE one canonical INTER-PANEL divider — the rule drawn BETWEEN adjacent content panels. Auto-oriented (`h` = `"│"` side-by-side, `v` = `"─"` stacked), `hl` tints it (default the border tint). Drawn only at `n-1` gaps, so a single-panel surface shows none. `false` disables it; a plain string is used verbatim for both axes. |
 | `title_line`     | `"border"` \| `"statusline"` | Where an **area / cmdline-docked** frame's TITLE goes — the native LEFT-aligned border-title (default), or published to the chrome statusline overlay (minibuffer style, suppressing the border-title). Float / bottom modes always use the border-title. |
 | `counter`        | `"title"` \| `"footer"`      | Where a supplied count (item / match total) renders — RIGHT-aligned on the SAME top-border line as the title (default, reads `NAME ………… 8/62`), or as a right-aligned native bottom border-FOOTER. |
