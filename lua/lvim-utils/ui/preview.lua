@@ -275,7 +275,11 @@ function M.new(opts)
             vim.wo[pan.win].cursorline = true
             -- The preview is the RIGHT panel of the multi-panel peek → NEUTRAL cursorline (a bg line over
             -- the real source), matching the list panel; never the popup-list yellow.
-            vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:LvimUiCursorLine"
+            -- Keep FloatBorder mapped to the tinted peek-border group (set by open_panel_win): swapping the
+            -- file buffer in here re-sets winhighlight, so without this the content-border ring loses its tint
+            -- and reads as borderless next to the list panel.
+            vim.wo[pan.win].winhighlight =
+                "Normal:LvimUiPeekNormal,CursorLine:LvimUiCursorLine,FloatBorder:LvimUiPeekBorder"
 
             -- Place the cursor on the location (no extmark — a highlight on the real buffer would bleed
             -- into every other window showing this file).

@@ -490,19 +490,41 @@ Instance `highlights` override the global `LvimUi*` groups **only for popups ope
 
 #### UI config
 
-| Key          | Default                  | Description                                 |
-| ------------ | ------------------------ | ------------------------------------------- |
-| `border`     | `{ "", "", "", " ", … }` | Border style (string or 8-element array)    |
-| `position`   | `"editor"`               | Default popup position                      |
-| `width`      | `0.8`                    | Popup width as fraction of editor           |
-| `max_width`  | `0.8`                    | Max width cap                               |
-| `height`     | `0.8`                    | Popup height as fraction                    |
-| `max_height` | `0.8`                    | Max height cap                              |
-| `max_items`  | `15`                     | Max visible items before scrolling          |
-| `markview`   | `false`                  | Enable markview.nvim rendering in info mode |
-| `icons`      | see below                | Icon overrides                              |
-| `labels`     | see below                | Footer label overrides                      |
-| `keys`       | see below                | Keymap overrides                            |
+| Key              | Default                          | Description                                 |
+| ---------------- | -------------------------------- | ------------------------------------------- |
+| `border`         | rounded ring `{ "╭", "─", … }`   | THE single frame-border source (see below)  |
+| `content_border` | rounded ring `{ "╭", "─", … }`   | THE single content-panel ring (see below)   |
+| `separator`      | `{ h = "│", v = "─", hl = … }`   | THE single inter-panel divider (see below)  |
+| `title_line`     | `"border"`                       | Area/cmdline frame title placement (below)  |
+| `counter`        | `"title"`                        | Count placement on the frame (below)        |
+| `position`   | `"editor"`                       | Default popup position                      |
+| `width`      | `0.8`                            | Popup width as fraction of editor           |
+| `max_width`  | `0.8`                            | Max width cap                               |
+| `height`     | `0.8`                            | Popup height as fraction                    |
+| `max_height` | `0.8`                            | Max height cap                              |
+| `max_items`  | `15`                             | Max visible items before scrolling          |
+| `markview`   | `false`                          | Enable markview.nvim rendering in info mode |
+| `icons`      | see below                        | Icon overrides                              |
+| `labels`     | see below                        | Footer label overrides                      |
+| `keys`       | see below                        | Keymap overrides                            |
+
+**Unified frame border & title**
+
+These three `ui` keys are the single source of truth for the windowed-UI "frame" — every
+panel across **all** lvim-tech plugins (pickers, `ui.tabs` panels, lvim-lsp hover /
+diagnostic peeks, lvim-space, the control center, …) now resolves to them, so changing one
+re-borders or re-titles the whole set on the next open.
+
+| Key          | Values                       | Meaning                                                                                                                                                                          |
+| ------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `border`         | 8-cell ring / string         | THE one canonical popup ring — the container frame (a full `{ topleft, top, topright, right, botright, bot, botleft, left }`). Empty `""` corners are normalised by `ui.util.resolve_border`. Default the rounded ring `{ "╭", "─", "╮", "│", "╯", "─", "╰", "│" }`. |
+| `content_border` | 8-cell ring / string         | THE one canonical CONTENT-PANEL ring — drawn around the DATA blocks INSIDE the container (a picker's list + preview, the tabs content panel). Independent of `border`; the NAV bands (footer / filter / tab / input) stay borderless. Default the same rounded ring. |
+| `separator`      | `{ h, v, hl }` / string / `false` | THE one canonical INTER-PANEL divider — the rule drawn BETWEEN adjacent content panels. Auto-oriented (`h` = `"│"` side-by-side, `v` = `"─"` stacked), `hl` tints it (default the border tint). Drawn only at `n-1` gaps, so a single-panel surface shows none. `false` disables it; a plain string is used verbatim for both axes. |
+| `title_line`     | `"border"` \| `"statusline"` | Where an **area / cmdline-docked** frame's TITLE goes — the native LEFT-aligned border-title (default), or published to the chrome statusline overlay (minibuffer style, suppressing the border-title). Float / bottom modes always use the border-title. |
+| `counter`        | `"title"` \| `"footer"`      | Where a supplied count (item / match total) renders — RIGHT-aligned on the SAME top-border line as the title (default, reads `NAME ………… 8/62`), or as a right-aligned native bottom border-FOOTER. |
+
+A single `ui.surface.open` / presenter call may override `border` / `content_border` /
+`separator` / `title_line` / `counter` per-open, but the defaults above govern every consumer.
 
 **Default icons**
 

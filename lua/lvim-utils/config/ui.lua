@@ -2,7 +2,35 @@
 -- Default config for the floating UI (popup geometry, icons, keys, tint, labels).
 
 return {
-    border = { "", "", "", " ", " ", " ", " ", " " },
+    -- THE single source of truth for the windowed-UI frame border — the ONE canonical popup ring every
+    -- chassis consumer follows. A FULL " " ring on all four sides (top `" "` carries the native border-title /
+    -- brand; left / right / bottom `" "` are 1-cell breathing gutters; empty `""` corners are filled by
+    -- `util.resolve_border`). `ui.surface` binds its `FRAME_BORDER` marker to this value and resolves that
+    -- marker to the LIVE value here at open time, so changing this ONE key re-borders every panel (pickers,
+    -- ui.tabs panels, lvim-lsp hover / diagnostic peeks, …) on the next open — no per-consumer edits.
+    --   { topleft, top, topright, right, botright, bot, botleft, left }
+    border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" },
+    -- THE single source of truth for the CONTENT-PANEL border — the SECOND independent ring, drawn around the
+    -- DATA blocks INSIDE the container (the picker's list + preview, lvim-space's list, the tabs content panel).
+    -- This is the panel ring ONLY: the NAVIGATION bands (the footer button bar, the filter bar, the tab bar and
+    -- the search / input band) are NOT content blocks and stay borderless. `ui.surface` binds its
+    -- `CONTENT_BORDER` marker to this value and resolves that marker to the LIVE value here at open time, so
+    -- changing this ONE key re-borders every content panel on the next open — independently of `border` (the
+    -- container ring) and with no per-consumer edits. Default a VISIBLE rounded ring so each data panel reads as
+    -- a nested rounded frame matching the container; a block may still pass an explicit "none" / custom border.
+    --   { topleft, top, topright, right, botright, bot, botleft, left }
+    content_border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" },
+    -- THE single configurable source for the INTER-PANEL divider — the rule drawn BETWEEN adjacent content
+    -- panels (a picker's list ↔ preview). The chassis reads it as the per-surface default, so changing it here
+    -- re-divides every multi-panel surface on the next open. AUTO-ORIENTED: `h` is the glyph between side-by-side
+    -- panels, `v` between stacked ones (a preview rotation flips it live); `hl` tints it (default the border
+    -- tint, so it matches the rings). It only ever draws between panels (n-1 gaps), so a single-panel surface
+    -- shows none. Set `separator = false` to disable the divider globally; a plain string is used verbatim for
+    -- both axes; a surface may still override per-open (`separator = false` / a string / a { h, v } table).
+    separator = { h = "│", v = "─", hl = "LvimUiPeekBorder" },
+    -- The highlight group for that divider — default the blue-tinted peek border, so the rule matches the
+    -- container / content rings. Override to restyle the divider everywhere.
+    separator_hl = "LvimUiPeekBorder",
     -- Disable all completion sources (native, nvim-cmp, blink.cmp) for input popups
     disable_completion = true,
     position = "editor",
@@ -14,6 +42,16 @@ return {
     filetype = "lvim-utils-ui",
     close_keys = { "q", "<Esc>" },
     markview = false,
+
+    -- Shared chassis title/counter placement (a single `surface.open` may override either per-open):
+    --   title_line — where an AREA / cmdline-docked frame's TITLE goes: "border" (the native, LEFT-aligned
+    --                border-title, default) or "statusline" (publish to the chrome overlay, minibuffer
+    --                style, and SUPPRESS the border-title). Float / bottom modes always use the border-title.
+    --   counter    — where a supplied count (a frame's item / match total) renders: "title" (default —
+    --                RIGHT-aligned on the same top-border line as the title, so it reads
+    --                "NAME …………… 8/62") or "footer" (a right-aligned native bottom border-FOOTER).
+    title_line = "border",
+    counter = "title",
 
     -- Background tint strengths (blend factor toward c.bg) for the themed chrome cells,
     -- matching the notify/Messages look: `strong` paints prominent/active cells (title,

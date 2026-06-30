@@ -192,15 +192,16 @@ end
 ---@field preview? fun(item: any): string[], string?, integer?  preview lines (+ a filetype, + a 1-based focus line) per selection
 ---@field preview_file? boolean  preview the item's REAL file buffer (EDITABLE, 2-way synced) instead of `preview` lines; items need `path` (+ lnum/col)
 ---@field preview_side? "right"|"left"|"below"|"above"|"dynamic"|"hide"  where the preview sits (default "right"); below/above stack; `dynamic` = full-width list + a peek float above (native-qf style); `hide` = no preview (toggle with <C-e>)
+---@field preview_heights? table  managed dock heights `{ horizontal, vertical }`
 ---@field preview_numbers? boolean  show line numbers in the preview (default true)
 ---@field preview_wrap? boolean  soft-wrap the preview (default false)
 ---@field list_wrap? boolean  soft-wrap the list rows (no "↳" marker) so far-right matches stay visible (default false)
 ---@field empty_text? string  shown when there are no results (list body + preview winbar)
 ---@field empty_preview? string  the "nothing to preview" placeholder bar text (default "Nothing to preview")
----@field title? string  the float title / the statusline action title
----@field icon? string  an optional leading glyph for the title (statusline)
----@field subtitle? fun(item: any): string  per-selection subtitle shown after the title in the statusline (e.g. the file name)
----@field statusline? boolean  (docked layouts) publish title/counter/query to the bottom statusline (default true); false = draw them in the navigator
+---@field title? string  the finder title — the chassis native centered border-title
+---@field icon? string  an optional leading glyph fronting the title
+---@field title_line? string  (area) title placement: "border" (default — the top border) | "statusline" (the centralized chrome overlay)
+---@field counter? string  match-count placement: "footer" (default — the bottom-right border) | "title" (folded into the border-title)
 ---@field prompt? string  the query prompt prefix (default "➤ ")
 ---@field keys? { key: string, name?: string, run: fun(item: any, close: fun()) }[]  extra row actions (split, code action…); `name` adds a footer hint
 ---@field filters? table[]  header filter button GROUPS — each `{ active = id, buttons = { { id, label, key?, predicate?(src), hl?, hl_active?, hl_hover_active? }, … } }`; activate a filter by its key in NORMAL mode
@@ -383,39 +384,18 @@ function M.open(opts)
         end
     end
 
-    -- statusline integration (default ON): publish the title + match counter + query to the bottom
-    -- statusline (lvim-utils.chrome.overlay) so it shows the current action, instead of the navigator drawing its
-    -- own border title. `statusline = false` keeps the title/counter IN the navigator. Only the DOCKED
-    -- navigator (the area/minibuffer model) uses it; a centred float always shows its own title.
-    local docked_layout = opts.layout == "bottom" or opts.layout == "area"
-    -- opt-in resolves as: a per-call `opts.statusline` wins; else the GLOBAL `config.picker.statusline`
-    -- (default true) — so one switch turns it off for every finder across all plugins.
-    local sl = opts.statusline
-    if sl == nil then
-        sl = (require("lvim-utils.config").picker or {}).statusline ~= false
+    -- The title + match counter flow through the chassis (the SINGLE title path): a native centered
+    -- border-title + the count in the border (default the bottom-right border-footer, per `counter`), OR —
+    -- when `title_line="statusline"` (per-call or `config.ui`) — the centralized chrome-overlay title (the
+    -- chassis owns that publish, not us). `count_fn` is the live `matches / candidate-pool` count (fzf-lua
+    -- style: the pool grows as a stream feeds in); `refresh_count` re-applies it to the live border / overlay
+    -- after every selection move / filter / type.
+    local function count_fn()
+        return { current = state.filtered and #state.filtered or 0, total = #items }
     end
-    -- the global echo master switch (config.chrome.overlay.enabled) AND this picker opting in
-    local use_status = docked_layout and status.is_enabled() and sl
-    local function publish_status()
-        if use_status then
-            -- a per-selection subtitle (e.g. the focused file name) shown after the title in the statusline
-            local sub
-            if opts.subtitle then
-                local it = state.filtered[state.sel]
-                sub = (it and opts.subtitle(it._src)) or ""
-            end
-            status.set({
-                title = opts.title,
-                icon = opts.icon,
-                -- `matches / candidate-pool` (fzf-lua style): the pool (#items) GROWS live as a stream feeds in,
-                -- so the counter is the "files found so far" indicator; matches is the (capped) result count.
-                current = #state.filtered,
-                total = #items,
-                action = state.query,
-                subtitle = sub,
-            })
-        elseif state.st and state.st.refresh_chrome then
-            state.st.refresh_chrome() -- not on the statusline: re-render the title/counter CONTENT row
+    local function refresh_count()
+        if state.st and state.st.set_counter then
+            state.st.set_counter(count_fn)
         end
     end
 
@@ -770,7 +750,7 @@ function M.open(opts)
         end
         set_list_winbar() -- the result count in the winbar follows the list
         set_list_cursor() -- scroll the window to keep the selection in view
-        publish_status()
+        refresh_count() -- re-apply the live match count to the chassis border / overlay counter
     end
     move = function(d)
         if #state.filtered == 0 then
@@ -852,9 +832,6 @@ function M.open(opts)
     end
     confirm = function()
         local it = state.filtered[state.sel]
-        if use_status then
-            status.clear()
-        end
         if state.st then
             state.st.close()
         end
@@ -865,9 +842,6 @@ function M.open(opts)
     -- Dismiss the finder (no choice). Shared by the prompt (<C-c>) and NORMAL-mode list (q / <Esc>).
     cancel = function()
         vim.cmd("stopinsert")
-        if use_status then
-            status.clear()
-        end
         if state.st then
             state.st.close()
         end
@@ -903,9 +877,6 @@ function M.open(opts)
             marked[#marked + 1] = s
         end
         run(it._src, function()
-            if use_status then
-                status.clear()
-            end
             if state.st then
                 state.st.close()
             end
@@ -932,19 +903,28 @@ function M.open(opts)
     -- above → stacked (the surface grows its height — see ui.surface `direction = "vertical"`).
     local side = opts.preview_side or "right"
     local vertical = side == "below" or side == "above"
-    -- Docked: borderless panels (the separator divides them) so they fill the zone edge-to-edge, like the
-    -- cmdline zone. A float keeps the default per-panel border.
-    local pbord = docked and "none" or nil
-    -- The title + match counter are drawn as a CONTENT header row (the `title_counter` band below, through
-    -- ui.bar) when NOT publishing to the statusline — consistent with the :Messages bar / the cmdline. So the
-    -- surface's own border-title is always suppressed.
-    local show_title_row = (not use_status) and opts.title ~= nil and opts.title ~= ""
-    local surf_title = nil
-    local titled = false
+    -- BOTH data panels — the LIST and the PREVIEW — carry the single-source content ring (`surface.CONTENT_BORDER`,
+    -- resolved live to `config.ui.content_border` at open time), so they read as two matching nested frames. The
+    -- scoped INPUT prompt overlays the list's first (winbar) row but the surface places scoped bands INSIDE the
+    -- panel border (`panel_content_rect`, at `row + top_inset`), so the prompt sits within the list ring — it does
+    -- not land ON the top border. The NAV bands (footer, search) are bars, not blocks, so they stay borderless.
+    local pbord = surface.CONTENT_BORDER
+    -- The title is the chassis native centered border-title (built from this box); the match counter rides the
+    -- border per `counter` (default the bottom-right border-footer). Styled via the picker's `hl` overrides.
+    local title_box = (opts.title ~= nil and opts.title ~= "")
+            and {
+                icon = opts.icon,
+                text = opts.title,
+                style = {
+                    icon = { hl = hl("title_icon", "LvimUiPeekTitleIcon") },
+                    text = { hl = hl("title", "LvimUiPeekTitle") },
+                },
+            }
+        or nil
     local list_block = {
         id = "list",
         provider = list_provider,
-        border = pbord,
+        border = pbord, -- the scoped prompt now sits INSIDE this border (surface panel_content_rect)
         -- 40% width side-by-side (horizontal); in a VERTICAL stack the height carries no weight, so it AUTO-fits
         -- the match count (the surface re-derives the weight per stack axis on rotation).
         size = { width = { fixed = 0.4 } },
@@ -1098,37 +1078,26 @@ function M.open(opts)
         -- preview aren't covered by it — our panels land at 211, the prompt at 212, all clear of the messages
         -- that render in the zone panel BELOW us. Unhosted area stays in the cmdline layer at 200.
         zindex = (host and 210) or (area and 200) or nil,
-        header_air = false, -- no LEADING air row; the title_counter bar (or the filter/input) is the top row
+        header_air = false, -- no LEADING air row; the filter bar (or the input prompt) is the top content row
         direction = vertical and "vertical" or nil,
         preview_side = preview_provider and side or nil, -- so the surface can rotate the preview live (C-n/C-p)
         preview_heights = preview_provider and (opts.preview_heights or pkcfg.preview_heights) or nil, -- { horizontal, vertical }
         lock_keys = true, -- modal list: only the bound keys act; every other key is a no-op (the editable preview is exempt)
-        title = surf_title,
-        -- Docked: a native top-border TITLE when there IS a title (the canon — a top " " border, no ring +
-        -- 1 air row under it), else NO border. A float keeps the rounded ring.
-        border = docked and (titled and { "", " ", "", "", "", "", "", "" } or "none") or "rounded",
-        separator = vertical and "─" or "│",
-        separator_hl = hl("separator", "LvimUiPickerSeparator"),
+        title = title_box, -- the chassis native centered border-title
+        title_line = opts.title_line, -- area title placement: "border" (default) | "statusline" (chassis overlay)
+        count = count_fn, -- the live match / pool count → the chassis border counter (default bottom-right footer)
+        counter = opts.counter, -- count placement: "footer" (default) | "title"
+        -- The canonical full " " ring on EVERY layout (docked too), so the native border-title renders; a float
+        -- keeps the rounded ring. Each content block carries its OWN ring (CONTENT_BORDER); the chassis draws the
+        -- configurable inter-panel divider (`config.ui.separator`) BETWEEN the list and preview — auto-oriented,
+        -- and only at the gap, so a SINGLE panel (preview hidden / no preview) shows none. No per-picker override.
+        border = docked and surface.FRAME_BORDER or "rounded",
         size = size,
         header = {
             bars = (function()
                 local hb = {}
-                -- The title + match counter as a CONTENT row through ui.bar (title left, count right) — when
-                -- not on the statusline. Re-evaluated on every chrome refresh (move / filter / type).
-                if show_title_row then
-                    hb[#hb + 1] = {
-                        title_counter = true,
-                        text = opts.title,
-                        count = function()
-                            local t = state.filtered and #state.filtered or 0
-                            local c = state.sel or 0
-                            return (c > 0 and t > 0) and (c .. "/" .. t) or tostring(t)
-                        end,
-                        hl = hl("title", "LvimUiPeekTitle"),
-                        count_hl = hl("counter", "LvimUiSubtitle"),
-                    }
-                    hb[#hb + 1] = { text = "" } -- 1 blank air row under the title/counter bar
-                end
+                -- The title + counter are the chassis border-title / border-counter (no CONTENT title row). The
+                -- header bars are the filter bar (when any) + the scoped input prompt.
                 if filters then
                     hb[#hb + 1] = build_filter_bar() -- a real header row above the prompt
                     hb[#hb + 1] = { text = "" } -- 1 blank air row under the filter (button) bar
@@ -1149,7 +1118,6 @@ function M.open(opts)
                         -- the typed-text caret (config.picker.caret) — same as the fzf finder. Through the
                         -- cursor module so it coexists with cursor-hiding; cleared on close.
                         pcall(require("lvim-utils.cursor").mark_cursor_buffer, buf, source.caret_fragment("i-ci-ve"))
-                        publish_status() -- show the title + initial counter the moment the navigator opens
                         local function imap(lhs, fn)
                             vim.keymap.set("i", lhs, fn, { buffer = buf, nowait = true, silent = true })
                         end
@@ -1205,6 +1173,7 @@ function M.open(opts)
         close_keys = {}, -- the input owns <Esc>/<C-c>; the panels are not normally focused
         on_close = function()
             state.closed = true
+            status.clear() -- idempotent: drop the chrome-overlay title/counter if `title_line="statusline"` published it
             if state.stream_cancel then -- kill a still-running async producer (e.g. `fd` over a huge tree)
                 pcall(state.stream_cancel)
                 state.stream_cancel = nil

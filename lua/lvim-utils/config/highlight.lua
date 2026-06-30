@@ -216,6 +216,10 @@ return function(c)
         LvimUiPeekBorder = { bg = panel_bg, fg = c.blue },
         LvimUiPeekTitle = { fg = c.blue, bg = mtint(c.blue, STRONG), bold = true },
         LvimUiPeekTitleIcon = { fg = c.blue, bg = mtint(c.blue, 0.4), bold = true }, -- title ICON box (accent)
+        -- The chassis COUNTER box (a frame's item/match count) — a green tint box matching the overlay
+        -- count colour, rendered either as a chunk in the border-title (`counter="title"`) or as the
+        -- right-aligned native border-FOOTER (`counter="footer"`). See ui/surface.lua build_brand/build_border_footer.
+        LvimUiPeekCounter = { fg = c.green, bg = mtint(c.green, 0.3), bold = true },
         -- List winbar: a green bar (tint 0.2 across its whole width), with the kind ("References")
         -- standing out on a stronger green (tint 0.3).
         LvimUiPeekKindBar = { fg = c.green, bg = mtint(c.green, 0.3) },

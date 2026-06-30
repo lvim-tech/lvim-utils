@@ -35,11 +35,35 @@
 local uibar = require("lvim-utils.ui.bar")
 local util = require("lvim-utils.ui.util")
 local cursor = require("lvim-utils.cursor")
+local config = require("lvim-utils.config")
 
 local api = vim.api
 local NS = api.nvim_create_namespace("lvim_utils_ui_frame")
 
 local M = {}
+
+-- The ONE canonical popup border lives in a SINGLE place — `config.ui.border` (config/ui.lua), a FULL " "
+-- ring on all four sides (top for the native border-title / brand, plus a " " gutter on the left, right AND
+-- bottom; the two top corners are filled by `resolve_border`; the " " edges draw no glyph, just a 1-cell
+-- breathing gutter so the content sits off the window edges and the border-title spans edge-to-edge).
+--
+-- `M.FRAME_BORDER` is the MARKER every chassis consumer passes (`border = surface.FRAME_BORDER`, re-exported
+-- by lvim-utils.ui). It is bound to that single source, and — crucially — `M.open` RESOLVES it (and a nil
+-- border) to the LIVE `config.ui.border` at open time (see below). So changing that one config key reflects
+-- on the next open of EVERY consumer without touching their code; the marker only has to keep the identity
+-- the consumers captured, which it does (it is never reassigned). Later phases delete the per-plugin copies.
+---@type string[]
+M.FRAME_BORDER = config.ui.border
+
+-- A SECOND single-source ring — `config.ui.content_border` — for the CONTENT PANELS ONLY: the DATA blocks
+-- INSIDE the container (the picker's list / preview, lvim-space's list, the tabs content block). `M.CONTENT_BORDER`
+-- is the MARKER a content BLOCK passes (`border = surface.CONTENT_BORDER`); `M.open` RESOLVES it to the LIVE
+-- `config.ui.content_border` at open time (mirroring FRAME_BORDER), so changing that one key re-borders every
+-- content panel on the next open — independently of the container ring, without touching the consumers. The
+-- NAVIGATION bands (footer / filter / tab / input) are bars, not blocks, so they are never affected. A block's
+-- explicit "none" / custom border is honoured untouched.
+---@type string[]
+M.CONTENT_BORDER = config.ui.content_border
 
 -- ─── cursor hiding ────────────────────────────────────────────────────────────
 -- Hiding the hardware cursor is delegated to lvim-utils.cursor (the ONE cursor system): the chrome
@@ -127,8 +151,8 @@ end
 --- Build a band stack from `cfg.header` / `cfg.footer`. Each `bar` is a ui.bar `{ items, align, chevrons,
 --- on_change, on_select }` OR a meta line `{ text = "...", hl }`. Internally a bar band keeps its element
 --- list in `band.buttons` (the field name the machinery uses — it already holds buttons + separators).
---- The header leads with 1 blank "air" row (under the border-title); the footer with 1 blank row above
---- its content — per the UI canon.
+--- The header leads with 1 blank "air" row (under the border-title); the footer is wrapped in 1 blank row
+--- ABOVE and 1 BELOW its content (so the action bar breathes off the bottom border too) — per the UI canon.
 ---@param spec table|nil
 ---@param footer boolean
 ---@return table[]
@@ -168,7 +192,8 @@ local function build_bands(spec, footer, add_air)
     end
     if footer then
         if #bands > 0 then
-            table.insert(bands, 1, { meta = "" })
+            table.insert(bands, 1, { meta = "" }) -- 1 air row ABOVE the footer content
+            bands[#bands + 1] = { meta = "" } -- 1 air row BELOW it (breathing space off the bottom border)
         end
     elseif add_air ~= false then
         table.insert(bands, 1, { meta = "" }) -- 1 air row under the (border-)title (skip when add_air=false)
@@ -228,6 +253,171 @@ local function title_text(title)
     return ((title.icon and title.icon .. " ") or "") .. (title.text or "")
 end
 
+-- ─── title / counter placement (the single title path) ────────────────────────
+-- The chassis owns WHERE a frame's title and item-count render, driven by two shared cfg keys (resolved in
+-- M.open from the surface opts → `config.ui` default): `title_line` ("border" | "statusline") and `counter`
+-- ("title" | "footer"). These helpers are the ONE place the native border-title, the native border-FOOTER
+-- counter, and the chrome-overlay title are built — consumers only supply `title` + an optional `count`.
+
+--- Whether this frame is DOCKED in the cmdline / area host zone — the only place `title_line="statusline"`
+--- moves the title onto the chrome overlay. (A `position="cmdline"` float, hosted or growing cmdheight.)
+---@param cfg table
+---@return boolean
+local function is_area_dock(cfg)
+    return cfg.position == "cmdline"
+end
+
+--- Resolve the consumer-supplied count for the title / footer counter. `cfg.count` is an integer, a
+--- `{ current, total }` pair, or a function returning either; re-evaluated on every read so a live counter
+--- (filter / tab change) tracks the content.
+---@param cfg table
+---@return integer current, integer total
+local function resolve_count(cfg)
+    local c = cfg.count
+    if type(c) == "function" then
+        local ok, r = pcall(c)
+        c = ok and r or nil
+    end
+    if type(c) == "number" then
+        return 0, c
+    elseif type(c) == "table" then
+        return c.current or 0, c.total or 0
+    end
+    return 0, 0
+end
+
+--- The counter text ("8" or "3/8") from the resolved count, or nil when there is nothing to show (total 0).
+---@param cfg table
+---@return string|nil
+local function counter_text(cfg)
+    local cur, tot = resolve_count(cfg)
+    if tot <= 0 then
+        return nil
+    end
+    return cur > 0 and ("%d/%d"):format(cur, tot) or tostring(tot)
+end
+
+--- Build the native border-title chunks for this frame: the TITLE hugs the LEFT (`title_pos="left"`), and —
+--- when `counter="title"` — the COUNTER is pushed to the RIGHT edge of the same top-border line by a fill
+--- spacer (so the line reads `TITLE …………… 8/62`). The fill needs the title-line width (`width`, the container
+--- content width); without it the counter just trails the title. Returns nil when the title must NOT render
+--- in the border: no title, or an area dock with `title_line="statusline"` (it goes to the chrome overlay via
+--- `publish_overlay_title`). The SINGLE place the border-title is built.
+---@param state table
+---@param width? integer  the title-line width (defaults to the live geom width)
+---@return table[]|nil
+local function build_brand(state, width)
+    local cfg = state.cfg
+    if is_area_dock(cfg) and cfg.title_line == "statusline" then
+        return nil -- the title lives on the chrome overlay (suppress the border-title)
+    end
+    local chunks = title_chunks(cfg.title) or {}
+    if cfg.counter == "title" then
+        local ct = counter_text(cfg)
+        if ct then
+            local count_chunk = { " " .. ct .. " ", util.resolve_hl("LvimUiPeekCounter") }
+            width = width or (state._geom and state._geom.W)
+            if width then
+                -- Right-align the counter: pad between the title and the count so the count lands on the right
+                -- edge. `used` is the display width of the title chunks + the count box; the spacer fills the gap.
+                local used = util.dw(count_chunk[1])
+                for _, c in ipairs(chunks) do
+                    used = used + util.dw(c[1])
+                end
+                local fill = width - used
+                if fill > 0 then
+                    -- Fill with the TOP-border glyph (tinted like the border), NOT spaces: the brand is OVERLAID
+                    -- on the native border, so a blank spacer would punch a gap in the top rule between the title
+                    -- and the right-aligned count (the "top border vanishes when the count shows" bug).
+                    local rb = util.resolve_border(cfg.border)
+                    local top = (type(rb) == "table" and rb[2] ~= "" and rb[2]) or " "
+                    chunks[#chunks + 1] = { string.rep(top, fill), util.resolve_hl("LvimUiPeekBorder") }
+                end
+            end
+            chunks[#chunks + 1] = count_chunk
+        end
+    end
+    return (#chunks > 0) and chunks or nil
+end
+
+--- Build the native border-FOOTER chunks (the right-aligned counter) when `counter="footer"` and a count
+--- is present; else nil. This is the ONLY use of the native border-footer — a NAVIGABLE action bar is a
+--- separate CONTENT band (`cfg.footer`), never conflated with this.
+---@param state table
+---@return table[]|nil
+local function build_border_footer(state)
+    if state.cfg.counter ~= "footer" then
+        return nil
+    end
+    local ct = counter_text(state.cfg)
+    if not ct then
+        return nil
+    end
+    return { { " " .. ct .. " ", util.resolve_hl("LvimUiPeekCounter") } }
+end
+
+--- Publish the title (+ counter) to the chrome overlay for an area dock with `title_line="statusline"`;
+--- a no-op otherwise. The SINGLE centralized overlay-TITLE path (consumers stop doing their own in later
+--- phases). Cleared on close by the consumer / `chrome.overlay.clear()`.
+---@param state table
+local function publish_overlay_title(state)
+    local cfg = state.cfg
+    if not (is_area_dock(cfg) and cfg.title_line == "statusline") then
+        return
+    end
+    local title = cfg.title
+    if not (title and title ~= "") then
+        return
+    end
+    local icon, text
+    if type(title) == "table" then
+        icon = title.icon
+        text = title.text and tostring(title.text) or nil
+    else
+        text = tostring(title)
+    end
+    local cur, tot = resolve_count(cfg)
+    pcall(function()
+        require("lvim-utils.chrome.overlay").set({ title = text, icon = icon, current = cur, total = tot })
+    end)
+end
+
+-- ─── inter-panel divider ──────────────────────────────────────────────────────
+-- The rule the chassis draws BETWEEN adjacent content panels (a picker's list ↔ preview). Resolution, in
+-- order: a per-surface `cfg.separator` overrides the configurable default `config.ui.separator`; each is one
+-- of `false`/"" (off), a plain string (verbatim, both axes), or a `{ h, v, hl }` table (per-axis glyph). The
+-- glyph is AUTO-ORIENTED — `h`/"│" between side-by-side panels, `v`/"─" between stacked ones — so a runtime
+-- preview rotation flips it. Returns nil when disabled (the caller then reserves no gap / draws nothing).
+
+--- The divider glyph for `cfg` on the given axis, or nil when the divider is disabled.
+---@param sep any      a per-surface override, or nil to fall back to `config.ui.separator`
+---@param vertical boolean  true → the glyph BETWEEN stacked panels ("─"); false → between side-by-side ("│")
+---@return string|nil
+local function resolve_divider(sep, vertical)
+    if sep == nil then
+        sep = config.ui.separator
+    end
+    if sep == false or sep == "" then
+        return nil
+    end
+    if type(sep) == "string" then
+        return sep
+    end
+    if type(sep) == "table" then
+        return (vertical and (sep.v or sep.vertical)) or (not vertical and (sep.h or sep.horizontal)) or nil
+    end
+    return vertical and "─" or "│"
+end
+
+--- The divider's highlight group — a per-surface `separator_hl`, else `config.ui.separator.hl`, else the
+--- canon border tint (so the rule matches the rings).
+---@param cfg table
+---@return string
+local function divider_hl(cfg)
+    local d = config.ui.separator
+    return cfg.separator_hl or (type(d) == "table" and d.hl) or "LvimUiPeekBorder"
+end
+
 -- ─── geometry ─────────────────────────────────────────────────────────────────
 
 --- The largest `cmdheight` the current window layout can give up without "E36: Not enough room": the
@@ -283,16 +473,20 @@ end
 ---@return table layout
 local function compute_geom(state, place)
     local cfg = state.cfg
-    -- A docked split container draws no border (its edge is the split divider); a float uses cfg.border.
-    local cbord = place and util.resolve_border("none") or util.resolve_border(cfg.border)
+    -- A REAL native split container draws no border (its edge IS the split divider). A FLOAT keeps `cfg.border`
+    -- even when `place` fixes its rect — a hosted cmdline/area zone (or a bottom dock, or a host reflow) still
+    -- carries its (e.g. left/right inset) border WITHIN the reserved rect. So only force "none" for the split.
+    local cbord = (place and cfg.mode == "split") and util.resolve_border("none") or util.resolve_border(cfg.border)
     local ct, cr, cb, cl = util.insets(cbord)
 
     local panels = state.panels
     local n = #panels
-    local sep_w = (cfg.separator and cfg.separator ~= "") and 1 or 0
     -- Panels stack VERTICALLY (top→bottom, full width, height grows) when direction == "vertical"; else
     -- they sit side-by-side (the default). Used for the navigator's above/below preview.
     local vertical = cfg.direction == "vertical"
+    -- 1 col/row reserved between panels for the divider when one is enabled on THIS axis (config-driven,
+    -- per-surface overridable); 0 otherwise. Only consumed as `sep_w * (n - 1)`, so a single panel reserves none.
+    local sep_w = resolve_divider(cfg.separator, vertical) and 1 or 0
 
     -- Per-panel border insets + natural content size (provider.size()). Track BOTH axes so either layout
     -- direction can auto-size: sum along the stacking axis, max across it.
@@ -313,7 +507,12 @@ local function compute_geom(state, place)
         nat_w_sum = nat_w_sum + pl + sw + pr
         nat_w_max = math.max(nat_w_max, pl + sw + pr)
         nat_h_sum = nat_h_sum + pt + sh + pbm
-        nat_h_max = math.max(nat_h_max, sh)
+        -- Include the panel's OWN border rows (pt + pbm) in the cross-axis max, like nat_h_sum does on the
+        -- stacking axis: for side-by-side (horizontal) panels the container content height is the tallest
+        -- panel FOOTPRINT (content + its border), so a content-bordered panel reserves its +2 rows. Without
+        -- this the container sizes to bare content and the per-panel `center_h - border` step squeezes the
+        -- panel to 1 row. (Borderless panels keep pt = pbm = 0, so this is a no-op for them.)
+        nat_h_max = math.max(nat_h_max, pt + sh + pbm)
         border_cols = border_cols + pl + pr
         border_rows = border_rows + pt + pbm
         max_vborder = math.max(max_vborder, pt + pbm) -- so min_content counts VISIBLE rows, not the border
@@ -335,9 +534,12 @@ local function compute_geom(state, place)
     -- tallest panel. Vertical: width = the widest panel, height sums (+ row separators).
     local content_w = vertical and math.max(bars_w, nat_w_max) or math.max(bars_w, nat_w_sum + sep_w * (n - 1))
 
-    -- Container CONTENT width/height (W excludes the container's own border columns). A docked split
-    -- passes its window's ACTUAL width in `place.W` (full width for a below/above dock).
-    local W = place and place.W or util.axis_size(cfg.auto_width, cfg.width, cfg.max_width, content_w, vim.o.columns)
+    -- Container CONTENT width/height (W excludes the container's own border columns). With `place` the rect is
+    -- the OUTER footprint the host reserved (or the split window's actual size), so the container's own border
+    -- insets come OUT of it — content + border fits the rect exactly. A split forces "none" (cl..cb all 0, so
+    -- W == place.W unchanged); a hosted float with a left/right inset takes `place.W - cl - cr`.
+    local W = place and (place.W - cl - cr)
+        or util.axis_size(cfg.auto_width, cfg.width, cfg.max_width, content_w, vim.o.columns)
     if not place and cfg.min_width then
         local mw = cfg.min_width <= 1 and math.floor(vim.o.columns * cfg.min_width) or cfg.min_width
         W = math.max(W, math.floor(mw))
@@ -364,7 +566,8 @@ local function compute_geom(state, place)
     local min_center = vertical and (n * math.max(1, cfg.min_content_height or 1) + border_rows + sep_w * (n - 1))
         or (math.max(1, cfg.min_content_height or 1) + max_vborder)
     local min_h = header_h + footer_h + min_center
-    local H = place and place.H or util.axis_size(cfg.auto_height, cfg.height, cfg.max_height, content_h, vim.o.lines)
+    local H = place and (place.H - ct - cb)
+        or util.axis_size(cfg.auto_height, cfg.height, cfg.max_height, content_h, vim.o.lines)
     H = math.max(H, min_h)
 
     -- Float placement. Split: the container's actual screen position (passed in `place`). Otherwise by
@@ -529,6 +732,7 @@ local function compute_geom(state, place)
         col = col,
         cbord = cbord,
         ct = ct,
+        cb = cb,
         header_h = header_h,
         footer_h = footer_h,
         center_h = center_h,
@@ -546,7 +750,10 @@ end
 ---@param L table
 local function render_chrome(state, L)
     local W, H = L.W, L.H
-    local sep_char = (state.cfg.separator and state.cfg.separator ~= "") and state.cfg.separator or nil
+    -- The inter-panel divider glyph for the current axis (config-driven via `config.ui.separator`, per-surface
+    -- overridable, auto-oriented "│" side-by-side / "─" stacked — so a runtime preview rotation flips it), or
+    -- nil when the divider is disabled. See `resolve_divider`.
+    local sep_char = resolve_divider(state.cfg.separator, L.vertical)
     local divider_set = {}
     for _, d in ipairs(L.dividers) do
         divider_set[d] = true
@@ -680,7 +887,7 @@ local function render_chrome(state, L)
         })
     end
     if sep_char then
-        local sep_hl = util.resolve_hl(state.cfg.separator_hl or "LvimUiPeekBorder")
+        local sep_hl = util.resolve_hl(divider_hl(state.cfg))
         if L.vertical then
             -- VERTICAL stack: each divider is a full-width ROW ("─") at `header_h + d` — highlight the WHOLE line
             -- (a `d` here is a ROW offset, not a column), so the rule reads with `sep_hl` exactly like the
@@ -1243,6 +1450,18 @@ local function set_keys(state)
     state.map_hotkeys(state.container_buf, reserved)
 end
 
+--- The CONTENT rect of a laid-out panel `pl` (`L.panels[i]` — `{row,col,width,height,border}`). nvim draws a
+--- bordered float's border ON the given row/col, so the content begins at `row+top_inset`, `col+left_inset`
+--- (width/height are already the content size). Use it to place anything that must sit INSIDE a panel's border
+--- (e.g. the scoped input band over the LIST's first / winbar row) — recompute via this whenever a panel moves,
+--- so the position tracks the panel's border insets instead of landing on the border.
+---@param pl table
+---@return integer row, integer col, integer width, integer height
+local function panel_content_rect(pl)
+    local t, _, _, l = util.insets(util.resolve_border(pl.border))
+    return pl.row + t, pl.col + l, pl.width, pl.height
+end
+
 --- Move the center panels + editable input bands to a computed layout `L`, then repaint the chrome. NO
 --- container/cmdheight side effects — the caller has already placed the container — so it is safe to call on
 --- a host-zone reflow (`reposition`) without re-reserving (which would loop).
@@ -1282,8 +1501,9 @@ local function place_panels(state, L)
         if band.input and band.win and api.nvim_win_is_valid(band.win) then
             local iw, icol, irow = L.W, L.col + rcl, L.row + L.ct + hbi
             if scope and L.panels[scope] then
-                local sp = L.panels[scope]
-                iw, icol, irow = sp.width, sp.col, sp.row
+                -- the band overlays the LIST panel's first content row — inside its border, via the shared helper
+                local prow, pcol, pwidth = panel_content_rect(L.panels[scope])
+                iw, icol, irow = pwidth, pcol, prow
             end
             pcall(api.nvim_win_set_config, band.win, {
                 relative = "editor",
@@ -1309,8 +1529,15 @@ end
 ---@param L table
 ---@return table
 local function host_geom(state, L)
+    -- The container float docks at the screen-bottom cmdline zone and now carries the chassis ring, so its
+    -- on-screen footprint is `content + ct + cb`. Reserve those border rows too (`pad`): reserving only the
+    -- content left the bottom border past the screen edge → nvim clamped the whole container UP a row while the
+    -- editor-relative panels stayed put (the no-result area divider then sat a row above its panels). We grow
+    -- only the RESERVED zone, not the content: `compute_geom` is still handed `H = L.H`, so the panels keep
+    -- their natural size — only the room the container border needs is added to the zone.
+    local pad = (L.ct or 0) + (L.cb or 0)
     if state.cfg.host then
-        local rect = state.cfg.host(L.H) -- reserve L.H rows; the host grows ITS cmdheight + returns our rect
+        local rect = state.cfg.host(L.H + pad) -- reserve content + the container border; host grows cmdheight + returns our rect
         if rect then
             return compute_geom(state, { row = rect.row, col = rect.col, W = rect.width, H = L.H })
         end
@@ -1319,9 +1546,9 @@ local function host_geom(state, L)
     if state.base_cmdheight == nil then
         state.base_cmdheight = vim.o.cmdheight -- save the user's cmdheight once, to restore on close
     end
-    -- Grow the cmdline region to the content; the helper clamps to the room the splits leave + steps down on
-    -- a stray E36 (`L.H` is already clamped in compute_geom, so it normally sets as-is).
-    set_cmdheight(L.H)
+    -- Grow the cmdline region to the content + the container border; the helper clamps to the room the splits
+    -- leave + steps down on a stray E36 (`L.H` is already clamped in compute_geom, so it normally sets as-is).
+    set_cmdheight(L.H + pad)
     return L
 end
 
@@ -1445,10 +1672,12 @@ local function open_panel_win(state, pan, i, pl, has_input, docked)
     if pan.provider and pan.provider.cursorline then
         local cl = (type(pan.provider.cursorline) == "string" and pan.provider.cursorline)
             or ((#state.panels > 1) and "LvimUiCursorLine" or "LvimUiPeekCursorLine")
-        vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:" .. cl
+        vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,FloatBorder:LvimUiPeekBorder,CursorLine:" .. cl
         vim.wo[pan.win].cursorline = true
     else
-        vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal"
+        -- FloatBorder → LvimUiPeekBorder so a content-panel ring (config.ui.content_border) paints with the same
+        -- bg/fg as the container ring, reading as one nested frame instead of the unthemed default FloatBorder.
+        vim.wo[pan.win].winhighlight = "Normal:LvimUiPeekNormal,FloatBorder:LvimUiPeekBorder"
     end
     pan.refresh = function() -- a provider re-renders its own panel after a state change (toggle, …)
         -- find the panel's CURRENT index by identity — `state.panels` is reordered/shrunk by the preview
@@ -1519,10 +1748,14 @@ local function open_windows(state)
         if state.cfg.position == "cmdline" then
             L = host_geom(state, L)
         end
-        -- The brand is the window's TOP-border title (needs a top border, ct > 0), built from the `title`
-        -- box (icon box + text box, each its own padding + colour). `title_pos` must only be set WITH a
-        -- title — nvim errors otherwise.
-        local brand = L.ct > 0 and title_chunks(state.cfg.title) or nil
+        -- The brand is the window's TOP-border title (needs a top border, ct > 0), built by `build_brand`
+        -- from the `title` box: TITLE left, COUNTER right (`counter="title"`) on the same top-border line —
+        -- UNLESS an area dock routes the title to the chrome overlay (`title_line="statusline"`), where
+        -- build_brand returns nil and `publish_overlay_title` posts it instead. `title_pos` is LEFT (so the
+        -- counter's fill reaches the right edge); it must only be set WITH a title — nvim errors otherwise.
+        -- (`counter="footer"` instead rides the BOTTOM border, needs cb > 0, as a right-aligned footer.)
+        local brand = L.ct > 0 and build_brand(state, L.W) or nil
+        local bfooter = (L.cb or 0) > 0 and build_border_footer(state) or nil
         state.container_win = api.nvim_open_win(state.container_buf, false, {
             relative = "editor",
             width = L.W,
@@ -1534,8 +1767,11 @@ local function open_windows(state)
             focusable = false,
             zindex = state.zindex,
             title = brand,
-            title_pos = brand and "center" or nil,
+            title_pos = brand and (state.cfg.title_pos or "left") or nil,
+            footer = bfooter,
+            footer_pos = bfooter and "right" or nil,
         })
+        publish_overlay_title(state)
     end
     state._geom = L
     local docked = state.cfg.mode == "split"
@@ -1579,8 +1815,9 @@ local function open_windows(state)
                 -- row.
                 local iw, icol, irow = L.W, L.col + cl, L.row + L.ct + (bi - 1)
                 if band.scope_panel and L.panels[band.scope_panel] then
-                    local sp = L.panels[band.scope_panel]
-                    iw, icol, irow = sp.width, sp.col, sp.row
+                    -- inside the LIST panel's border (shared helper), not on the border row
+                    local prow, pcol, pwidth = panel_content_rect(L.panels[band.scope_panel])
+                    iw, icol, irow = pwidth, pcol, prow
                 end
                 band.win = api.nvim_open_win(band.buf, false, {
                     relative = "editor",
@@ -1732,6 +1969,56 @@ local function open_windows(state)
         if state._geom then
             render_chrome(state, state._geom)
         end
+    end
+    --- Update the surface TITLE in place — re-applies the border-title brand (via `build_brand`, so the
+    --- counter / `title_line="statusline"` routing is respected) to the live container window, re-publishes
+    --- the chrome overlay where applicable, and re-paints the chrome — so a consumer can retitle without a
+    --- teardown + reopen. Accepts the same `title` shape as `surface.open` (string | { text, icon }).
+    ---@param title any
+    state.set_title = function(title)
+        state.cfg.title = title
+        if
+            state.container_win
+            and api.nvim_win_is_valid(state.container_win)
+            and state._geom
+            and state._geom.ct > 0
+        then
+            local brand = build_brand(state, state._geom.W)
+            pcall(api.nvim_win_set_config, state.container_win, {
+                title = brand,
+                title_pos = brand and (state.cfg.title_pos or "left") or nil,
+            })
+        end
+        publish_overlay_title(state)
+        if state._geom then
+            render_chrome(state, state._geom)
+        end
+    end
+    --- Update the COUNT (the title / footer counter) in place — re-applies it to the live container window
+    --- per the active `counter` placement: a chunk in the border-title (`counter="title"`), the right-aligned
+    --- native border-FOOTER (`counter="footer"`), and/or the chrome overlay (area dock + `title_line=
+    --- "statusline"`). The navigable ACTION footer bar is separate (`set_footer`) and untouched here. `count`
+    --- is the same shape as `cfg.count` (integer | { current, total } | fun()).
+    ---@param count any
+    state.set_counter = function(count)
+        state.cfg.count = count
+        if state.container_win and api.nvim_win_is_valid(state.container_win) and state._geom then
+            if state._geom.ct > 0 then
+                local brand = build_brand(state, state._geom.W)
+                pcall(api.nvim_win_set_config, state.container_win, {
+                    title = brand,
+                    title_pos = brand and (state.cfg.title_pos or "left") or nil,
+                })
+            end
+            if (state._geom.cb or 0) > 0 then
+                local bfooter = build_border_footer(state)
+                pcall(api.nvim_win_set_config, state.container_win, {
+                    footer = bfooter,
+                    footer_pos = bfooter and "right" or nil,
+                })
+            end
+        end
+        publish_overlay_title(state)
     end
     -- (HOSTED) Re-place over a fresh host-zone rect WITHOUT re-reserving (the host called us because it
     -- reflowed). Wired by the caller as the host segment's `on_rect`, so the surface follows the zone.
@@ -2195,9 +2482,7 @@ function restack_panels(state)
     local docked = undocked and { list } or (preview_first and { pv, list } or { list, pv })
     state.panels = docked
     state.cfg.direction = vert and "vertical" or nil
-    if state.cfg.separator and state.cfg.separator ~= "" then
-        state.cfg.separator = vert and "─" or "│"
-    end
+    -- (the divider glyph is oriented at render time per L.vertical — no need to rewrite state.cfg.separator here)
     local stack_axis = vert and "height" or "width"
     for _, pan in ipairs(docked) do
         pan.weight = pan.size and (pan.size[stack_axis] or {}).fixed or nil
@@ -2503,6 +2788,24 @@ function M.open(cfg)
         })
     end
     cfg.mode = cfg.mode or "float"
+    -- Shared title / counter placement: per-open override < `config.ui` default < the hardcoded fallback.
+    -- `title_line` ("border" | "statusline") routes an AREA / cmdline frame's title to the border-title or
+    -- the chrome overlay; `counter` ("title" | "footer") places a supplied `count` in the border-title or
+    -- the native border-footer. See the title/counter helpers above (build_brand / build_border_footer).
+    local ui_conf = config.ui or {}
+    cfg.title_line = cfg.title_line or ui_conf.title_line or "border"
+    cfg.counter = cfg.counter or ui_conf.counter or "footer"
+    -- Inter-panel divider: LEFT as the consumer passed it (nil = use the configurable default `config.ui.separator`,
+    -- resolved live at render via `resolve_divider`; false / a string / a { h, v } table = a per-surface override).
+    -- It only ever draws between adjacent panels (n-1 gaps), so a single-panel surface (select / info / input /
+    -- tabs) shows none; a multi-panel one (a picker's list + preview) gets the rule between each pair.
+    -- Resolve the canonical frame border to the LIVE `config.ui.border` (the SINGLE source) at open time: a
+    -- consumer that passed the `FRAME_BORDER` marker (or no border at all) is asking for "the one config-driven
+    -- ring", so a runtime change to that key reflects here on the next open of every consumer — without editing
+    -- any of them. An explicit "rounded" / "none" / custom border (e.g. a true float) is left untouched.
+    if cfg.border == nil or cfg.border == M.FRAME_BORDER then
+        cfg.border = ui_conf.border or M.FRAME_BORDER
+    end
     -- Modal frames close on q / <Esc> from anywhere; a `persistent` frame (e.g. a docked outline) sets
     -- its own close_keys (or none) and is never auto-closed.
     if cfg.close_keys == nil and not cfg.persistent then
@@ -2524,12 +2827,20 @@ function M.open(cfg)
     local stack_axis = cfg.direction == "vertical" and "height" or "width"
     for i, blk in ipairs((cfg.content or {}).blocks or {}) do
         local bw = (blk.size or {})[stack_axis] or {}
+        -- Resolve the CONTENT_BORDER marker to the LIVE `config.ui.content_border` (the single source for the
+        -- content-PANEL ring) at open time, so changing that one key re-borders this block on the next open —
+        -- exactly like FRAME_BORDER does for the container. An explicit "none" / "rounded" / custom table is the
+        -- consumer's own choice and is left untouched (so the nav bars / borderless select lists stay borderless).
+        local blk_border = blk.border
+        if blk_border == M.CONTENT_BORDER then
+            blk_border = config.ui.content_border or M.CONTENT_BORDER
+        end
         panels[i] = {
             id = blk.id,
             provider = blk.provider,
             size = blk.size,
             weight = bw.fixed,
-            border = blk.border,
+            border = blk_border,
             shrink_first = blk.shrink_first, -- give up rows before protected panels when the stack overflows
         }
     end

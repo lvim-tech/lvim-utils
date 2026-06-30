@@ -238,8 +238,12 @@ end
 -- ─── open ─────────────────────────────────────────────────────────────────────
 
 ---@class LvimFzfOpts
----@field title? string  the statusline / float title
----@field icon? string  an optional leading glyph for the title
+---@field title? string  the finder title — the chassis native centered border-title
+---@field icon? string  an optional leading glyph fronting the title
+---@field title_line? string  (area) title placement: "border" (default — the top border) | "statusline" (the centralized chrome overlay)
+---@field counter? string  match-count placement: "footer" (default — the bottom-right border) | "title" (folded into the border-title)
+---@field preview_side? string  where the preview panel sits: "right" (default) | "left" | "above" | "below"
+---@field preview_heights? table  managed dock heights `{ horizontal, vertical }`
 ---@field cmd? string[]  the producer argv (FZF_DEFAULT_COMMAND): fzf runs + streams it (files / dirs / git)
 ---@field contents? string[]  a STATIC candidate list (e.g. buffers) — fed to fzf via a temp file
 ---@field reload? string  a shell command with a literal `{q}` placeholder (grep): fzf RE-RUNS it per keystroke
@@ -253,7 +257,6 @@ end
 ---@field layout? "float"|"bottom"|"area"
 ---@field height? integer  rows for the docked layouts
 ---@field max_rows? integer  list/preview height (default 15)
----@field statusline? boolean  publish the title to the bottom statusline (default true)
 
 --- Open the fzf-TUI finder.
 ---@param opts LvimFzfOpts
@@ -299,20 +302,21 @@ function M.open(opts)
         end,
     }
 
-    -- statusline title (default on, docked layouts only) — the title goes to the bottom statusline; the
-    -- match counter is fzf's own `X/Y` in its info line (top-right, updated live by fzf).
-    local docked_layout = opts.layout == "bottom" or opts.layout == "area"
-    local sl = opts.statusline
-    if sl == nil then
-        sl = (require("lvim-utils.config").picker or {}).statusline ~= false
+    -- The title + match counter flow through the chassis (the single title path): a native centered
+    -- border-title + the count in the border (default the bottom-right border-footer, per `counter`), OR — when
+    -- `title_line="statusline"` — the centralized chrome-overlay title (the chassis owns that publish). fzf's
+    -- OWN info counter stays hidden (--info=hidden); the live `match/total` stats come from fzf (the count fifo,
+    -- $FZF_MATCH_COUNT / $FZF_TOTAL_COUNT) and feed `count_fn`, which `refresh_count` re-applies to the live
+    -- border / overlay as they climb during the stream and narrow as you filter.
+    local title_box = (opts.title ~= nil and opts.title ~= "") and { icon = opts.icon, text = opts.title } or nil
+    local function count_fn()
+        return { current = state.counts.match or 0, total = state.counts.total or 0 }
     end
-    local use_status = docked_layout and status.is_enabled() and sl
-
-    -- The title bar — the SAME one the tint finder shows (title left, match/total stats right): published to
-    -- the bottom statusline when docked + enabled, else drawn as a header band at the top of the panel. fzf's
-    -- OWN counter is hidden (--info=hidden); the stats come live from fzf ($FZF_MATCH_COUNT / $FZF_TOTAL_COUNT
-    -- via the count fifo), so they climb during the stream and narrow as you filter.
-    local show_title_row = (not use_status) and opts.title ~= nil and opts.title ~= ""
+    local function refresh_count()
+        if state.st and state.st.set_counter then
+            state.st.set_counter(count_fn)
+        end
+    end
     -- panel CONTENT heights (mirror the tint picker): the LIST fits the live match count, the PREVIEW fits the
     -- focused file's line count — both capped at `max_rows`. `refit` relayouts when either changes, so the
     -- panels + the auto-fit area track the content live.
@@ -339,6 +343,7 @@ function M.open(opts)
             state.st.relayout()
         end
     end
+    local render_preview -- forward decl: update_counts clears the preview when the result count hits 0 (below)
     --- Apply fzf's live match/total to the title bar (statusline or the header band).
     ---@param match integer
     ---@param total integer
@@ -347,11 +352,14 @@ function M.open(opts)
         if state.closed then
             return
         end
-        if use_status then
-            status.set({ title = opts.title, icon = opts.icon, current = match, total = total })
-        elseif state.st and state.st.refresh_chrome then
-            state.st.refresh_chrome()
+        -- 0 matches ⇒ nothing is focused. fzf does NOT emit a focus event for a list that empties as you type, so
+        -- the preview would otherwise linger on the last focused file — clear it to the placeholder here (the
+        -- match count is the reliable signal). Only when something WAS shown, to avoid redundant re-renders.
+        if match == 0 and state.cur_item ~= nil then
+            state.cur_item = nil
+            render_preview(state.preview_pan, nil)
         end
+        refresh_count() -- re-apply the live match/total to the chassis border / overlay counter
         refit() -- the match count changed → re-fit the list panel + the auto area
     end
 
@@ -421,20 +429,24 @@ function M.open(opts)
         vim.wo[win].foldcolumn = "0"
         vim.wo[win].statuscolumn = ""
         vim.wo[win].cursorline = true
-        vim.wo[win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:LvimUiCursorLine"
+        -- keep FloatBorder mapped to the tinted peek-border group — else the preview block's content ring
+        -- (config.ui.content_border) renders its glyphs UNtinted and blends into the bg, reading as "no border".
+        vim.wo[win].winhighlight = "Normal:LvimUiPeekNormal,CursorLine:LvimUiCursorLine,FloatBorder:LvimUiPeekBorder"
     end
 
-    local function render_preview(pan, item)
+    render_preview = function(pan, item)
         if not (pan and pan.win and api.nvim_win_is_valid(pan.win) and pan.buf and api.nvim_buf_is_valid(pan.buf)) then
             return
         end
         if not item then
-            -- NOTHING focused → the single styled "nothing to preview" bar (no winbar → no empty body row)
+            -- NOTHING focused → the single styled "nothing to preview" bar (no winbar → no empty body row).
+            -- It is a placeholder, NOT file content, so drop the line-number gutter too (else it reads "1  Nothing
+            -- to preview"); apply_preview_opts turns numbers back on for a real preview.
             vim.wo[pan.win].winbar = ""
+            vim.wo[pan.win].number = false
             preview.render_empty(pan.buf, NS, empty_preview)
             return
         end
-        set_preview_winbar(pan, item)
         api.nvim_buf_clear_namespace(pan.buf, NS, 0, -1) -- drop any prior empty-bar tint before the real preview
         ---@type string[], string?, integer?
         local lines, ft, focus = { "" }, "", nil
@@ -448,6 +460,9 @@ function M.open(opts)
         -- attach / install offers.
         preview.render_file(pan, lines, ft)
         apply_preview_opts(pan.win)
+        -- Set the file winbar (icon · name · dir) AFTER render_file: `nvim_win_set_buf` (the buffer swap inside
+        -- render_file) clears the window-local winbar, so setting it before would be wiped (the no-winbar bug).
+        set_preview_winbar(pan, item)
         if focus then
             pcall(api.nvim_win_set_cursor, pan.win, { math.max(1, math.min(focus, #lines)), 0 })
             api.nvim_win_call(pan.win, function()
@@ -456,12 +471,13 @@ function M.open(opts)
         end
     end
 
-    -- fzf focus → update the preview to the focused line's item.
+    -- fzf focus → update the preview to the focused line's item. An EMPTY line means nothing is focused (a
+    -- no-match list): clear the preview to the placeholder instead of leaving the last file's content stranded.
     local function on_focus(line)
-        if state.closed or line == "" then
+        if state.closed then
             return
         end
-        state.cur_item = parse(line)
+        state.cur_item = (line ~= "" and parse(line)) or nil
         render_preview(state.preview_pan, state.cur_item)
         refit() -- the focused file changed → re-fit the preview panel + the auto area
     end
@@ -518,9 +534,6 @@ function M.open(opts)
     local function finish(code, lines)
         if state.closed then
             return
-        end
-        if use_status then
-            status.clear()
         end
         if state.st then
             pcall(state.st.close) -- triggers surface on_close → resource cleanup below
@@ -903,7 +916,11 @@ function M.open(opts)
     end
     local msgarea = state.msgarea
 
-    local pbord = docked and "none" or nil
+    -- BOTH data panels — the LIST and the PREVIEW — carry the single-source content ring (`surface.CONTENT_BORDER`,
+    -- resolved live to `config.ui.content_border`), matching the tint backend so the two look identical. The fzf
+    -- TUI terminal renders INSIDE the list's ring — its own info line is hidden (--info=hidden), so the surface
+    -- ring is the only frame around it. The search / footer bands are bars, not blocks, so they stay borderless.
+    local pbord = surface.CONTENT_BORDER
     local list_block = {
         id = "list",
         provider = list_provider,
@@ -969,32 +986,23 @@ function M.open(opts)
         end,
         zindex = (host and 210) or (area and 200) or nil,
         header_air = false,
-        border = docked and "none" or "rounded",
-        separator = "│",
-        separator_hl = "LvimUiPickerSeparator",
+        title = title_box, -- the chassis native centered border-title
+        title_line = opts.title_line, -- area title placement: "border" (default) | "statusline" (chassis overlay)
+        count = count_fn, -- the live fzf match / total count → the chassis border counter (default footer)
+        counter = opts.counter, -- count placement: "footer" (default) | "title"
+        -- The canonical full " " ring on EVERY layout (docked too), so the native border-title renders; a float
+        -- keeps the rounded ring. Each content block carries its own CONTENT_BORDER ring; the chassis draws the
+        -- configurable inter-panel divider (`config.ui.separator`) BETWEEN the list and preview — auto-oriented,
+        -- and only at the gap, so a SINGLE panel (preview hidden / no preview) shows none. No per-picker override.
+        border = docked and surface.FRAME_BORDER or "rounded",
         size = size,
         -- so the surface can rotate the preview (C-n/C-p) + switch the dock height per stack direction
         preview_side = preview_provider and (opts.preview_side or "right") or nil,
         preview_heights = preview_provider
                 and (opts.preview_heights or (require("lvim-utils.config").picker or {}).preview_heights)
             or nil,
-        -- the title bar (title left + match/total stats right) as a header band — the SAME `title_counter`
-        -- band the tint finder draws — shown when not publishing to the statusline; +1 air row under it.
-        header = show_title_row and {
-            bars = {
-                {
-                    title_counter = true,
-                    text = opts.title,
-                    count = function()
-                        local m, t = state.counts.match, state.counts.total
-                        return (t > 0) and (m .. "/" .. t) or tostring(m)
-                    end,
-                    hl = "LvimUiPeekTitle",
-                    count_hl = "LvimUiSubtitle",
-                },
-                { text = "" },
-            },
-        } or nil,
+        -- No CONTENT title row — the title + counter are the chassis border-title / border-counter now; the
+        -- fzf terminal panel IS the prompt, so there are no header bands.
         content = { blocks = blocks },
         footer = { bars = { { items = footer_items } } },
         close_keys = {},
@@ -1027,9 +1035,7 @@ function M.open(opts)
             if state.contents_file then
                 os.remove(state.contents_file)
             end
-            if use_status then
-                status.clear()
-            end
+            status.clear() -- idempotent: drop the chrome-overlay title/counter if `title_line="statusline"` published it
             if msgarea then
                 pcall(function()
                     msgarea.segment("lvim-fzf-host"):release()
@@ -1040,10 +1046,6 @@ function M.open(opts)
     })
 
     source.set_active(active_entry)
-
-    if use_status then
-        status.set({ title = opts.title, icon = opts.icon })
-    end
 
     -- Focus the fzf list (terminal) through the chassis' own focus API, so it grabs focus the same way the
     -- tint picker's input band does; the WinEnter autocmd then enters terminal-mode. Scheduled so the surface

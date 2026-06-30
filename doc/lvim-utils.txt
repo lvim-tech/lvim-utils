@@ -154,6 +154,38 @@ reference, `ui.new()` isolated instances, and popup positioning.
   j / k          Move          h / l          Switch tab (tabs mode)
   <CR>           Confirm        <Esc> / q      Close
 
+                                                       *lvim-utils-ui-frame*
+FRAME BORDER & TITLE ~
+
+Five `ui` config keys are the single source of truth for the windowed-UI "frame".
+EVERY panel across all lvim-tech plugins (pickers, ui.tabs panels, lvim-lsp hover /
+diagnostic peeks, lvim-space, the control center, …) now resolves to them, so
+changing one key re-borders or re-titles the whole set on the next open.
+
+  `border`         THE one canonical popup ring — the CONTAINER frame, a full 8-cell
+                   border { topleft, top, topright, right, botright, bot, botleft,
+                   left }. Empty "" corners are normalised by `resolve_border`.
+                   Default the rounded ring { "╭","─","╮","│","╯","─","╰","│" }.
+  `content_border` THE one canonical CONTENT-PANEL ring — drawn around the DATA blocks
+                   INSIDE the container (a picker's list + preview, the tabs content).
+                   Independent of `border`; nav bands (footer / filter / tab / input)
+                   stay borderless. Default the same rounded ring.
+  `separator`      THE one canonical INTER-PANEL divider — the rule BETWEEN adjacent
+                   content panels. A { h, v, hl } table: `h` ("│") side-by-side, `v`
+                   ("─") stacked (auto-oriented), `hl` the tint (default the border
+                   tint). Drawn only at n-1 gaps, so a single-panel surface shows
+                   none. `separator = false` disables it; a plain string = both axes.
+  `title_line`     "border" (default) | "statusline". Where an AREA / cmdline-docked
+                   frame's TITLE goes: the native LEFT-aligned border-title, or the
+                   chrome statusline overlay (minibuffer style, border-title
+                   suppressed). Float / bottom modes always use the border-title.
+  `counter`        "title" (default) | "footer". Where a supplied count renders:
+                   RIGHT-aligned on the SAME top-border line as the title
+                   ("NAME ………… 8/62"), or a right-aligned native bottom border-FOOTER.
+
+A single `surface.open` / presenter call may override any of these per-open; the
+config defaults govern every consumer otherwise.
+
                                                           *lvim-utils-ui-peek*
 PEEK ~
 

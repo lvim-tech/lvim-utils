@@ -43,7 +43,9 @@ local M = {}
 ---@field position? string           -- "cursor" (anchor at the cursor) | "win" | "bottom" | "top" | nil (centred)
 ---@field layout? string             -- tabs: "float" (default centred) | "area" (cmdline/minibuffer dock) | "bottom"
 ---@field tab_selector? integer|string -- tabs: initial active tab — an index or a tab `name`
----@field title_count? fun(): integer|table  -- tabs (docked): a title counter — a total `number` or `{ current, total }`, shown on the statusline overlay next to the title (the picker's title_counter equivalent)
+---@field title_count? fun(): integer|table  -- tabs: a live count for the chassis border counter — a total `number` or `{ current, total }` (placed per `counter`; default the bottom-right border-footer)
+---@field title_line? string         -- tabs (area): "border" (title in the top border, default) | "statusline" (publish to the chrome overlay)
+---@field counter? string            -- tabs: "footer" (count in the bottom-right border, default) | "title" (count folded into the border-title)
 ---@field max_items? integer         -- tabs (docked): cap the content rows (it scrolls past the cap)
 ---@field area_height? integer       -- tabs (docked): the docked content row budget (default AREA_CAP); scrolls past it
 ---@field enter? boolean             -- false → open without focusing (cursor stays in the editor, e.g. hover)
@@ -62,10 +64,21 @@ local M = {}
 ---@field filetype? string           -- info: set the buffer filetype (e.g. "markdown" → treesitter colours)
 ---@field markview? boolean          -- info: render the content as markdown via markview.nvim
 
--- The canonical popup border: a top " " edge (for the native border-title / brand) plus a " " gutter on
--- the LEFT and RIGHT (no bottom, no ring) so the content breathes off the window edges. Titles are always
--- border-titles, blue-tinted — the diagnostics-panel approach. (resolve_border fills the two top corners.)
-local FRAME_BORDER = { "", " ", "", " ", "", "", "", " " }
+-- The canonical popup border — a FULL " " ring on all four sides (top for the native border-title / brand,
+-- plus a " " gutter on the LEFT, RIGHT and BOTTOM) so the content breathes off every window edge. Titles
+-- are always border-titles, blue-tinted — the diagnostics-panel approach. The ring lives in ONE place,
+-- `config.ui.border`; `lvim-utils.ui.surface.FRAME_BORDER` is the marker bound to it (the chassis resolves
+-- the marker to the LIVE config value at open time), and this re-exports that marker as `M.FRAME_BORDER` so
+-- every consumer references the single config-driven source. (resolve_border fills the corners.)
+local FRAME_BORDER = frame.FRAME_BORDER
+M.FRAME_BORDER = FRAME_BORDER
+
+-- The SECOND single-source ring — for the CONTENT data panels only (here: the M.tabs content block). It lives
+-- in `config.ui.content_border`; `lvim-utils.ui.surface.CONTENT_BORDER` is the marker bound to it (the chassis
+-- resolves it to the LIVE value at open time), re-exported as `M.CONTENT_BORDER`. The tab BAR / footer bands are
+-- nav bars, not blocks, so they stay borderless — only the content block carries this ring.
+local CONTENT_BORDER = frame.CONTENT_BORDER
+M.CONTENT_BORDER = CONTENT_BORDER
 
 -- Docked (area / bottom) tabs cap their content to this many rows (it scrolls past the cap) when the consumer
 -- gives no `area_height` — the cmdline zone grows `cmdheight`, so an unbounded accordion can't drive it (and a
@@ -148,7 +161,10 @@ function M.select(opts)
             width = opts.width and { fixed = opts.width } or { auto = true, max = opts.max_width or 0.6 },
             height = { auto = true, max = opts.max_height or 0.6 },
         },
-        content = { blocks = { { id = "list", provider = provider } } },
+        -- The list IS the data-content panel → the single-source content ring (CONTENT_BORDER →
+        -- config.ui.content_border, resolved live). The footer button bar is a nav bar, not a block, so it
+        -- stays borderless (panel_border "none" only governs any block that doesn't set its own border).
+        content = { blocks = { { id = "list", provider = provider, border = CONTENT_BORDER } } },
         footer = {
             bars = {
                 {
@@ -260,7 +276,9 @@ function M.multiselect(opts)
         title = opts.title or "Select",
         panel_border = "none",
         size = { width = { auto = true, max = 0.6 }, height = { auto = true, max = 0.6 } },
-        content = { blocks = { { id = "list", provider = provider } } },
+        -- The checkbox list IS the data-content panel → the single-source content ring; the toggle/confirm/
+        -- cancel footer is a nav bar (borderless).
+        content = { blocks = { { id = "list", provider = provider, border = CONTENT_BORDER } } },
         footer = {
             bars = {
                 {
@@ -346,6 +364,8 @@ function M.input(opts)
         mode = "float",
         border = FRAME_BORDER,
         title = opts.title or opts.prompt or "Input",
+        -- The single editable line IS an INPUT / entry band, NOT a data-content panel — so it stays BORDERLESS
+        -- (panel_border "none"), per the content-vs-nav rule. Only DATA panels carry the content ring.
         panel_border = "none",
         size = { width = { auto = true, max = opts.width or 0.6 }, height = { auto = true } },
         content = { blocks = { { id = "input", provider = provider } } },
@@ -713,7 +733,6 @@ function M.tabs(opts)
     -- C-j/C-k, like the picker's filter bar). The TITLE is the frame's border-title, not a header bar.
     local static_bars = {} -- the per-surface prefix (subtitle + tab bar + air); per-TAB bars are appended
     local set_active_tab -- (multi-tab) switch to a tab; shared by the tab bar and the body l/h keymaps
-    local publish_title -- forward decl: refresh the docked title (+ counter) on the overlay (assigned post-open)
     local tab_bar, tab_btns
     for _, b in ipairs(subtitle_bars(opts.subtitle)) do
         static_bars[#static_bars + 1] = b
@@ -781,8 +800,8 @@ function M.tabs(opts)
             elseif st.relayout then
                 st.relayout()
             end
-            if publish_title then
-                publish_title() -- refresh the title counter for the new tab
+            if st and st.set_counter then
+                st.set_counter(opts.title_count) -- refresh the border counter for the new tab
             end
         end
         tab_bar.on_change = function(spec, st)
@@ -822,10 +841,14 @@ function M.tabs(opts)
         host = host,
         zindex = (host and 210) or (area and 200) or nil,
         header_air = docked and false or nil,
-        -- Docked: no border-title (it goes to the statusline overlay); the centered tab bar is the visible
-        -- header. Float: the canonical blue-tinted border-title on the ringed border.
-        border = docked and "none" or (opts.border or FRAME_BORDER),
-        title = (not docked) and opts.title or nil,
+        -- The canonical full " " ring on EVERY mode; the chassis owns the title placement: a native centered
+        -- border-title in the top border by default, or (area + `title_line="statusline"`) the chrome overlay.
+        -- The count (`opts.title_count`) rides the border per `counter` (default the bottom-right border-footer).
+        border = opts.border or FRAME_BORDER,
+        title = opts.title,
+        title_line = opts.title_line,
+        counter = opts.counter,
+        count = opts.title_count,
         close_keys = opts.close_keys,
         keymaps = opts.keymaps,
         panel_border = "none",
@@ -849,7 +872,9 @@ function M.tabs(opts)
             height = { auto = true, max = opts.height or 0.9 },
         },
         header = (#header_spec().bars > 0) and header_spec() or nil,
-        content = { blocks = { { id = "form", provider = form_p } } },
+        -- The tab CONTENT panel carries the single-source content ring (CONTENT_BORDER → config.ui.content_border,
+        -- resolved live). The tab BAR + footer hint bands are nav bars, not blocks, so they stay borderless.
+        content = { blocks = { { id = "form", provider = form_p, border = CONTENT_BORDER } } },
         footer = (opts.footer_hints == true and footer_hints_spec())
             or (type(opts.footer_hints) == "table" and {
                 bars = {
@@ -890,28 +915,6 @@ function M.tabs(opts)
             end
         end,
     })
-
-    -- Docked: publish the title (+ an optional counter — the picker's `title_counter`, here on the statusline
-    -- overlay) to the echo area. `opts.title_count` is a fn returning a total `number` or `{ current, total }`;
-    -- re-published on recalc so the count tracks the content (filter / tab change).
-    publish_title = function()
-        if not (docked and opts.title and opts.title ~= "") then
-            return
-        end
-        local cur, tot
-        if opts.title_count then
-            local r = opts.title_count()
-            if type(r) == "table" then
-                cur, tot = r.current, r.total
-            elseif type(r) == "number" then
-                tot = r
-            end
-        end
-        pcall(function()
-            require("lvim-utils.chrome.overlay").set({ title = opts.title, current = cur or 0, total = tot or 0 })
-        end)
-    end
-    publish_title()
 
     -- After-open hook: hand the content buffer/window to the consumer (e.g. the installer's per-row action
     -- keymaps r/u/d/b). The content panel is the first frame panel.
@@ -974,7 +977,9 @@ function M.tabs(opts)
             elseif st and st.relayout then
                 st.relayout()
             end
-            publish_title() -- refresh the title counter for the rebuilt content
+            if st and st.set_counter then
+                st.set_counter(opts.title_count) -- refresh the border counter for the rebuilt content
+            end
         end,
         --- The `name` of the row under the cursor.
         ---@return string?
@@ -1109,7 +1114,9 @@ function M.info(content, opts)
             width = opts.width and { fixed = opts.width } or { auto = true, max = opts.max_width or 0.7 },
             height = opts.height and { fixed = opts.height } or { auto = true, max = opts.max_height or 0.85 },
         },
-        content = { blocks = { { id = "info", provider = provider } } },
+        -- The info viewer IS the data-content panel → the single-source content ring (CONTENT_BORDER →
+        -- config.ui.content_border, resolved live). The `q close` footer is a nav bar, so it stays borderless.
+        content = { blocks = { { id = "info", provider = provider, border = CONTENT_BORDER } } },
         footer = opts.footer == false and nil or { bars = { { items = footer_items } } },
     })
     return buf_ref, win_ref
