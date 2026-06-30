@@ -291,7 +291,7 @@ function M.open(opts)
         outfile = vim.fn.tempname(),
         fifo = nil, ---@type { path: string, close: fun() }?
         count_fifo = nil, ---@type { path: string, close: fun() }?
-        counts = { match = 0, total = 0 }, -- fed live from fzf ($FZF_MATCH_COUNT / $FZF_TOTAL_COUNT)
+        counts = { match = 0, total = 0, seen = false }, -- fed live from fzf ($FZF_MATCH_COUNT / $FZF_TOTAL_COUNT); seen = a count has arrived
         msgarea = nil,
     }
     -- this finder's entry in the shared "open finder" registry (so the next open closes us first)
@@ -322,9 +322,14 @@ function M.open(opts)
     -- focused file's line count — both capped at `max_rows`. `refit` relayouts when either changes, so the
     -- panels + the auto-fit area track the content live.
     local function list_rows()
-        -- the MATCH rows only (the search/prompt row is the provider's separate "+1"); 0 on an empty result, so
-        -- the list footprint collapses to the single prompt row — the panels + the divider then match the
-        -- visible content height instead of leaving a stray empty row (and an over-tall divider).
+        -- BEFORE the first count arrives (fzf streams its producer asynchronously), assume a FULL list (`maxr`):
+        -- the finder then opens at its full height at once — in the area zone it docks at the same height as the
+        -- panel it replaced, so there is no open-empty-then-grow flicker. Once a count is seen, use it: the MATCH
+        -- rows only (the search/prompt row is the provider's separate "+1"); 0 on an empty result collapses the
+        -- list to the single prompt row so the panels + the divider match the visible content height.
+        if not state.counts.seen then
+            return maxr
+        end
         return math.min(state.counts.match or 0, maxr)
     end
     local function file_rows()
@@ -370,7 +375,7 @@ function M.open(opts)
     ---@param match integer
     ---@param total integer
     local function update_counts(match, total)
-        state.counts.match, state.counts.total = match, total
+        state.counts.match, state.counts.total, state.counts.seen = match, total, true
         if state.closed then
             return
         end
@@ -548,6 +553,18 @@ function M.open(opts)
     end
 
     local confirmed = false
+    --- Run `fn` as a single msgarea ZONE HANDOFF when this finder is area-docked: the picker's teardown (release
+    --- its zone segment) and whatever the consumer does in its callback (e.g. lvim-space re-opening a panel —
+    --- reserve a segment) then coalesce into ONE reflow, instead of the zone collapsing then growing (a flicker
+    --- on the way back). Off the area zone there is nothing to coalesce, so just run it.
+    local function with_handoff(fn)
+        local ok_ma, ma = pcall(require, "lvim-utils.msgarea")
+        if ok_ma and ma.handoff and opts.layout == "area" and ma.is_enabled() then
+            ma.handoff(fn)
+        else
+            fn()
+        end
+    end
     --- `lines` = every line fzf wrote to the outfile. With `--expect` (a quickfix key configured), line 1 is
     --- the pressed key ("" for plain accept) and the rest are the selected/marked rows; without it, all lines
     --- are the selection. The quickfix key routes to to_quickfix; anything else opens the first row.
@@ -557,9 +574,8 @@ function M.open(opts)
         if state.closed then
             return
         end
-        if state.st then
-            pcall(state.st.close) -- triggers surface on_close → resource cleanup below
-        end
+        -- Parse the selection FIRST (no zone ops); then close + route the callback inside ONE handoff, so a
+        -- consumer that re-opens a panel in its callback (the search step-back) does not flicker the zone.
         local key, items = "", {}
         if code == 0 and lines and #lines > 0 then
             local start = 1
@@ -573,18 +589,23 @@ function M.open(opts)
                 end
             end
         end
-        if #items == 0 then
-            if opts.on_cancel then
-                opts.on_cancel()
+        with_handoff(function()
+            if state.st then
+                pcall(state.st.close) -- triggers surface on_close → resource cleanup below
             end
-            return
-        end
-        confirmed = true
-        if qf_key and key == fzfkey(qf_key) then
-            to_quickfix(items)
-        elseif opts.on_confirm then
-            opts.on_confirm(parse(items[1]))
-        end
+            if #items == 0 then
+                if opts.on_cancel then
+                    opts.on_cancel()
+                end
+                return
+            end
+            confirmed = true
+            if qf_key and key == fzfkey(qf_key) then
+                to_quickfix(items)
+            elseif opts.on_confirm then
+                opts.on_confirm(parse(items[1]))
+            end
+        end)
     end
 
     -- ── the fzf command (run in the terminal panel) ──
@@ -876,11 +897,16 @@ function M.open(opts)
         for _, action in ipairs(opts.keys or {}) do
             if action.key and action.run then
                 local function fire()
-                    action.run(state.cur_item, function()
-                        state.closed = true -- the impending fzf on_exit finish() then no-ops (no on_cancel)
-                        if state.st then
-                            pcall(state.st.close)
-                        end
+                    -- run the row action inside a zone HANDOFF: its `close` (release this finder's segment) +
+                    -- whatever it does next (the search step-back re-opens a panel — reserve a segment) coalesce
+                    -- into one reflow, so dismissing back to the panel does not flicker the zone.
+                    with_handoff(function()
+                        action.run(state.cur_item, function()
+                            state.closed = true -- the impending fzf on_exit finish() then no-ops (no on_cancel)
+                            if state.st then
+                                pcall(state.st.close)
+                            end
+                        end)
                     end)
                 end
                 if action.mode ~= "n" then

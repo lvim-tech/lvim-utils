@@ -156,6 +156,7 @@ function M.select(opts)
         position = opts.position, -- nil = centred; "cursor" anchors at the cursor (e.g. the code-action picker)
         border = FRAME_BORDER,
         title = opts.title or "Select", -- a plain string → a single blue-tinted border-title text box
+        title_pos = opts.title_pos or "center", -- the select title is CENTRED (matches the hover); override per-call
         panel_border = "none",
         size = {
             -- a given `width` is FIXED (e.g. a 0.9-wide prompt); else auto-fit to the items, capped at max_width
@@ -169,11 +170,12 @@ function M.select(opts)
         footer = {
             bars = {
                 {
+                    align = "center", -- centred hint bar, matching the hover's action footer
                     items = {
-                        { key = "<CR>", name = "confirm", run = pick },
+                        { key = "<CR>", name = "select", run = pick }, -- naming consistent with the other footers
                         {
                             key = "<Esc>",
-                            name = "cancel",
+                            name = "close",
                             run = function(st)
                                 st.close()
                             end,

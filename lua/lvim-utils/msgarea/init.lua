@@ -44,6 +44,10 @@ local ring = {}
 local augroup = nil
 ---@type integer  non-reserve line count of the last render (exported to cmdline_host)
 local content_lines = 0
+---@type integer  >0 while a HANDOFF is in progress: segment add/remove SKIP their reflow so a panel→picker
+--- swap (release one segment, reserve another) coalesces into ONE refresh instead of collapsing the zone in
+--- between (which the editor would reflow into, then out of — a visible flicker). See `M.handoff`.
+local batch_depth = 0
 
 -- ─── segment stack ──────────────────────────────────────────────────────────────
 -- The zone is a vertical stack of named SEGMENTS ordered by `priority` (low = top, high = bottom).
@@ -554,6 +558,12 @@ local function refresh_surface()
 end
 
 local function update_visibility()
+    -- During a HANDOFF, skip the per-op reflow: the segment data is already updated, and `M.handoff` does a
+    -- SINGLE refresh when the batch ends — so the zone goes straight from the old segment to the new one
+    -- (no collapse-then-grow flicker).
+    if batch_depth > 0 then
+        return
+    end
     -- The `enable` master switch gates the AUTOMATIC open (so a segment pushed while the area is toggled
     -- off never reopens it); closing always works. The zone renders through a ui.surface (cmdheight-bottom).
     if has_content() and cfg.enable then
@@ -754,6 +764,32 @@ end
 ---@return boolean
 function M.is_enabled()
     return cfg.enable == true
+end
+
+--- Run `fn` as a single ZONE HANDOFF: while it runs, every segment add / remove SKIPS its own reflow, then ONE
+--- refresh is done at the end. Use it to swap what occupies the zone WITHOUT it collapsing in between — e.g.
+--- lvim-space closing its panel (release segment) then opening the file picker (reserve segment): without this,
+--- the zone shrinks then grows in two reflows and the editor visibly flickers; inside a handoff it goes straight
+--- from the panel to the picker in one repaint. `lazyredraw` holds the screen across the whole swap; nested
+--- handoffs are coalesced (only the outermost refreshes). Errors in `fn` are re-raised after state is restored.
+---@param fn fun()
+function M.handoff(fn)
+    batch_depth = batch_depth + 1
+    local lz
+    if batch_depth == 1 then
+        lz = vim.o.lazyredraw
+        vim.o.lazyredraw = true
+    end
+    local ok, err = pcall(fn)
+    batch_depth = batch_depth - 1
+    if batch_depth == 0 then
+        update_visibility() -- the SINGLE coalesced reflow for both the release and the reserve
+        vim.o.lazyredraw = lz
+        pcall(api.nvim__redraw, { flush = true }) -- paint the swapped zone as one clean frame
+    end
+    if not ok then
+        error(err)
+    end
 end
 
 --- True when a segment (any, or a NAMED one) currently has focused interaction — so a passive live re-render
