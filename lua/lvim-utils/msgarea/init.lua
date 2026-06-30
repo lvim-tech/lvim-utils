@@ -871,15 +871,19 @@ end
 --- whenever the zone reflows (messages appear/clear, resize), so the float can follow. The `reserve` kind.
 ---@param height integer
 ---@param on_rect? fun(rect: { win: integer, row: integer, col: integer, width: integer, height: integer }?)
+---@param rows? integer  number of STACKED panel rows the float lays out (default 1); the dock is clamped to
+---  `max_height * rows`, so a single-row float (one panel, or side-by-side panels) tops out at `max_height`
+---  while a vertically-stacked float (list above preview) may grow to fit each row at its own height.
 ---@return { win: integer, row: integer, col: integer, width: integer, height: integer }?
-function Handle:reserve(height, on_rect)
+function Handle:reserve(height, on_rect, rows)
     local s = seg_get(self.name, { kind = "reserve" })
     s.kind = "reserve"
     -- The area zone is the SINGLE height authority for everything docked in it: clamp the reserved dock to
-    -- `max_height`, so every hosted float (the pickers AND lvim-space's panels) tops out at the SAME height once
-    -- its content is long — they look uniform instead of each growing to its own ceiling / the room left. A
-    -- shorter request still passes through untouched, so the dock stays responsive and shrinks to its content.
-    local cap = resolve(cfg.max_height) or 10
+    -- `max_height` PER stacked row, so every hosted float (the pickers AND lvim-space's panels) tops out at the
+    -- SAME height once its content is long — uniform instead of each growing to its own ceiling / the room left.
+    -- Stacked floats (`rows > 1`) get `max_height * rows`, so each row keeps its height instead of both being
+    -- squeezed into one's. A shorter request passes untouched, so the dock stays responsive and shrinks to fit.
+    local cap = (resolve(cfg.max_height) or 10) * math.max(1, rows or 1)
     s.height = math.max(0, math.min(height or 0, cap))
     s.on_rect = on_rect or s.on_rect
     update_visibility()

@@ -1045,11 +1045,15 @@ function M.open(opts)
                     return true
                 end,
             })
+            -- STACKED preview (above/below) lays out two panel ROWS, so the dock may grow to `max_height * 2`
+            -- (each row keeps its height); side-by-side / list-only is one row → the plain `max_height` cap.
+            local side = (state.st and state.st.preview_side) or opts.preview_side or "right"
+            local rows = (side == "above" or side == "below") and 2 or 1
             return seg:reserve(h, function(rect)
                 if state.st and state.st.reposition then
                     state.st.reposition(rect)
                 end
-            end)
+            end, rows)
         end
 
     surface.open({
