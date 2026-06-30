@@ -875,7 +875,12 @@ end
 function Handle:reserve(height, on_rect)
     local s = seg_get(self.name, { kind = "reserve" })
     s.kind = "reserve"
-    s.height = math.max(0, height or 0)
+    -- The area zone is the SINGLE height authority for everything docked in it: clamp the reserved dock to
+    -- `max_height`, so every hosted float (the pickers AND lvim-space's panels) tops out at the SAME height once
+    -- its content is long — they look uniform instead of each growing to its own ceiling / the room left. A
+    -- shorter request still passes through untouched, so the dock stays responsive and shrinks to its content.
+    local cap = resolve(cfg.max_height) or 10
+    s.height = math.max(0, math.min(height or 0, cap))
     s.on_rect = on_rect or s.on_rect
     update_visibility()
     return segment_rect(s)

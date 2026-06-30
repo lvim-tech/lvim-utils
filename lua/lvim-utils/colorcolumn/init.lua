@@ -82,6 +82,12 @@ end
 ---@param win integer
 ---@return string
 local function effective(win)
+    -- FLOATING windows are UI surfaces (the lvim-utils pickers / panels / popups, hover floats, …), not editing
+    -- windows — never draw a colorcolumn in them (it would leak the editor's text guide into the chrome).
+    local ok_cfg, wcfg = pcall(api.nvim_win_get_config, win)
+    if ok_cfg and wcfg.relative and wcfg.relative ~= "" then
+        return ""
+    end
     local buf = api.nvim_win_get_buf(win)
     if state.exclude_ft[vim.bo[buf].filetype] then
         return ""

@@ -277,12 +277,19 @@ local function resolve_count(cfg)
         local ok, r = pcall(c)
         c = ok and r or nil
     end
+    local cur, tot = 0, 0
     if type(c) == "number" then
-        return 0, c
+        tot = c
     elseif type(c) == "table" then
-        return c.current or 0, c.total or 0
+        cur, tot = c.current or 0, c.total or 0
     end
-    return 0, 0
+    -- `count_follows_cursor`: the FIRST content panel's cursor row IS the counter's `current`, so the counter
+    -- reads "<row>/<total>" (a live "item N of M" indicator). `cfg._cursor_row` is kept up to date by the
+    -- CursorMoved autocmd wired in open_windows; clamp it to the total so a stale row after a delete can't exceed.
+    if cfg.count_follows_cursor and tot > 0 then
+        cur = math.min(math.max(cfg._cursor_row or 1, 1), tot)
+    end
+    return cur, tot
 end
 
 --- The counter text ("8" or "3/8") from the resolved count, or nil when there is nothing to show (total 0).
@@ -612,15 +619,23 @@ local function compute_geom(state, place)
         end
     end
     local footer_h = #state.footer_bands
-    local content_h = header_h + footer_h + gv + (vertical and (nat_h_sum + sep_w * (n - 1)) or nat_h_max)
+    -- The center's natural height — 0 when there are NO content panels (a header-only surface like the input
+    -- prompt: header bands + footer, no center), else the panel stack. Guarding `n == 0` avoids a phantom empty
+    -- center row under the input (nat_h_max seeds to 1).
+    local center_nat = (n == 0) and 0 or (vertical and (nat_h_sum + sep_w * (n - 1)) or nat_h_max)
+    local content_h = header_h + footer_h + gv + center_nat
     -- A split takes the full height nvim gives it (place.H); a float sizes per auto/explicit height. The
     -- center never shrinks below `min_content_height` VISIBLE rows — counted on the panel content, so the
     -- panel borders are added on top (the header/footer bands are fixed-height). Stacked panels need room
     -- for ALL of them. `min_h` is the resulting minimum container height, exported for the resize clamp.
-    local min_center = gv
-        + (
-            vertical and (n * math.max(1, cfg.min_content_height or 1) + border_rows + sep_w * (n - 1))
-            or (math.max(1, cfg.min_content_height or 1) + max_vborder)
+    -- No content panels → no center minimum (so a header-only input surface adds no blank row).
+    local min_center = (n == 0) and 0
+        or (
+            gv
+            + (
+                vertical and (n * math.max(1, cfg.min_content_height or 1) + border_rows + sep_w * (n - 1))
+                or (math.max(1, cfg.min_content_height or 1) + max_vborder)
+            )
         )
     local min_h = header_h + footer_h + min_center
     local H = place and (place.H - ct - cb)
@@ -1921,6 +1936,29 @@ local function open_windows(state)
 
     for i, pan in ipairs(state.panels) do
         open_panel_win(state, pan, i, L.panels[i], has_input, docked)
+    end
+
+    -- Live "item N of M" counter: when the consumer opts into `count_follows_cursor`, the FIRST content panel's
+    -- cursor row drives the counter's `current` (read in resolve_count via `cfg._cursor_row`). Seed it now and
+    -- refresh it on every CursorMoved (set_counter re-renders the title/border/overlay counter). A per-buffer
+    -- augroup clears on re-open so the panel's reused scratch buffer never stacks duplicate autocmds.
+    if state.cfg.count_follows_cursor and state.panels[1] and state.panels[1].buf then
+        local pbuf, pwin = state.panels[1].buf, state.panels[1].win
+        state.cfg._cursor_row = (pwin and api.nvim_win_is_valid(pwin)) and api.nvim_win_get_cursor(pwin)[1] or 1
+        local grp = api.nvim_create_augroup("LvimSurfaceCounter_" .. pbuf, { clear = true })
+        api.nvim_create_autocmd("CursorMoved", {
+            group = grp,
+            buffer = pbuf,
+            callback = function()
+                if not (pwin and api.nvim_win_is_valid(pwin)) then
+                    return
+                end
+                state.cfg._cursor_row = api.nvim_win_get_cursor(pwin)[1]
+                if state.set_counter then
+                    state.set_counter(state.cfg.count)
+                end
+            end,
+        })
     end
 
     -- Editable INPUT bands: a focusable 1-row editable window over each input band's header row. The frame

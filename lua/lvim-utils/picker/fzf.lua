@@ -253,6 +253,7 @@ end
 ---@field preview? fun(item: table): string[], string?, integer?  preview lines (+ filetype, + focus line)
 ---@field on_confirm fun(item: table)  called with the chosen item
 ---@field on_cancel? fun()  called when dismissed without a choice
+---@field keys? { key: string, name?: string, mode?: "t"|"n", run: fun(item: table, close: fun()) }[]  per-call ROW ACTIONS on the focused item (e.g. open in a split); `mode` limits the key to insert ("t") / NORMAL ("n"), default both; `close` dismisses the picker
 ---@field empty_preview? string  the "nothing to preview" placeholder bar text (default "Nothing to preview")
 ---@field layout? "float"|"bottom"|"area"
 ---@field height? integer  rows for the docked layouts
@@ -867,6 +868,29 @@ function M.open(opts)
                 end, kopts)
             end
         end
+        -- Per-call ROW ACTIONS (`opts.keys`): extra keys that act on the FOCUSED row. `action.mode` picks where
+        -- the key is live — "t" (insert query only), "n" (NORMAL only), or nil (both). Chords like <C-v> are safe
+        -- in both; a plain key that also edits the query (e.g. <BS>) must be "n" so insert-mode typing is intact.
+        -- Each runs `action.run(item, close)` with the focused item; `close` tears the picker down WITHOUT firing
+        -- on_cancel/on_confirm — the action owns the outcome (e.g. open in a split, or step back to a panel).
+        for _, action in ipairs(opts.keys or {}) do
+            if action.key and action.run then
+                local function fire()
+                    action.run(state.cur_item, function()
+                        state.closed = true -- the impending fzf on_exit finish() then no-ops (no on_cancel)
+                        if state.st then
+                            pcall(state.st.close)
+                        end
+                    end)
+                end
+                if action.mode ~= "n" then
+                    vim.keymap.set("t", action.key, fire, kopts)
+                end
+                if action.mode ~= "t" then
+                    vim.keymap.set("n", action.key, fire, kopts)
+                end
+            end
+        end
         -- NORMAL: <C-d>/<C-u> scroll the PREVIEW (as in insert); every OTHER Neovim scroll/page motion is blocked
         -- so it can't scroll the fzf terminal render under us (which would move the cursor + corrupt the display).
         if opts.preview then
@@ -1015,6 +1039,11 @@ function M.open(opts)
     end
     if park_key ~= "" then -- the park toggle (leave to the editor / return)
         footer_items[#footer_items + 1] = { key = klabel(kcfg.park), name = "buffer" }
+    end
+    for _, action in ipairs(opts.keys or {}) do -- per-call ROW ACTIONS (e.g. vsplit / hsplit) get a hint too
+        if action.key and action.name then
+            footer_items[#footer_items + 1] = { key = (action.key):gsub("[<>]", ""), name = action.name }
+        end
     end
 
     local host = msgarea
