@@ -17,6 +17,13 @@ return {
     -- not piped stdin) — like the native intro screen. false = only open on demand (`:LvimDashboard`).
     auto_open = true,
 
+    -- Optional extra gate on the auto-open: a `fun(): boolean` returning FALSE to SUPPRESS the dashboard even
+    -- on an empty startup. Generic (no knowledge of any other plugin) — wire it in your config to defer to
+    -- something that will own the startup screen itself, e.g. a session/project manager that will load a
+    -- project for the cwd (so the greeter never flashes before it takes over). nil = no extra gate.
+    ---@type (fun(): boolean)?
+    should_open = nil,
+
     -- HIDE the hardware cursor while the dashboard is up (the active row is shown by its tinted cell instead).
     -- Driven by lvim-utils.cursor; false = keep the normal cursor.
     hide_cursor = true,

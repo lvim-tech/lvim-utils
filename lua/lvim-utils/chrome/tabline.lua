@@ -33,11 +33,36 @@ end
 
 --- The `%!`-evaluated tabline string. The engine renders the config's sections.
 ---@return string
+--- The last bar STRING we actually showed, and a candidate awaiting confirmation. The tabline is a global
+--- `%!`-expression nvim re-evaluates synchronously on every redraw, so we cannot defer the call itself — but
+--- we can WAIT to SHOW a change: a new value is only committed once it survives TWO consecutive evaluations.
+--- A one-frame transient (e.g. the editor/file focused for a single frame while a picker closes and the panel
+--- re-opens) never survives twice, so it is never painted; we keep showing the last committed bar and force a
+--- re-evaluation next tick via `redrawtabline`.
+---@type string?
+local _shown = nil
+---@type string?
+local _cand = nil
+
 function M.render()
     local win = api.nvim_get_current_win()
     ---@type LvimChromeCtx
     local ctx = { buf = api.nvim_win_get_buf(win), win = win }
-    return inst.render(active_segments(), ctx)
+    local fresh = inst.render(active_segments(), ctx)
+    if _shown == nil or fresh == _shown then
+        _shown, _cand = fresh, nil
+        return fresh
+    end
+    if fresh == _cand then
+        _shown, _cand = fresh, nil -- stable across two evals → commit the change
+        return fresh
+    end
+    -- changed, possibly a transient: keep the last committed bar, re-check next tick.
+    _cand = fresh
+    vim.schedule(function()
+        pcall(vim.cmd, "redrawtabline")
+    end)
+    return _shown
 end
 
 return M

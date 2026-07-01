@@ -563,6 +563,15 @@ local function should_auto_open()
     if vim.fn.argc(-1) > 0 then
         return false -- launched with file args
     end
+    -- Optional caller gate: something else will own the startup screen (e.g. a project manager loading the cwd
+    -- project). Kept generic — the dashboard knows nothing about what that is.
+    local so = cfg().should_open
+    if type(so) == "function" then
+        local ok, keep = pcall(so)
+        if ok and keep == false then
+            return false
+        end
+    end
     if api.nvim_buf_get_name(0) ~= "" then
         return false -- the current buffer is a real file
     end

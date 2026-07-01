@@ -410,12 +410,14 @@ function M.setup(cfg)
         end,
     })
     -- Re-render on resize: the float spans the full width and sits at the bottom (both from
-    -- `vim.o.columns`/`vim.o.lines`), so a resize while the cmdline is open must reflow it.
+    -- `vim.o.columns`/`vim.o.lines`), so a resize while the cmdline is open must reflow it. Render
+    -- SYNCHRONOUSLY (VimResized is never a fast event) so the float follows the new size in the SAME frame —
+    -- no stale-geometry frame between the resize and the reflow.
     api.nvim_create_autocmd("VimResized", {
         group = cmdline_group,
         callback = function()
             if _win and api.nvim_win_is_valid(_win) then
-                schedule(render)
+                render()
             end
         end,
     })
