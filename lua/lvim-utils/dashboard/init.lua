@@ -564,21 +564,30 @@ local function should_auto_open()
     return true
 end
 
---- Auto-open on UIEnter (or immediately if already in the editor at setup time).
+--- Auto-open on VimEnter (or immediately if already in the editor at setup time).
 local function arm_auto_open()
+    local opened = false
     local function try()
-        if should_auto_open() then
-            -- save + hide the global chrome while the greeter is up; D:close restores it (a separate
-            -- BufWipeout autocmd is unreliable — D:close deletes the augroup it would live in, so the restore
-            -- could be torn down before it runs, leaving laststatus = 0 and the editor chrome-less).
-            local dash = M.open({ buf = api.nvim_get_current_buf(), win = api.nvim_get_current_win() })
-            dash._chrome = { showtabline = vim.o.showtabline, laststatus = vim.o.laststatus }
-            vim.o.showtabline, vim.o.laststatus = 0, 0
+        if opened or not should_auto_open() then
+            return
         end
+        opened = true
+        -- save + hide the global chrome while the greeter is up; D:close restores it (a separate
+        -- BufWipeout autocmd is unreliable — D:close deletes the augroup it would live in, so the restore
+        -- could be torn down before it runs, leaving laststatus = 0 and the editor chrome-less).
+        local dash = M.open({ buf = api.nvim_get_current_buf(), win = api.nvim_get_current_win() })
+        dash._chrome = { showtabline = vim.o.showtabline, laststatus = vim.o.laststatus }
+        vim.o.showtabline, vim.o.laststatus = 0, 0
     end
     if vim.v.vim_did_enter == 1 then
         try()
     else
+        -- Render on VimEnter, SYNCHRONOUSLY — the window dims + UI are ready by then (in a TUI), and VimEnter
+        -- runs BEFORE the first screen paint, so the greeter is on screen at once: no flash of the empty buffer
+        -- and no flash of the chrome (any tabline/statusline the chrome sets in its own VimEnter is overwritten
+        -- here before the paint). A late-attaching GUI (no UI at VimEnter) falls through to the UIEnter fallback;
+        -- `should_auto_open` + the `opened` guard make it fire exactly once whichever gets there first.
+        api.nvim_create_autocmd("VimEnter", { once = true, callback = try })
         api.nvim_create_autocmd("UIEnter", {
             once = true,
             callback = function()
