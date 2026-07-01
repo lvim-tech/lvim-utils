@@ -93,6 +93,18 @@ local AREA_CAP = 16
 function M.select(opts)
     opts = opts or {}
     local items = opts.items or {}
+    -- Mark ONE item as the current one (e.g. the installed version) with a "(current)" suffix + initial focus.
+    -- `current_item` is an item reference/value; nil = nothing marked (unchanged behaviour).
+    local current_idx = nil
+    if opts.current_item ~= nil then
+        for i, it in ipairs(items) do
+            if it == opts.current_item then
+                current_idx = i
+                break
+            end
+        end
+    end
+    local CURRENT_SUFFIX = "  (current)"
     ---@type fun(...): any
     local cb = opts.callback or function() end
     if #items == 0 then
@@ -126,9 +138,10 @@ function M.select(opts)
         cursorline = true,
         size = function()
             local w = util.dw(opts.title or "Select") + 4
-            for _, it in ipairs(items) do
+            for i, it in ipairs(items) do
                 local icon = rows.item_icon(it)
-                w = math.max(w, util.dw((icon and icon .. " " or "") .. rows.item_label(it)) + 4)
+                local suffix = (i == current_idx) and CURRENT_SUFFIX or ""
+                w = math.max(w, util.dw((icon and icon .. " " or "") .. rows.item_label(it) .. suffix) + 4)
             end
             return w, #items
         end,
@@ -136,15 +149,25 @@ function M.select(opts)
             local lines, hls = {}, {}
             for i, it in ipairs(items) do
                 local icon = rows.item_icon(it)
-                lines[i] = util.lpad((icon and (icon .. " ") or "") .. rows.item_label(it), width, 2)
+                local base = (icon and (icon .. " ") or "") .. rows.item_label(it)
+                local suffix = (i == current_idx) and CURRENT_SUFFIX or ""
+                lines[i] = util.lpad(base .. suffix, width, 2)
                 if icon then
                     hls[#hls + 1] = { i - 1, 2, 2 + #icon, "LvimUiItemIconInactive" }
+                end
+                if suffix ~= "" then
+                    local scol = 2 + #base -- +2 for lpad's lead; #base is byte length (matches the icon offsets)
+                    hls[#hls + 1] = { i - 1, scol, scol + #suffix, "Comment" }
                 end
             end
             return lines, hls
         end,
         keys = function(map, p, st)
             pan = p
+            -- Land the cursor on the current item (the installed version) when there is one.
+            if current_idx and p.win and vim.api.nvim_win_is_valid(p.win) then
+                pcall(vim.api.nvim_win_set_cursor, p.win, { current_idx, 0 })
+            end
             map({ "<CR>", "<Space>" }, function()
                 pick(st)
             end)
