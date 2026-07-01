@@ -408,30 +408,55 @@ end
 --- re-stacked the panes to one column / re-centred it. A single clean re-paint happens when focus RETURNS.
 function D:init()
     self.augroup = api.nvim_create_augroup("LvimUtilsDashboard_" .. self.buf, { clear = true })
+    local function on_settle()
+        if self.closed then
+            return
+        end
+        -- Re-derive OUR window from the BUFFER. A split / side panel opening can leave self.win pointing at the
+        -- wrong window id (e.g. the new empty split), which would paint the greeter at that window's width. The
+        -- window actually showing our buffer is the source of truth.
+        local wins = self.buf and vim.fn.win_findbuf(self.buf) or {}
+        for _, w in ipairs(wins) do
+            if api.nvim_win_get_config(w).relative == "" then
+                self.win = w
+                break
+            end
+        end
+        if not (self.win and api.nvim_win_is_valid(self.win)) then
+            return
+        end
+        if self._acting then
+            -- frozen while a finder it launched is up: re-paint only once our window is back to full height
+            -- (the finder/area closed); otherwise leave the dashboard exactly as it is.
+            if self:window_shrunk() then
+                return
+            end
+            self._acting = false
+        end
+        -- React to a change in OUR OWN window's size regardless of which window has focus — a side panel opening
+        -- BESIDE us resizes our window without focusing it, and we must re-centre in the new width instead of
+        -- keeping the old full-width geometry. The size gate below is what avoids reacting to unrelated resizes.
+        local s = self:size()
+        local changed = not self._size or s.width ~= self._size.width or s.height ~= self._size.height
+        self._size = s
+        if changed then
+            self:update()
+        end
+    end
+    -- Re-centre when our window is resized (a terminal resize, or a side panel opening/closing beside us).
+    -- SYNCHRONOUSLY, in the same frame as the resize, so the greeter follows the new width in ONE redraw with no
+    -- stale/old-geometry frame (that intermediate frame is what read as flicker). on_settle re-derives our
+    -- window from the buffer and only repaints when the size actually changed. pcall guards the rare context
+    -- where a buffer write is not allowed.
     api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
         group = self.augroup,
         callback = function()
-            vim.schedule(function()
-                if self.closed or not (self.win and api.nvim_win_is_valid(self.win)) then
-                    return
-                end
-                if self._acting then
-                    -- frozen while a finder is up: unfreeze + re-paint only once the window is back to full
-                    -- height (the finder/area closed); otherwise leave the dashboard exactly as it is.
-                    if self:window_shrunk() then
-                        return
-                    end
-                    self._acting = false
-                elseif api.nvim_get_current_win() ~= self.win then
-                    return -- another window owns the screen — don't react to its resizes
-                end
-                local s = self:size()
-                local changed = not self._size or s.width ~= self._size.width or s.height ~= self._size.height
-                self._size = s
-                if changed then
-                    self:update()
-                end
-            end)
+            if not pcall(on_settle) then
+                -- fell in a text-locked context; retry on the next tick
+                vim.schedule(function()
+                    pcall(on_settle)
+                end)
+            end
         end,
     })
     -- ONE teardown path: the buffer is `bufhidden=wipe`, so closing the window wipes it → BufWipeout → close().

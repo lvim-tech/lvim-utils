@@ -404,9 +404,10 @@ local function layout(self)
     local win_w = api.nvim_win_get_width(self.win)
     local W, gap = self.opts.width, self.opts.pane_gap
     local max_panes = math.max(1, math.floor((win_w + gap) / (W + gap)))
-    local by_pane = {}
+    local by_pane, max_req = {}, 1
     for _, item in ipairs(self.items) do
         if not item.hidden then
+            max_req = math.max(max_req, item.pane or 1)
             local p = ((item.pane or 1) - 1) % max_panes + 1
             by_pane[p] = by_pane[p] or {}
             table.insert(by_pane[p], item)
@@ -418,6 +419,63 @@ local function layout(self)
             self.panes[#self.panes + 1] = by_pane[i]
         end
     end
+    -- COLLAPSED = the window is too narrow for the multi-column layout, so every section stacked into one pane.
+    -- The paint then shrinks the single column to its natural width so it centres tightly (rather than the short
+    -- rows hugging the left of a full pane-width block).
+    self._collapsed = (max_panes == 1) and (max_req > 1)
+end
+
+--- Sum the display width of a chunk list.
+---@param cs table[]
+---@return integer
+local function chunks_w(cs)
+    local n = 0
+    for _, c in ipairs(cs) do
+        n = n + dw(c[1] or "")
+    end
+    return n
+end
+
+--- The NATURAL (unpadded) display width of an item's rendered row: indent + icon + widest centre line + a gap
+--- + the right label/key. Used to shrink the single stacked column to its content so it centres tightly.
+---@param self table
+---@param item table
+---@return integer
+local function natural_width(self, item)
+    local indent = item.indent or 0
+    local left = {}
+    if item.icon and item.icon ~= "" then
+        left = format_field(self, item, "icon")
+        if item.desc then
+            left[#left + 1] = { " " }
+        end
+    end
+    local right = 0
+    if item.label then
+        right = dw(tostring(item.label))
+    elseif item.key then
+        right = dw(item.key)
+    end
+    local lines
+    if item.text ~= nil then
+        lines = to_lines(item.text)
+    else
+        for _, f in ipairs({ "header", "footer", "title", "desc", "file" }) do
+            if item[f] ~= nil then
+                lines = to_lines((format_field(self, item, f)))
+                break
+            end
+        end
+    end
+    lines = lines or { {} }
+    local center = 0
+    for _, ln in ipairs(lines) do
+        center = math.max(center, chunks_w(ln))
+    end
+    local lw = chunks_w(left)
+    -- a small gap between content and a right-hand key/label (matches the "breathing" gap in the paint)
+    local gap = (right > 0 and (lw + center) > 0) and 3 or 0
+    return indent + lw + center + gap + right
 end
 
 --- Lay out (panes) and PAINT the already-resolved `self.items` into the buffer. Sets `self.panes` /
@@ -427,9 +485,26 @@ end
 function M.paint(self)
     layout(self)
 
-    local W, gap = self.opts.width, self.opts.pane_gap
+    local gap = self.opts.pane_gap
     local win_w = api.nvim_win_get_width(self.win)
     local win_h = api.nvim_win_get_height(self.win)
+
+    -- Effective pane width. Normally the configured `width`; but when the sections have COLLAPSED into one
+    -- stacked column (a narrow window), shrink it to the widest natural row so the single column centres
+    -- TIGHTLY — otherwise the short / left-aligned rows hug the left edge of a full-width block and the whole
+    -- thing reads as left-aligned. Applied through an opts PROXY so the live config table is never mutated.
+    local real_opts = self.opts
+    local W = self.opts.width
+    if self._collapsed and self.panes[1] then
+        local eff = 1
+        for _, item in ipairs(self.panes[1]) do
+            eff = math.max(eff, natural_width(self, item))
+        end
+        -- +2 breathing room so a right-aligned key/number never touches the content (the path shortening makes
+        -- the natural width measured at the full width differ slightly from the re-shortened path at `eff`).
+        W = math.max(1, math.min(eff + 2, win_w))
+        self.opts = setmetatable({ width = W }, { __index = real_opts })
+    end
 
     -- render each pane to a list of lines; remember each item's content row + which item anchors each row (so
     -- the merge below can record that item's on-screen byte cell, for the active-row highlight).
@@ -449,6 +524,7 @@ function M.paint(self)
         pane_anchor[#pane_anchor + 1] = anchor
         max_h = math.max(max_h, #lines)
     end
+    self.opts = real_opts -- restore the live config; `W` (local) carries the effective width from here on
 
     local total_w = #self.panes * W + math.max(0, #self.panes - 1) * gap
     local left = self.opts.col or math.max(0, math.floor((win_w - total_w) / 2))
