@@ -113,12 +113,15 @@ function M.icons()
     return M.cfg().icons
 end
 
---- True when `buf`'s buftype or filetype is in the chrome exclusion lists (no winbar/statuscolumn there).
+--- True when `buf`'s buftype or filetype is in the given COMPONENT's chrome exclusion list (no chrome there).
 ---@param buf? integer
+---@param kind? "statusline"|"winbar"|"tabline"|"statuscolumn"  which component's blacklist to check
 ---@return boolean
-function M.excluded(buf)
+function M.excluded(buf, kind)
     buf = buf or 0
-    local ex = M.cfg().exclude or {}
+    local cfg = M.cfg()
+    -- each component owns its OWN `exclude = { buftype, filetype }` blacklist; pass `kind` to check that one.
+    local ex = (kind and cfg[kind] and cfg[kind].exclude) or {}
     return vim.tbl_contains(ex.buftype or {}, vim.bo[buf].buftype)
         or vim.tbl_contains(ex.filetype or {}, vim.bo[buf].filetype)
 end

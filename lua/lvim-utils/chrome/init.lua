@@ -105,12 +105,13 @@ local function apply_window(win)
     end
     local cfg = require("lvim-utils.config").chrome
     local buf = api.nvim_win_get_buf(win)
-    local excluded = parts.excluded(buf) or api.nvim_win_get_config(win).relative ~= ""
-    -- only assign when the value actually changes — re-setting a window option forces a redraw, so a guard
-    -- here avoids needless flicker on every WinEnter. On an EXCLUDED window we clear ONLY our own winbar /
+    local float = api.nvim_win_get_config(win).relative ~= ""
+    -- Each component honours its OWN blacklist (winbar vs statuscolumn can exclude different buffers). only
+    -- assign when the value actually changes — re-setting a window option forces a redraw, so a guard here
+    -- avoids needless flicker on every WinEnter. On an EXCLUDED window we clear ONLY our own winbar /
     -- statuscolumn — never wipe a foreign one the window set itself (e.g. neo-tree's source-selector winbar).
     if cfg.winbar.enabled then
-        if not excluded then
+        if not (float or parts.excluded(buf, "winbar")) then
             if vim.wo[win].winbar ~= WINBAR then
                 vim.wo[win].winbar = WINBAR
             end
@@ -119,7 +120,7 @@ local function apply_window(win)
         end
     end
     if cfg.statuscolumn.enabled then
-        if not excluded then
+        if not (float or parts.excluded(buf, "statuscolumn")) then
             if vim.wo[win].statuscolumn ~= STATUSCOLUMN then
                 vim.wo[win].statuscolumn = STATUSCOLUMN
             end
@@ -152,7 +153,7 @@ function M.setup()
         -- ONLY when the current tab holds NO real file window (the dashboard); otherwise show.
         local has_real = false
         for _, w in ipairs(api.nvim_tabpage_list_wins(api.nvim_get_current_tabpage())) do
-            if api.nvim_win_get_config(w).relative == "" and not parts.excluded(api.nvim_win_get_buf(w)) then
+            if api.nvim_win_get_config(w).relative == "" and not parts.excluded(api.nvim_win_get_buf(w), "tabline") then
                 has_real = true
                 break
             end

@@ -8,6 +8,58 @@
 --
 ---@module "lvim-utils.config.chrome"
 
+-- Per-COMPONENT exclusion defaults. Each of the four components (statusline / winbar / tabline / statuscolumn)
+-- carries its OWN `exclude = { buftype, filetype }` blacklist, so they can be tuned independently (8 lists in
+-- all). This returns a FRESH copy each call so the four don't share a table. `extra_ft` appends component-
+-- specific filetypes. A buffer whose `buftype` OR `filetype` is listed gets NO chrome for that component — the
+-- start dashboard (`lvim-dashboard`, a `nofile` scratch), tool panels, terminals, etc.
+---@param extra_ft? string[]
+---@return { buftype: string[], filetype: string[] }
+local function chrome_exclude(extra_ft)
+    local filetype = {
+        "lvim-dashboard", -- the lvim-utils start dashboard
+        "snacks_dashboard",
+        "alpha",
+        "ctrlspace",
+        "ctrlspace_help",
+        "undotree",
+        "diff",
+        "Outline",
+        "NvimTree",
+        "LvimHelper",
+        "dashboard",
+        "vista",
+        "spectre_panel",
+        "DiffviewFiles",
+        "flutterToolsOutline",
+        "log",
+        "dapui_scopes",
+        "dapui_breakpoints",
+        "dapui_stacks",
+        "dapui_watches",
+        "dapui_console",
+        "calendar",
+        "neo-tree",
+        "neo-tree-popup",
+        "noice",
+        "toggleterm",
+        "git",
+        "netrw",
+        "dbee",
+        "org",
+        "fzf",
+        "qf",
+        "replacer",
+    }
+    for _, ft in ipairs(extra_ft or {}) do
+        filetype[#filetype + 1] = ft
+    end
+    return {
+        buftype = { "nofile", "prompt", "help", "terminal" },
+        filetype = filetype,
+    }
+end
+
 return {
     -- ── statusline ────────────────────────────────────────────────────────────
     -- The bottom line, rendered by lvim-utils.chrome.engine. There are NO predefined segments (like heirline) —
@@ -20,6 +72,8 @@ return {
         enabled = true,
         ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
         segments = nil,
+        -- this component's OWN buftype/filetype blacklist (no statusline on these buffers).
+        exclude = chrome_exclude(),
     },
 
     -- ── winbar ────────────────────────────────────────────────────────────────
@@ -32,6 +86,8 @@ return {
         -- chrome.parts (devicon / unique_name / seg / icons) + chrome.utils. Unset ⇒ a blank winbar.
         ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
         segments = nil,
+        -- this component's OWN buftype/filetype blacklist (no winbar on these buffers).
+        exclude = chrome_exclude(),
     },
 
     -- ── tabline ───────────────────────────────────────────────────────────────
@@ -45,6 +101,8 @@ return {
         -- clickable window / tab CELLS (tabby's functionality). Unset ⇒ a blank tabline.
         ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
         segments = nil,
+        -- this component's OWN buftype/filetype blacklist (tabline hidden when the tab holds only these).
+        exclude = chrome_exclude(),
     },
 
     -- ── statuscolumn ──────────────────────────────────────────────────────────
@@ -57,6 +115,8 @@ return {
         -- chrome.gutter (signs / diag_icon / mark_letter / sign_at_mouse) + chrome.parts. Unset ⇒ blank gutter.
         ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
         segments = nil,
+        -- this component's OWN buftype/filetype blacklist (no statuscolumn gutter on these buffers).
+        exclude = chrome_exclude(),
     },
 
     -- ── transient finder / echo overlay (ex config.status) ──────────────────────
@@ -71,46 +131,6 @@ return {
         title_pad_left = 1,
         title_pad_right = 1,
         segment_pad = 1,
-    },
-
-    -- ── shared: exclusion lists ─────────────────────────────────────────────────
-    -- Buffers/filetypes that should NOT get the normal winbar/statuscolumn (special/tool panels).
-    exclude = {
-        buftype = { "nofile", "prompt", "help", "terminal" },
-        filetype = {
-            "snacks_dashboard",
-            "alpha",
-            "ctrlspace",
-            "ctrlspace_help",
-            "undotree",
-            "diff",
-            "Outline",
-            "NvimTree",
-            "LvimHelper",
-            "dashboard",
-            "vista",
-            "spectre_panel",
-            "DiffviewFiles",
-            "flutterToolsOutline",
-            "log",
-            "dapui_scopes",
-            "dapui_breakpoints",
-            "dapui_stacks",
-            "dapui_watches",
-            "dapui_console",
-            "calendar",
-            "neo-tree",
-            "neo-tree-popup",
-            "noice",
-            "toggleterm",
-            "git",
-            "netrw",
-            "dbee",
-            "org",
-            "fzf",
-            "qf",
-            "replacer",
-        },
     },
 
     -- ── shared: git poller ──────────────────────────────────────────────────────

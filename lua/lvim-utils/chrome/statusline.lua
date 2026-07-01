@@ -14,6 +14,7 @@ local api = vim.api
 local utils = require("lvim-utils.chrome.utils")
 local engine = require("lvim-utils.chrome.engine")
 local git_poller = require("lvim-utils.chrome.git")
+local parts = require("lvim-utils.chrome.parts")
 
 local is_ui_float = utils.is_ui_float
 
@@ -71,6 +72,10 @@ function M.render()
         mode = vim.fn.mode(1):sub(1, 1),
         active = win == cur,
     }
+    -- the statusline's OWN blacklist (e.g. the start dashboard): render NOTHING for an excluded buffer.
+    if parts.excluded(ctx.buf, "statusline") then
+        return ""
+    end
     return inst.render(active_segments(), ctx)
 end
 
