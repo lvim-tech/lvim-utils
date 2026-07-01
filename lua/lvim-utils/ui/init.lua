@@ -28,6 +28,8 @@ local M = {}
 ---@class UiOpts
 ---@field title? string|false        -- border-title (false hides it for M.info)
 ---@field items? any[]               -- select / multiselect items
+---@field current_item? any          -- select: focus this item on open (e.g. the installed version)
+---@field mark_current? boolean      -- select: default true → the focused current_item also gets a "  (current)" suffix; false = focus only (caller owns the marker)
 ---@field tabs? table[]              -- tabs: { { label, icon?, rows, menu? } , … }
 ---@field menu? boolean              -- tabs: render the rows as a navigable MENU (action rows stay a selectable BODY list, not footer buttons); per-tab via `tab.menu`
 ---@field callback? fun(...): any    -- result callback (signature varies per presenter)
@@ -93,8 +95,9 @@ local AREA_CAP = 16
 function M.select(opts)
     opts = opts or {}
     local items = opts.items or {}
-    -- Mark ONE item as the current one (e.g. the installed version) with a "(current)" suffix + initial focus.
-    -- `current_item` is an item reference/value; nil = nothing marked (unchanged behaviour).
+    -- Focus ONE item on open (e.g. the installed version). `current_item` is an item reference/value; nil =
+    -- nothing focused (unchanged behaviour). By default the focused row also gets a "  (current)" suffix; set
+    -- `mark_current = false` to only FOCUS it (for callers that build their own marker into the label).
     local current_idx = nil
     if opts.current_item ~= nil then
         for i, it in ipairs(items) do
@@ -104,6 +107,7 @@ function M.select(opts)
             end
         end
     end
+    local mark_current = opts.mark_current ~= false
     local CURRENT_SUFFIX = "  (current)"
     ---@type fun(...): any
     local cb = opts.callback or function() end
@@ -140,7 +144,7 @@ function M.select(opts)
             local w = util.dw(opts.title or "Select") + 4
             for i, it in ipairs(items) do
                 local icon = rows.item_icon(it)
-                local suffix = (i == current_idx) and CURRENT_SUFFIX or ""
+                local suffix = (mark_current and i == current_idx) and CURRENT_SUFFIX or ""
                 w = math.max(w, util.dw((icon and icon .. " " or "") .. rows.item_label(it) .. suffix) + 4)
             end
             return w, #items
@@ -150,7 +154,7 @@ function M.select(opts)
             for i, it in ipairs(items) do
                 local icon = rows.item_icon(it)
                 local base = (icon and (icon .. " ") or "") .. rows.item_label(it)
-                local suffix = (i == current_idx) and CURRENT_SUFFIX or ""
+                local suffix = (mark_current and i == current_idx) and CURRENT_SUFFIX or ""
                 lines[i] = util.lpad(base .. suffix, width, 2)
                 if icon then
                     hls[#hls + 1] = { i - 1, 2, 2 + #icon, "LvimUiItemIconInactive" }
