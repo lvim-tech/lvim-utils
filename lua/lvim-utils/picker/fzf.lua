@@ -554,6 +554,28 @@ function M.open(opts)
         end
     end
 
+    -- Open-method routing (config.picker.keys.open_methods): each method carries a NORMAL key (`n`) and an INSERT
+    -- key (`i`). The i-keys of vsplit/hsplit/tabedit go through fzf `--expect`, so fzf prints the pressed key on
+    -- exit and `finish` routes it; `edit` is the plain accept (no --expect key → fzf prints ""). The normal keys
+    -- are bound (below) to FEED the matching i-key to fzf, so both modes funnel through the same --expect.
+    local om = kcfg.open_methods or {}
+    local method_of = {} -- fzf-key string → method name ("vsplit" | "hsplit")
+    local expect_methods = {} -- fzf-key strings to add to --expect
+    for _, m in ipairs({ "vsplit", "hsplit" }) do
+        local sp = om[m]
+        if type(sp) == "table" and type(sp.i) == "string" and sp.i ~= "" then
+            local fk = fzfkey(sp.i)
+            method_of[fk] = m
+            expect_methods[#expect_methods + 1] = fk
+        end
+    end
+    -- `start_fzf` is defined further down; forward-declared so `finish` (above it) can restart it IN PLACE for a
+    -- keep-open dock (open a file without tearing the frame down → no flicker).
+    local start_fzf
+    -- `footer_bands(mode)` is defined further down (it needs `opts`); forward-declared so the terminal's mode
+    -- switches (to_insert / <Esc>) inside `start_fzf` can re-render the footer for the new mode via `set_footer`.
+    local footer_bands
+
     local confirmed = false
     --- Run `fn` as a single msgarea ZONE HANDOFF when this finder is area-docked: the picker's teardown (release
     --- its zone segment) and whatever the consumer does in its callback (e.g. lvim-space re-opening a panel —
@@ -576,12 +598,13 @@ function M.open(opts)
         if state.closed then
             return
         end
-        -- Parse the selection FIRST (no zone ops); then close + route the callback inside ONE handoff, so a
-        -- consumer that re-opens a panel in its callback (the search step-back) does not flicker the zone.
+        -- Parse the selection FIRST (no zone ops). `--expect` prints the pressed key as line 1 whenever ANY expect
+        -- key is registered (the quickfix key OR an open-method key); a plain accept prints "".
+        local has_expect = qf_key ~= nil or #expect_methods > 0
         local key, items = "", {}
         if code == 0 and lines and #lines > 0 then
             local start = 1
-            if qf_key then -- --expect prints the key as line 1
+            if has_expect then
                 key = lines[1] or ""
                 start = 2
             end
@@ -591,6 +614,65 @@ function M.open(opts)
                 end
             end
         end
+        -- Route the accept key → a method: the quickfix key → the quickfix list; a --expect open-method key →
+        -- vsplit / hsplit / tab; anything else (incl. the plain "") → edit in the opener.
+        local method = "edit"
+        if qf_key and key == fzfkey(qf_key) then
+            method = "qf"
+        elseif method_of[key] then
+            method = method_of[key]
+        end
+        -- Open the focused item: focus the OPENER, PREPARE the target window for a split/tab, then let the
+        -- consumer's on_confirm place the file in the (now current) window.
+        local function do_open()
+            if opener and api.nvim_win_is_valid(opener) then
+                api.nvim_set_current_win(opener)
+            end
+            if method == "vsplit" then
+                vim.cmd("vsplit")
+            elseif method == "hsplit" then
+                vim.cmd("split")
+            end
+            if opts.on_confirm then
+                opts.on_confirm(parse(items[1]))
+            end
+        end
+        -- KEEP-OPEN docks: an area/bottom finder whose layout is not `auto_hide` STAYS open on a file open — do
+        -- not close the frame; open the file, then restart fzf IN PLACE (the frame + its reserved zone segment
+        -- never close → no flicker) and keep or drop focus per `keep_focus`. A cancel or the quickfix key falls
+        -- through to the normal close path.
+        local lay = opts.layout
+        local lcfg = (config.ui.size or {})[lay] or {}
+        local keep_open = (lay == "area" or lay == "bottom") and not lcfg.auto_hide and #items > 0 and method ~= "qf"
+        if keep_open then
+            do_open()
+            local pan = state.list_pan
+            if pan and pan.win and api.nvim_win_is_valid(pan.win) then
+                if state.outfile then -- clear it so a subsequent abort can't re-read this pick
+                    local f = io.open(state.outfile, "w")
+                    if f then
+                        f:close()
+                    end
+                end
+                -- Restart fzf in the SAME panel window. `start_fzf` swaps a FRESH buffer into the window; only
+                -- AFTER that do we wipe the exited fzf's old buffer. Deleting it FIRST would close the window (it
+                -- is the buffer on display) → start_fzf no-ops on an invalid window and the dock is stranded.
+                local old_buf = state.term_buf
+                state.term_started = false
+                state.term_chan = nil
+                start_fzf(pan)
+                if old_buf and old_buf ~= state.term_buf and api.nvim_buf_is_valid(old_buf) then
+                    pcall(api.nvim_buf_delete, old_buf, { force = true })
+                end
+                if lcfg.keep_focus ~= false and api.nvim_win_is_valid(pan.win) then
+                    api.nvim_set_current_win(pan.win)
+                    vim.cmd("startinsert")
+                end
+            end
+            return
+        end
+        -- Normal close path: close + route inside ONE handoff, so a consumer re-opening a panel in its callback
+        -- (the search step-back) coalesces with the teardown into a single zone reflow (no flicker).
         with_handoff(function()
             if state.st then
                 pcall(state.st.close) -- triggers surface on_close → resource cleanup below
@@ -602,10 +684,10 @@ function M.open(opts)
                 return
             end
             confirmed = true
-            if qf_key and key == fzfkey(qf_key) then
+            if method == "qf" then
                 to_quickfix(items)
-            elseif opts.on_confirm then
-                opts.on_confirm(parse(items[1]))
+            else
+                do_open()
             end
         end)
     end
@@ -668,10 +750,18 @@ function M.open(opts)
         for _, k in ipairs(keylist(kcfg.mark)) do
             args[#args + 1] = "--bind=" .. fzfkey(k) .. ":toggle+down"
         end
-        -- quickfix: the configured key ACCEPTS the finder; `--expect` makes fzf print that key as the first
-        -- output line, so on exit we know to send the marked rows to the quickfix list (vs a plain open).
+        -- `--expect`: fzf prints the pressed key as the first output line, so on exit `finish` knows how the
+        -- selection was accepted — the quickfix key (→ quickfix list) or an open-METHOD key (→ vsplit / hsplit /
+        -- tab). A plain accept prints "" (→ edit in the opener).
+        local expect = {}
         if qf_key then
-            args[#args + 1] = "--expect=" .. fzfkey(qf_key)
+            expect[#expect + 1] = fzfkey(qf_key)
+        end
+        for _, fk in ipairs(expect_methods) do
+            expect[#expect + 1] = fk
+        end
+        if #expect > 0 then
+            args[#args + 1] = "--expect=" .. table.concat(expect, ",")
         end
         -- extra per-finder fzf flags (e.g. buffers: `--delimiter` / `--with-nth` to hide the bufnr field)
         for _, a in ipairs(opts.fzf_args or {}) do
@@ -725,7 +815,7 @@ function M.open(opts)
     end
 
     -- ── the terminal LIST provider (hosts fzf) ──
-    local function start_fzf(pan)
+    start_fzf = function(pan)
         if state.term_started or not (pan.win and api.nvim_win_is_valid(pan.win)) then
             return
         end
@@ -869,10 +959,17 @@ function M.open(opts)
                 pcall(vim.fn.chansend, state.term_chan, keys)
             end
         end
+        -- Re-render the footer for `mode` in place (the buttons that ACTUALLY act differ insert vs normal).
+        local function sync_footer(mode)
+            if footer_bands and state.st and state.st.set_footer then
+                pcall(state.st.set_footer, footer_bands(mode))
+            end
+        end
         local function to_insert()
             state.normal = false
             pcall(cursor.mark_hide_buffer, tbuf, false) -- restore the input caret (terminal mode shows it again)
             vim.cmd("startinsert")
+            sync_footer("i")
         end
         vim.keymap.set("t", "<Esc>", function()
             state.normal = true
@@ -882,6 +979,7 @@ function M.open(opts)
             pcall(cursor.mark_hide_buffer, tbuf, true)
             -- LEAVE terminal-mode (stopinsert does NOT exit it) → NORMAL on the terminal buffer; fzf keeps running
             vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-\\><C-n>", true, false, true), "n", false)
+            sync_footer("n")
         end, kopts)
         vim.keymap.set("n", "j", function()
             feed("\27[B")
@@ -889,11 +987,42 @@ function M.open(opts)
         vim.keymap.set("n", "k", function()
             feed("\27[A")
         end, kopts)
+        -- NORMAL: the chassis' sector-cycle keys step the frame SECTORS (down to the footer button bar, up toward
+        -- the editor). The chassis binds these on its own scratch buffer, so a hosted terminal rebinds them on ITS
+        -- buffer — reading the SAME keys from the surface (`sector_next`/`sector_prev`) instead of hardcoding, so
+        -- they track config. Without this they fall through to the user's global window-nav and never reach the
+        -- footer. (In terminal mode the same keys stay fzf's list nav via the `kcfg.nav` passthrough.)
+        for _, sk in ipairs({ { "sector_next", 1 }, { "sector_prev", -1 } }) do
+            local dir = sk[2]
+            for _, lhs in ipairs(keylist(surface.key(sk[1]))) do
+                vim.keymap.set("n", lhs, function()
+                    if state.st and state.st.sector then
+                        state.st.sector(dir)
+                    end
+                end, kopts)
+            end
+        end
         vim.keymap.set("n", "i", to_insert, kopts)
         vim.keymap.set("n", "a", to_insert, kopts)
         vim.keymap.set("n", "<CR>", function()
             feed("\r")
         end, kopts)
+        -- open-method NORMAL keys (v / x): feed the method's INSERT key to fzf, so it exits via --expect and
+        -- `finish` routes it to vsplit / hsplit exactly like the insert chord — one code path for both modes.
+        for _, m in ipairs({ "vsplit", "hsplit" }) do
+            local sp = om[m]
+            if
+                type(sp) == "table"
+                and type(sp.n) == "string"
+                and sp.n ~= ""
+                and type(sp.i) == "string"
+                and sp.i ~= ""
+            then
+                vim.keymap.set("n", sp.n, function()
+                    feed(api.nvim_replace_termcodes(sp.i, true, false, true))
+                end, kopts)
+            end
+        end
         for _, lhs in ipairs({ "q", "<Esc>" }) do
             vim.keymap.set("n", lhs, function()
                 feed("\27") -- fzf abort → on_exit → the finder closes
@@ -973,7 +1102,8 @@ function M.open(opts)
             "M",
             "L",
             -- block CURSOR MOTION too: the cursor is hidden in NORMAL mode (the fzf selection is the real focus),
-            -- so it must not wander off the prompt row — disable horizontal + word + line motions.
+            -- so it must not wander off the prompt row — disable horizontal + word + line motions. (`v`/`x` are NOT
+            -- here: they are the vsplit / hsplit open-method keys, bound above.)
             "h",
             "l",
             "<Left>",
@@ -1081,27 +1211,75 @@ function M.open(opts)
         size = { width = { fixed = 0.85 }, height = { fixed = 0.7 } }
     end
 
-    -- footer hints — labelled from the configured keys (first of a list), so they track config.picker.keys.
+    -- footer — MODE-AWARE + grouped, generated from the CONFIGURED keys (never hardcoded), so it always shows
+    -- the keys that actually act in the CURRENT mode: NORMAL (plain v/x, j/k, q) vs INSERT (the Ctrl chords).
+    -- Groups: open-methods · list-actions (+ preview/park/per-call) · core frame-nav (by id, from the chassis).
+    -- A `●` (config.picker.footer_separator, `LvimUiFooterSep`) divides non-empty groups. Re-rendered on every
+    -- mode switch via `set_footer` (see `to_insert` / `<Esc>`).
     local function klabel(v)
         return (keylist(v)[1] or ""):gsub("[<>]", "")
     end
-    local footer_items = {
-        { key = klabel(kcfg.accept), name = "open" },
-        { key = "C-j/k", name = "move" },
-        { key = klabel(kcfg.mark), name = "mark" },
-        { key = klabel(kcfg.quickfix), name = "qf" },
-        { key = klabel(kcfg.abort), name = "close" },
+    local sep_glyph = (config.picker or {}).footer_separator or "●"
+    local navlist = keylist(kcfg.nav)
+    local move_i = ((navlist[1] or "<C-j>"):gsub("[<>]", "")) .. "/" .. ((navlist[2] or "<C-k>"):gsub("[<>]", ""))
+    -- The picker's OWN action registry: id → per-mode key LABELS + name. `key` = the same label in BOTH modes;
+    -- `n`/`i` = mode-specific. Labels track `config.picker.keys`, so the footer never drifts from the real
+    -- bindings. CORE ids (sectors / preview / panel / select) are NOT here — they resolve via
+    -- `surface.core_footer_item`. A per-call row action (`opts.keys`) registers under its own `name`.
+    local REG = {
+        open = { key = klabel(kcfg.accept), name = "open" },
+        vsplit = { n = klabel(om.vsplit.n), i = klabel(om.vsplit.i), name = "vsplit" },
+        hsplit = { n = klabel(om.hsplit.n), i = klabel(om.hsplit.i), name = "hsplit" },
+        move = { n = "j/k", i = move_i, name = "move" },
+        mark = { key = klabel(kcfg.mark), name = "mark" },
+        qf = { key = klabel(kcfg.quickfix), name = "qf" },
+        close = { n = klabel(kcfg.abort) .. "/q", i = klabel(kcfg.abort), name = "close" },
     }
-    if opts.preview then -- scroll the preview window from the fzf list
-        footer_items[#footer_items + 1] = { key = klabel(kcfg.preview_down) .. "/u", name = "preview" }
+    if opts.preview then
+        REG.preview = { key = klabel(kcfg.preview_down) .. "/u", name = "preview" }
     end
-    if park_key ~= "" then -- the park toggle (leave to the editor / return)
-        footer_items[#footer_items + 1] = { key = klabel(kcfg.park), name = "buffer" }
+    if park_key ~= "" then
+        REG.buffer = { key = klabel(kcfg.park), name = "buffer" }
     end
-    for _, action in ipairs(opts.keys or {}) do -- per-call ROW ACTIONS (e.g. vsplit / hsplit) get a hint too
+    for _, action in ipairs(opts.keys or {}) do
         if action.key and action.name then
-            footer_items[#footer_items + 1] = { key = (action.key):gsub("[<>]", ""), name = action.name }
+            REG[action.name] = { key = (action.key):gsub("[<>]", ""), name = action.name }
         end
+    end
+    ---@param mode string  "n" (normal-on-list) | "i" (insert/terminal query)
+    ---@return table  a `{ bars = { { items } } }` footer resolved from `config.picker.footer[normal|insert]`
+    footer_bands = function(mode)
+        local n = mode == "n"
+        local spec = (config.picker or {}).footer or {}
+        local groups = (n and spec.normal or spec.insert) or {}
+        local items = {}
+        for _, group in ipairs(groups) do
+            local resolved = {}
+            for _, id in ipairs(group) do
+                local e, key = REG[id], nil
+                if e then
+                    key = e.key or (n and e.n or e.i) -- picker-own id (per-mode)
+                else
+                    local ci = surface.core_footer_item(id) -- CORE id (from the chassis)
+                    if ci then
+                        e, key = ci, ci.key
+                    end
+                end
+                if e and type(key) == "string" and key ~= "" then
+                    resolved[#resolved + 1] = { key = key, name = e.name }
+                end
+            end
+            if #resolved > 0 then
+                if #items > 0 then -- `●` divider between non-empty groups
+                    items[#items + 1] =
+                        { type = "separator", text = sep_glyph, style = { padding = { 1, 1 }, hl = "LvimUiFooterSep" } }
+                end
+                for _, it in ipairs(resolved) do
+                    items[#items + 1] = it
+                end
+            end
+        end
+        return { bars = { { items = items } } }
     end
 
     local host = msgarea
@@ -1154,7 +1332,7 @@ function M.open(opts)
         -- No CONTENT title row — the title + counter are the chassis border-title / border-counter now; the
         -- fzf terminal panel IS the prompt, so there are no header bands.
         content = { blocks = blocks },
-        footer = { bars = { { items = footer_items } } },
+        footer = footer_bands("i"), -- the finder OPENS in insert (fzf query); mode switches re-render via set_footer
         close_keys = {},
         on_close = function()
             state.closed = true

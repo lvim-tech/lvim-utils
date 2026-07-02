@@ -54,11 +54,44 @@ return {
         park = "<C-o>",
         abort = { "<Esc>", "<C-c>" }, -- cancel the finder
         nav = { "<C-j>", "<C-k>", "<C-n>", "<C-p>" }, -- passed through to fzf's own up/down navigation
+        -- OPEN-METHOD keys: how the focused item opens. Each method has a NORMAL key (`n`, plain — the fzf list
+        -- is in normal mode, so bare letters are safe) and an INSERT key (`i`, a Ctrl chord — plain keys type
+        -- into the query). Routed through fzf `--expect`; the consumer's `on_confirm` opens the item in the
+        -- window the method prepared. In an area/bottom dock the finder STAYS open afterwards (restarted in place,
+        -- no flicker) per `config.ui.size.<layout>.auto_hide` / `keep_focus`.
+        open_methods = {
+            edit = { n = "<CR>", i = "<C-CR>" }, -- the window the picker was opened from
+            vsplit = { n = "v", i = "<C-v>" }, -- a vertical split
+            hsplit = { n = "x", i = "<C-x>" }, -- a horizontal split (x / <C-x> — <C-h> is Backspace in a terminal)
+        },
     },
 
     -- The MARK indicator drawn in the one blank column in front of a marked row (multi-select), in red — both
     -- backends. The canonical pointer glyph `➤` (U+27A4) reads cleanly in that single space.
     marker = "➤",
+
+    -- The glyph that DIVIDES footer button GROUPS (open-methods · list-actions · frame-nav). Its colour is the
+    -- `LvimUiFooterSep` highlight; the glyph itself is configurable here (a footer DIVIDER dot — distinct from
+    -- the `➤` active-marker canon).
+    footer_separator = "●",
+
+    -- The FOOTER button list, DECLARED PER MODE (`insert` while typing the query · `normal` after <Esc> on the
+    -- list) — each is GROUPS of action IDs (a `●` divides the groups). An id resolves to its {key, name} for THAT
+    -- mode: picker-OWN ids from the picker's action registry (open / vsplit / hsplit / move / mark / qf / close /
+    -- preview / buffer — labels track `keys` above); CORE ids (sectors / panel / preview_rotate / select) from the
+    -- chassis (`surface.CORE_FOOTER`). The bar re-renders on every mode switch, so it always reflects reality.
+    -- Edit freely to reorder / hide / regroup — purely DISPLAY (the keys stay bound regardless).
+    footer = {
+        insert = {
+            { "open", "vsplit", "hsplit" },
+            { "move", "mark", "qf", "close", "preview", "buffer" },
+        },
+        normal = {
+            { "open", "vsplit", "hsplit" },
+            { "move", "mark", "qf", "close", "preview" },
+            { "sectors" }, -- core frame-nav (C-j/C-k step sectors in normal; in insert they are fzf's list nav)
+        },
+    },
 
     -- (fzf grep) MULTILINE grep entries — the fzf-lua "2-line" result layout: each match is shown as a
     -- LOCATION row (`<icon> path:lnum:col`) with the matched TEXT indented on a second row beneath it, so a

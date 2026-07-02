@@ -101,17 +101,62 @@ local DEFAULT_KEYS = {
     menu_prev = { "h", "<Left>" },
     menu_next = { "l", "<Right>" },
     menu_confirm = { "<CR>", "<Space>" },
-    -- OPEN the focused selection (the chassis default `open(mode)` — opens the focused panel provider's
-    -- `selection()` item by `path`/`lnum`/`col`, or `cfg.on_open(mode, item)` when the consumer overrides):
-    open = "<CR>", -- in the window the frame was opened from
-    open_split = "<C-x>", -- in a horizontal split
-    open_vsplit = "<C-v>", -- in a vertical split
-    open_tab = "<C-t>", -- in a new tab
+    -- OPEN keys (open / open_split / open_vsplit / open_tab) are DELIBERATELY absent: opening a selection is a
+    -- CONSUMER concern (each finder/panel owns which keys open, in which split, and where focus lands), so every
+    -- consumer PASSES them via `cfg.keys` (nil here → the binding below no-ops). The chassis still owns the
+    -- open(mode) MECHANISM (default_open → provider `selection()` by path/lnum/col, or `cfg.on_open(mode,item)`).
     -- ROTATE the preview through five positions (right → below → left → above → dynamic → …), live:
     preview_next = "<C-n>",
     preview_prev = "<C-p>",
     toggle_preview = "<C-e>", -- HIDE ↔ show the preview (no-op while the preview is `dynamic`)
 }
+
+--- The RESOLVED value of a chassis key `id` — DEFAULT_KEYS overlaid by the GLOBAL `config.ui.keys`. For a hosted
+--- consumer (picker / shell) that must reference a chassis key (bind it on its own buffer, or label it in a
+--- footer) at a point where the surface `state` (with per-instance `cfg.keys`) does not yet exist. When the
+--- instance IS live, read `state.keys` instead (it includes the per-instance overrides).
+---@param id string
+---@return string|string[]|nil
+function M.key(id)
+    local ok, cfg = pcall(require, "lvim-utils.config")
+    local global = (ok and cfg.ui and cfg.ui.keys) or {}
+    local v = global[id]
+    if v == nil then
+        v = DEFAULT_KEYS[id]
+    end
+    return v
+end
+
+-- The chassis' OWN footer entries: `id → { fields, name, action }`. A consumer opts a core key INTO its footer
+-- by this `id` (the key stays bound regardless — listing it only DISPLAYS it). `fields` are the DEFAULT_KEYS
+-- ids whose RESOLVED keys form the shown label (a pair → "C-k/C-j"); `action` names the chassis behaviour the
+-- key triggers (the single {key, name, action} record — the keymap itself is bound by `set_keys`).
+M.CORE_FOOTER = {
+    sectors = { fields = { "sector_prev", "sector_next" }, name = "sectors", action = "sector_cycle" },
+    panel = { fields = { "panel_toggle" }, name = "panel", action = "panel_toggle" },
+    preview = { fields = { "preview_prev", "preview_next" }, name = "preview", action = "rotate_preview" },
+    select = { fields = { "menu_confirm" }, name = "select", action = "open" },
+}
+
+--- A footer button spec `{ key, name }` for a CORE key `id` (see `M.CORE_FOOTER`) — its resolved key label +
+--- name — or nil for an unknown id. Consumers include core keys in a footer by id; this supplies the display.
+---@param id string
+---@return { key: string, name: string }|nil
+function M.core_footer_item(id)
+    local meta = M.CORE_FOOTER[id]
+    if not meta then
+        return nil
+    end
+    local parts = {}
+    for _, f in ipairs(meta.fields) do
+        local v = M.key(f)
+        local k = type(v) == "table" and v[1] or v
+        if type(k) == "string" and k ~= "" then
+            parts[#parts + 1] = (k:gsub("[<>]", ""))
+        end
+    end
+    return { key = table.concat(parts, "/"), name = meta.name }
+end
 
 -- ─── config normalisation ─────────────────────────────────────────────────────
 
@@ -1525,6 +1570,9 @@ local function set_keys(state)
     local ok_cfg, cfg = pcall(require, "lvim-utils.config")
     local global_keys = (ok_cfg and cfg.ui and cfg.ui.keys) or {}
     local K = vim.tbl_extend("force", DEFAULT_KEYS, global_keys, state.cfg.keys or {})
+    -- Expose the RESOLVED chassis keys so a hosted-terminal consumer (picker / shell) can rebind the frame nav
+    -- (sector cycling) on ITS own buffer with the SAME keys, instead of hardcoding them — one source of truth.
+    state.keys = K
     local used = {} -- used[buf][lhs] = true — the keys we actually bind, so `lock_keys` can <Nop> the rest
     local function map(buf, lhs, fn)
         used[buf] = used[buf] or {}
