@@ -104,6 +104,12 @@ function M.setup(opts)
 
     -- the start dashboard: `:LvimDashboard` + the empty-startup auto-open (no-op unless dashboard.enable).
     M.dashboard.setup()
+
+    -- runtime UI-geometry settings (config.ui.size): restore persisted values from the shared store
+    -- (control-center DB when present, else a JSON file) and register lvim-utils' own :LvimUtils config panel.
+    -- Standalone — needs neither the control-center nor sqlite — but syncs with the control-center when both live.
+    require("lvim-utils.settings").restore()
+    require("lvim-utils.config_ui").setup()
 end
 
 return M

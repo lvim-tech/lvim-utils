@@ -303,6 +303,43 @@ local function counter_text(cfg)
     return cur > 0 and ("%d/%d"):format(cur, tot) or tostring(tot)
 end
 
+--- The row-title prefix bands for a `title_line = "row"` float: the `title_counter` title row + 1 blank air row
+--- under it, to prepend as the FIRST header bands. Built HERE (not inline at open) so a later `set_header` — a
+--- tab switch rebuilds the header from its spec — re-prepends the SAME title; otherwise the row title vanished
+--- on the first tab change. Defined before `open_windows` (where set_header lives) so it is in scope there.
+--- Returns nil when this frame has no row title.
+---@param cfg table
+---@return table[]?
+local function row_title_bands(cfg)
+    local row_title = cfg.mode ~= "split" and cfg.title_line == "row" and cfg.title and cfg.title ~= ""
+    if not row_title then
+        return nil
+    end
+    local t = cfg.title
+    local text, thl
+    if type(t) == "table" then
+        text = (t.icon and t.icon .. " " or "") .. (t.text and tostring(t.text) or "")
+        thl = (t.style and t.style.text and t.style.text.hl) or "LvimUiPeekTitle"
+    else
+        text = tostring(t)
+        thl = "LvimUiPeekTitle"
+    end
+    return {
+        {
+            title_counter = true,
+            text = text,
+            -- the count formats to the canon "cur/tot" string; the band handler tostring()s whatever it gets
+            count = function()
+                return counter_text(cfg) or ""
+            end,
+            hl = thl,
+            count_hl = "LvimUiPeekCounter",
+            title_pos = cfg.title_pos, -- "left" (default) | "center" | "right"
+        },
+        { meta = "" }, -- 1 air row UNDER the title bar
+    }
+end
+
 --- Build the native border-title chunks for this frame: the TITLE hugs the LEFT (`title_pos="left"`), and —
 --- when `counter="title"` — the COUNTER is pushed to the RIGHT edge of the same top-border line by a fill
 --- spacer (so the line reads `TITLE …………… 8/62`). The fill needs the title-line width (`width`, the container
@@ -711,7 +748,7 @@ local function compute_geom(state, place)
         -- into the list, and the last panel off-screen).
         if fixed > avail and #flex == 0 and #auto_idx > 0 then
             -- The auto panels together exceed `avail` (the stack hit the area cap / the room left between the
-            -- splits). Shrink them to fit EXACTLY. `shrink_first` panels (the preview) give up their rows BEFORE
+            -- splits). Shrink them to fit EXACTLY. `shrink_first` panels (e.g. a picker's list) give up rows BEFORE
             -- the rest, so a PROTECTED panel (the list) keeps its own content and its height never jumps as you
             -- navigate files of different lengths; within a group the shrink is proportional. Every panel keeps
             -- at least 1 row. (No marks ⇒ one proportional shrink over all of them, the old behaviour.)
@@ -2136,7 +2173,20 @@ local function open_windows(state)
     ---@param spec table  the new `header` spec ({ bars = { … } })
     state.set_header = function(spec)
         local on_bar = state.focus and state.focus.kind == "bar"
-        state.header_bands = build_bands(spec, false, state.cfg.header_air)
+        -- Re-prepend the row title (a `title_line="row"` float): build_bands rebuilds from `spec` ONLY, so the
+        -- title (inserted at open, outside `spec`) would vanish on the first tab switch. Mirror open's air:
+        -- the row title supplies its own air row, so suppress build_bands' header air when it's present.
+        local tb = row_title_bands(state.cfg)
+        local header_air = state.cfg.header_air
+        if tb then
+            header_air = false
+        end
+        state.header_bands = build_bands(spec, false, header_air)
+        if tb then
+            for i = #tb, 1, -1 do
+                table.insert(state.header_bands, 1, tb[i])
+            end
+        end
         state.sectors = build_sectors(state)
         if on_bar then
             local fi = math.max(1, math.min(state.focus_idx or 1, #state.sectors))
@@ -3097,33 +3147,16 @@ function M.open(cfg)
             table.insert(hbands, 1, { meta = s, hl = "LvimUiPeekTitle" })
         end
     elseif row_title then
-        -- The title (+ counter) as the FIRST content row — a `title_counter` band. The native border-title
-        -- reserves a 1-col corner margin (so it can't be flush-left), but a content row is drawn into the buffer
-        -- from column 0, so the tinted title block hugs the left and the counter hugs the right. `build_brand`
-        -- returns nil for "row", so the title is NOT also on the border; `set_title`/`set_counter` re-render this
-        -- band (refresh_chrome) instead of touching the border.
-        local t = cfg.title
-        local text, thl
-        if type(t) == "table" then
-            text = (t.icon and t.icon .. " " or "") .. (t.text and tostring(t.text) or "")
-            thl = (t.style and t.style.text and t.style.text.hl) or "LvimUiPeekTitle"
-        else
-            text = tostring(t)
-            thl = "LvimUiPeekTitle"
+        -- The title (+ counter) as the FIRST content rows — a `title_counter` band + air row, drawn from column
+        -- 0 (flush-left; the native border-title reserves a 1-col corner margin). build_border_title returns nil
+        -- for "row", so the title is NOT also on the border; `set_title`/`set_counter`/`set_header` re-render this
+        -- band. Built by row_title_bands so `set_header` (a tab switch) re-prepends the SAME title.
+        local tb = row_title_bands(cfg)
+        if tb then
+            for i = #tb, 1, -1 do
+                table.insert(hbands, 1, tb[i])
+            end
         end
-        table.insert(hbands, 1, { meta = "" }) -- 1 air row UNDER the title bar (before the panels / other bands)
-        table.insert(hbands, 1, {
-            title_counter = true,
-            text = text,
-            -- format the count to the canon "cur/tot" string (cfg.count is an int / { current, total } / fn);
-            -- the band handler tostring()s whatever it gets, so hand it the already-formatted text (or "")
-            count = function()
-                return counter_text(cfg) or ""
-            end,
-            hl = thl,
-            count_hl = "LvimUiPeekCounter",
-            title_pos = cfg.title_pos, -- "left" (default) | "center" | "right" — placement of the content-row title
-        })
     end
 
     local state = {

@@ -1037,6 +1037,9 @@ function M.open(opts)
         provider = list_provider,
         border = pbord,
         size = { width = { fixed = 0.4 } },
+        -- PREVIEW PRIORITY: in a stacked (above/below) area that can't hold both within the area height cap, the
+        -- LIST gives up rows first (scrolls to the selection) so the preview keeps its content-fit height.
+        shrink_first = true,
     }
     local preview_block = preview_provider and { id = "preview", provider = preview_provider, border = pbord }
     local blocks = preview_block and { list_block, preview_block } or { list_block }

@@ -83,6 +83,34 @@ M.FRAME_BORDER = FRAME_BORDER
 local CONTENT_BORDER = frame.CONTENT_BORDER
 M.CONTENT_BORDER = CONTENT_BORDER
 
+--- The surface `size` table for a LAYOUT ("float" | "area" | "bottom"), resolved from the shared
+--- `config.ui.size` (the single source, edited live by the config panels + control-center). Each dimension is
+--- a fraction 0.1–1.0 → `{ fixed = f }`, or "auto" → `{ auto = true, max = auto_max }`. `area` / `bottom` carry
+--- HEIGHT only (full-width docks); `float` carries height AND width. Pass straight to `frame.open({ size = … })`.
+---@param layout string  "float" | "area" | "bottom"
+---@return table size  { height = table?, width = table? }
+function M.size(layout)
+    local sz = (require("lvim-utils.config").ui or {}).size or {}
+    local auto_max = sz.auto_max or 0.85
+    local function dim(v)
+        if v == "auto" then
+            return { auto = true, max = auto_max }
+        elseif type(v) == "number" then
+            return { fixed = v }
+        end
+        return nil
+    end
+    local l = sz[layout] or {}
+    local out = {}
+    if l.height ~= nil then
+        out.height = dim(l.height)
+    end
+    if layout == "float" and l.width ~= nil then
+        out.width = dim(l.width)
+    end
+    return out
+end
+
 -- Docked (area / bottom) tabs cap their content to this many rows (it scrolls past the cap) when the consumer
 -- gives no `area_height` — the cmdline zone grows `cmdheight`, so an unbounded accordion can't drive it (and a
 -- float's `max_items` scroll cap is irrelevant to a dock). A compact minibuffer height, like the area finder.
@@ -893,15 +921,20 @@ function M.tabs(opts)
         on_escape_below = (area and msgarea) and function()
             return msgarea.focus_messages()
         end or nil,
-        -- Float: a given `width` is FIXED (e.g. the per-server form at 0.8); else auto-fit (cap 0.7); height
-        -- auto-fits the active tab (cap `height` ⊕ 0.9). Docked: the area grows cmdheight, so cap the content
-        -- to a row budget (`max_items`/`height`/AREA_CAP) — it scrolls past the cap.
-        size = docked and {
-            height = { auto = true, max = opts.area_height or AREA_CAP },
-        } or {
-            width = opts.width and { fixed = opts.width } or { auto = true, max = 0.7 },
-            height = { auto = true, max = opts.height or 0.9 },
-        },
+        -- Size DEFAULTS from the SHARED `config.ui.size` (ui.size(layout)), so a change in :LvimUtils / the
+        -- control-center's Utils tab resizes every ui.tabs consumer (the control center, the :LvimUtils panel,
+        -- …). An explicit per-call `opts.width` / `opts.height` / `opts.area_height` still overrides. Docked: the
+        -- area height also passes through the msgarea reserve cap; the tabs scroll past it.
+        size = (function()
+            local shared = M.size(docked and (area and "area" or "bottom") or "float")
+            if docked then
+                return { height = shared.height or { auto = true, max = opts.area_height or AREA_CAP } }
+            end
+            return {
+                width = opts.width and { fixed = opts.width } or shared.width or { auto = true, max = 0.7 },
+                height = opts.height and { fixed = opts.height } or shared.height or { auto = true, max = 0.9 },
+            }
+        end)(),
         header = (#header_spec().bars > 0) and header_spec() or nil,
         -- The tab CONTENT panel carries the single-source content ring (CONTENT_BORDER → config.ui.content_border,
         -- resolved live). The tab BAR + footer hint bands are nav bars, not blocks, so they stay borderless.

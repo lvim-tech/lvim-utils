@@ -928,12 +928,12 @@ function M.open(opts)
         -- 40% width side-by-side (horizontal); in a VERTICAL stack the height carries no weight, so it AUTO-fits
         -- the match count (the surface re-derives the weight per stack axis on rotation).
         size = { width = { fixed = 0.4 } },
+        -- `shrink_first`: when a stacked (above/below) area can't hold both panels within the area height cap, the
+        -- LIST gives up rows first (it scrolls to the focused line) so the PREVIEW keeps its content-fit height —
+        -- PREVIEW PRIORITY (the file you're inspecting stays fully visible; the list scrolls).
+        shrink_first = true,
     }
-    -- `shrink_first`: when a stacked (above/below) area can't hold both panels, the PREVIEW gives up rows first
-    -- (it scrolls to the focused line) so the LIST keeps its own content height — its height never jumps as you
-    -- navigate files of different lengths.
-    local preview_block = preview_provider
-        and { id = "preview", provider = preview_provider, border = pbord, shrink_first = true }
+    local preview_block = preview_provider and { id = "preview", provider = preview_provider, border = pbord }
     local blocks
     if not preview_block then
         blocks = { list_block }

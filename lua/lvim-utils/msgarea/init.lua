@@ -120,6 +120,26 @@ local function resolve(v)
     return v < 1 and math.max(1, math.floor(vim.o.lines * v)) or math.floor(v)
 end
 
+--- The TOTAL height (lines) a hosted dock may occupy in the zone — the SHARED `config.ui.size.area.height`
+--- (edited live by the config panels): a number is a fraction/absolute, "auto" fits content up to `auto_max`.
+--- The total, NOT per stacked row: a stacked preview SPLITS this in the surface. nil when the shared config is
+--- unavailable (the reserve then falls back to the msgarea `max_height`).
+---@return integer?
+local function area_cap()
+    local ok, c = pcall(require, "lvim-utils.config")
+    if not ok then
+        return nil
+    end
+    local sz = (c.ui or {}).size or {}
+    local h = (sz.area or {}).height
+    if h == "auto" then
+        return resolve(sz.auto_max or 0.85)
+    elseif type(h) == "number" then
+        return resolve(h)
+    end
+    return nil
+end
+
 --- The notify level icon for `level` (read live from notify's config, so they stay in sync).
 ---@param level integer
 ---@return string
@@ -923,7 +943,9 @@ function Handle:reserve(height, on_rect, rows)
     -- SAME height once its content is long — uniform instead of each growing to its own ceiling / the room left.
     -- Stacked floats (`rows > 1`) get `max_height * rows`, so each row keeps its height instead of both being
     -- squeezed into one's. A shorter request passes untouched, so the dock stays responsive and shrinks to fit.
-    local cap = (resolve(cfg.max_height) or 10) * math.max(1, rows or 1)
+    -- The dock's cap is the SHARED area height (TOTAL — no `* rows`; a stacked preview splits it in the surface,
+    -- preview-first), falling back to the msgarea `max_height * rows` only when the shared config is absent.
+    local cap = area_cap() or ((resolve(cfg.max_height) or 10) * math.max(1, rows or 1))
     s.height = math.max(0, math.min(height or 0, cap))
     s.on_rect = on_rect or s.on_rect
     update_visibility()
@@ -1049,6 +1071,12 @@ function M.segments()
         t[s.name] = s.kind
     end
     return t
+end
+
+--- Re-render the zone (e.g. after a live `config.ui.size.area.height` change from a config panel). Cheap; the
+--- next hosted reserve reads the new area cap, so a subsequently-opened dock picks up the change immediately.
+function M.refresh()
+    update_visibility()
 end
 
 -- ─── focused interaction ────────────────────────────────────────────────────────
