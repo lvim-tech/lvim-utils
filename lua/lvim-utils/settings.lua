@@ -14,9 +14,11 @@ local store = require("lvim-utils.store")
 
 local M = {}
 
--- The discrete choices for a size dimension: "auto" + 1.0 … 0.1 (strings — see the module header).
-local SIZE_OPTIONS = { "auto", "1.0", "0.9", "0.8", "0.7", "0.6", "0.5", "0.4", "0.3", "0.2", "0.1" }
-local AUTO_MAX_OPTIONS = { "1.0", "0.95", "0.9", "0.85", "0.8", "0.75", "0.7", "0.6", "0.5" }
+-- The discrete choices for a size dimension, ASCENDING (strings — see the module header): the form engine
+-- cycles <CR> FORWARD and <BS> backward, so ascending means <CR> INCREASES the size and <BS> decreases it.
+-- "auto" (fit-to-content up to auto_max) sits at the end — the adaptive step past the fixed 1.0.
+local SIZE_OPTIONS = { "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0", "auto" }
+local AUTO_MAX_OPTIONS = { "0.5", "0.6", "0.7", "0.75", "0.8", "0.85", "0.9", "0.95", "1.0" }
 
 --- Option string → the value the config holds ("auto" stays a string; "0.8" → 0.8).
 ---@param v any
