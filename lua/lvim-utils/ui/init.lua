@@ -89,29 +89,30 @@ local CONTENT_BORDER = frame.CONTENT_BORDER
 M.CONTENT_BORDER = CONTENT_BORDER
 
 --- The surface `size` table for a LAYOUT ("float" | "area" | "bottom"), resolved from the shared
---- `config.ui.size` (the single source, edited live by the config panels + control-center). Each dimension is
---- a fraction 0.1–1.0 → `{ fixed = f }`, or "auto" → `{ auto = true, max = auto_max }`. `area` / `bottom` carry
---- HEIGHT only (full-width docks); `float` carries height AND width. Pass straight to `frame.open({ size = … })`.
+--- `config.ui.size` (the single source, edited live by the config panels + control-center). `height`/`width`
+--- are fractions 0.1–1.0; a PER-AXIS boolean picks each axis's mode — `height_auto` for height, `width_auto`
+--- for width (float): off → `{ fixed = n }` (exactly that size); on → `{ auto = true, max = n }` (fit content
+--- up to that cap). `area` / `bottom` carry HEIGHT only (full-width docks); `float` carries height AND width.
+--- Pass straight to `frame.open({ size = … })`.
 ---@param layout string  "float" | "area" | "bottom"
 ---@return table size  { height = table?, width = table? }
 function M.size(layout)
     local sz = (config.ui or {}).size or {}
-    local auto_max = sz.auto_max or 0.85
-    local function dim(v)
-        if v == "auto" then
-            return { auto = true, max = auto_max }
-        elseif type(v) == "number" then
-            return { fixed = v }
-        end
-        return nil
-    end
     local l = sz[layout] or {}
+    -- Auto is PER AXIS: `height_auto` for height, `width_auto` for width (float only). An axis with auto ON fits
+    -- content up to its fraction (as MAX); OFF → a fixed size.
+    local function dim(v, auto)
+        if type(v) ~= "number" then
+            return nil
+        end
+        return (auto == true) and { auto = true, max = v } or { fixed = v }
+    end
     local out = {}
     if l.height ~= nil then
-        out.height = dim(l.height)
+        out.height = dim(l.height, l.height_auto)
     end
     if layout == "float" and l.width ~= nil then
-        out.width = dim(l.width)
+        out.width = dim(l.width, l.width_auto)
     end
     return out
 end

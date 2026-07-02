@@ -72,19 +72,22 @@ return {
     separator_hl = "LvimUiPeekBorder",
     -- Shared surface GEOMETRY per LAYOUT — the SINGLE source read by every consumer (pickers, ui.tabs,
     -- lvim-shell, lvim-space) via `require("lvim-utils.ui").size(layout)`, and edited live by lvim-utils' own
-    -- config panel + lvim-control-center (persisted through the shared store, so both stay in sync). Each
-    -- dimension is a FRACTION 0.1–1.0 of the available space OR the string "auto" (fit content up to `auto_max`).
-    --   float  — a centred float: height AND width.
+    -- config panel + lvim-control-center (persisted through the shared store, so both stay in sync).
+    --   height / width — always a FRACTION 0.1–1.0 of the available space (a concrete number, never "auto").
+    --   height_auto / width_auto — a boolean PER DIMENSION: false → the axis is EXACTLY the fraction (fixed);
+    --                     true → the axis AUTO-FITS its content, with the fraction used as the MAX cap. Width
+    --                     and height are independent (e.g. a float can fixed-width + auto-height).
+    --   float  — a centred float: height AND width (each with its own `*_auto`).
     --   area   — the msgarea/cmdline dock (editor + statusline stay above it): height only (full-width).
     --   bottom — a plain bottom float dock: height only (full-width).
-    -- The `area` height is the TOTAL dock height: it drives the msgarea `max_height`, and a STACKED preview
-    -- (list + preview above/below) SPLITS it (preview keeps its content-fit height, the list takes the rest) so
-    -- the dock never exceeds this — instead of each row growing to the full height. `auto_max` caps any "auto".
+    -- The `area` height is the TOTAL dock height (drives the msgarea reserve cap); a STACKED preview SPLITS it
+    -- (preview keeps its content-fit height, the list takes the rest) so the dock never exceeds it. Defaults are
+    -- FIXED (auto off) — a full-bleed terminal / form has no content height to fit, so auto would collapse it;
+    -- turn an axis's `*_auto` on for content that should shrink to fit (a short list) up to that cap.
     size = {
-        float = { height = 0.8, width = 0.7 },
-        area = { height = 0.6 },
-        bottom = { height = 0.4 },
-        auto_max = 0.85,
+        float = { height = 0.85, width = 0.8, height_auto = false, width_auto = false },
+        area = { height = 0.5, height_auto = false },
+        bottom = { height = 0.4, height_auto = false },
     },
     -- Disable all completion sources (native, nvim-cmp, blink.cmp) for input popups
     disable_completion = true,

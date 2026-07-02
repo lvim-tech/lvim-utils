@@ -122,23 +122,18 @@ local function resolve(v)
 end
 
 --- The TOTAL height (lines) a hosted dock may occupy in the zone — the SHARED `config.ui.size.area.height`
---- (edited live by the config panels): a number is a fraction/absolute, "auto" fits content up to `auto_max`.
---- The total, NOT per stacked row: a stacked preview SPLITS this in the surface. nil when the shared config is
---- unavailable (the reserve then falls back to the msgarea `max_height`).
+--- (edited live by the config panels), a fraction/absolute resolved to lines. The total, NOT per stacked row:
+--- a stacked preview SPLITS this in the surface. nil when the shared config is unavailable (the reserve then
+--- falls back to the msgarea `max_height`).
 ---@return integer?
 local function area_cap()
     local ok, c = pcall(require, "lvim-utils.config")
     if not ok then
         return nil
     end
-    local sz = (c.ui or {}).size or {}
-    local h = (sz.area or {}).height
-    if h == "auto" then
-        return resolve(sz.auto_max or 0.85)
-    elseif type(h) == "number" then
-        return resolve(h)
-    end
-    return nil
+    local area = ((c.ui or {}).size or {}).area
+    local h = area and area.height
+    return type(h) == "number" and resolve(h) or nil
 end
 
 --- The notify level icon for `level` (read live from notify's config, so they stay in sync).

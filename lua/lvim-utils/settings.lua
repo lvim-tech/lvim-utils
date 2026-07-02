@@ -1,12 +1,12 @@
--- lvim-utils.settings: the runtime-configurable UI geometry (the shared `config.ui.size` — per-layout
--- height/width + auto_max).
+-- lvim-utils.settings: the runtime-configurable UI geometry — the shared `config.ui.size`, per layout a size
+-- fraction (height, + width for float) PLUS an `auto` boolean (fit content up to the size vs a fixed size).
 --
 -- ONE spec list drives BOTH lvim-utils' own config panel (`config_ui`) AND lvim-control-center (the setting
 -- `name`s match control-center's, so the two panels edit the same persisted keys and never drift). Values are
 -- applied LIVE into `config.ui.size` and persisted via `store` (control-center sqlite when present, else a JSON
--- file — see store.lua). Each dimension is a fraction 0.1–1.0 of the available space, or "auto" (fit content up
--- to `auto_max`). Stored/edited as OPTION STRINGS ("auto", "0.8", …) so sqlite's text column round-trips cleanly;
--- `decode`/`encode` convert to/from the number the config holds.
+-- file — see store.lua). Size fractions are `select` specs stored as OPTION STRINGS ("0.8"), converted to/from
+-- numbers by `decode`/`encode`; the `auto` toggles are `bool` specs that round-trip as booleans. `restore()`
+-- migrates the pre-boolean model (a height persisted as "auto" → that layout's `auto` on + a default height).
 --
 ---@module "lvim-utils.settings"
 
@@ -14,43 +14,52 @@ local store = require("lvim-utils.store")
 
 local M = {}
 
--- The discrete choices for a size dimension, ASCENDING (strings — see the module header): the form engine
--- cycles <CR> FORWARD and <BS> backward, so ascending means <CR> INCREASES the size and <BS> decreases it.
--- "auto" (fit-to-content up to auto_max) sits at the end — the adaptive step past the fixed 1.0.
-local SIZE_OPTIONS = { "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0", "auto" }
-local AUTO_MAX_OPTIONS = { "0.5", "0.6", "0.7", "0.75", "0.8", "0.85", "0.9", "0.95", "1.0" }
+-- The discrete size fractions, ASCENDING (strings): the form engine cycles <CR> FORWARD / <BS> backward, so
+-- ascending means <CR> INCREASES the size. No "auto" here — the fit toggle is a SEPARATE per-layout boolean
+-- (`<layout> auto`), and the height/width is always a concrete fraction (used as the fixed size, or the cap
+-- when auto is on).
+local SIZE_OPTIONS = { "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0" }
 
---- Option string → the value the config holds ("auto" stays a string; "0.8" → 0.8).
+--- Option string → the numeric fraction the config holds ("0.8" → 0.8). Booleans (the `auto` rows) round-trip
+--- as-is via the `bool` specs, which skip encode/decode.
 ---@param v any
 ---@return any
 local function decode(v)
-    if v == "auto" then
-        return "auto"
-    end
     return tonumber(v) or v
 end
 
---- Config value → the option string the panel / store use (0.8 → "0.8"; "auto" stays "auto").
+--- Numeric fraction → the option string the panel / store use (0.8 → "0.8").
 ---@param v any
 ---@return any
 local function encode(v)
-    if v == "auto" or v == nil then
+    if v == nil then
         return v
     end
     return type(v) == "number" and ("%.2f"):format(v):gsub("0$", ""):gsub("%.$", "") or tostring(v)
 end
 
 ---@class LvimUtilsSpec
----@field name    string    persistence key (matches the control-center setting name)
----@field path    string[]  nested location under `config.ui.size`
----@field group   string    panel tab / control-center group
----@field label   string    display label
----@field type    string    "select"
----@field options string[]  choices (option strings)
----@field default any       fallback config value when nothing is persisted
+---@field name    string     persistence key (matches the control-center setting name)
+---@field path    string[]   nested location under `config.ui.size`
+---@field group   string     panel tab / control-center group
+---@field label   string     display label
+---@field type    string     "select" (a size fraction) | "bool" (an auto toggle)
+---@field options? string[]  choices (select only)
+---@field default any        fallback config value when nothing is persisted
 
+-- Auto (fit vs fixed) is PER AXIS. Only `float` has a width, so only it gets a `width_auto` toggle — `area`
+-- and `bottom` are full-width docks with a height only. Each `*_auto` boolean precedes its fraction so a layout
+-- reads top-down "fit this axis? then how big".
 ---@type LvimUtilsSpec[]
 M.specs = {
+    {
+        name = "ui_size_float_height_auto",
+        path = { "float", "height_auto" },
+        group = "Size",
+        label = "Float height auto (fit)",
+        type = "bool",
+        default = false,
+    },
     {
         name = "ui_size_float_height",
         path = { "float", "height" },
@@ -58,7 +67,15 @@ M.specs = {
         label = "Float height",
         type = "select",
         options = SIZE_OPTIONS,
-        default = 0.8,
+        default = 0.85,
+    },
+    {
+        name = "ui_size_float_width_auto",
+        path = { "float", "width_auto" },
+        group = "Size",
+        label = "Float width auto (fit)",
+        type = "bool",
+        default = false,
     },
     {
         name = "ui_size_float_width",
@@ -67,7 +84,15 @@ M.specs = {
         label = "Float width",
         type = "select",
         options = SIZE_OPTIONS,
-        default = 0.7,
+        default = 0.8,
+    },
+    {
+        name = "ui_size_area_height_auto",
+        path = { "area", "height_auto" },
+        group = "Size",
+        label = "Area height auto (fit)",
+        type = "bool",
+        default = false,
     },
     {
         name = "ui_size_area_height",
@@ -76,7 +101,15 @@ M.specs = {
         label = "Area height",
         type = "select",
         options = SIZE_OPTIONS,
-        default = 0.6,
+        default = 0.5,
+    },
+    {
+        name = "ui_size_bottom_height_auto",
+        path = { "bottom", "height_auto" },
+        group = "Size",
+        label = "Bottom height auto (fit)",
+        type = "bool",
+        default = false,
     },
     {
         name = "ui_size_bottom_height",
@@ -86,15 +119,6 @@ M.specs = {
         type = "select",
         options = SIZE_OPTIONS,
         default = 0.4,
-    },
-    {
-        name = "ui_size_auto_max",
-        path = { "auto_max" },
-        group = "Size",
-        label = "Auto max",
-        type = "select",
-        options = AUTO_MAX_OPTIONS,
-        default = 0.85,
     },
 }
 
@@ -131,7 +155,7 @@ end
 --- msgarea is fine.
 ---@param spec LvimUtilsSpec
 local function apply(spec)
-    if spec.path[1] == "area" or spec.path[1] == "auto_max" then
+    if spec.path[1] == "area" then
         pcall(function()
             local ma = require("lvim-utils.msgarea")
             if ma.refresh then
@@ -141,7 +165,8 @@ local function apply(spec)
     end
 end
 
---- The current value of `spec` as an OPTION STRING (for the panel / control-center to match a choice).
+--- The current value of `spec` for the panel / control-center: a BOOLEAN for `bool` specs, else the size
+--- fraction as an OPTION STRING (to match a select choice).
 ---@param spec LvimUtilsSpec
 ---@return any
 function M.get(spec)
@@ -149,17 +174,27 @@ function M.get(spec)
     if v == nil then
         v = spec.default
     end
+    if spec.type == "bool" then
+        return v == true
+    end
     return encode(v)
 end
 
---- Apply a new value (an option string) LIVE into `config.ui.size` and persist it.
+--- Apply a new value LIVE into `config.ui.size` and persist it. `value` is a boolean for `bool` specs (accepts
+--- `true`/`"true"`/`1`), else a size option string.
 ---@param spec LvimUtilsSpec
----@param value any    an option string ("auto" / "0.8")
+---@param value any
 ---@param persist? boolean  default true; false while restoring FROM the store
 function M.set(spec, value, persist)
-    write_path(size_tbl(), spec.path, decode(value))
+    local resolved
+    if spec.type == "bool" then
+        resolved = value == true or value == "true" or value == 1
+    else
+        resolved = decode(value)
+    end
+    write_path(size_tbl(), spec.path, resolved)
     if persist ~= false then
-        store.save(spec.name, value)
+        store.save(spec.name, resolved)
     end
     apply(spec)
 end
@@ -179,7 +214,7 @@ function M.lcc_group()
             type = spec.type,
             label = spec.label,
             options = spec.options,
-            default = encode(spec.default),
+            default = (spec.type == "bool") and spec.default or encode(spec.default),
             get = function()
                 return M.get(spec)
             end,
@@ -199,6 +234,27 @@ function M.restore()
         names[#names + 1] = s.name
     end
     store.migrate(names)
+    -- Migrate older models onto the current per-AXIS booleans:
+    --  1. A size persisted as the string "auto" (the original model) → turn that AXIS's `*_auto` ON and reset the
+    --     fraction to its default. The dropped `ui_size_auto_max` key is simply never loaded (no spec).
+    --  2. A per-LAYOUT `ui_size_<layout>_auto` (the interim single-boolean model) → the layout's height axis (and,
+    --     for float, width) `*_auto`.
+    for _, spec in ipairs(M.specs) do
+        if spec.type == "select" and store.load(spec.name) == "auto" then
+            store.save("ui_size_" .. spec.path[1] .. "_" .. spec.path[2] .. "_auto", true)
+            store.save(spec.name, encode(spec.default))
+        end
+    end
+    for _, layout in ipairs({ "float", "area", "bottom" }) do
+        local legacy = store.load("ui_size_" .. layout .. "_auto")
+        if legacy ~= nil then
+            local on = legacy == true or legacy == "true" or legacy == 1
+            store.save("ui_size_" .. layout .. "_height_auto", on)
+            if layout == "float" then
+                store.save("ui_size_float_width_auto", on)
+            end
+        end
+    end
     for _, spec in ipairs(M.specs) do
         local v = store.load(spec.name)
         if v ~= nil then
