@@ -120,6 +120,48 @@ M.specs = {
         options = SIZE_OPTIONS,
         default = 0.4,
     },
+    -- Per-layout dock BEHAVIOUR: whether opening a file closes the surface (auto_hide), and — for the docks that
+    -- stay — where focus lands afterwards (keep_focus). float has no keep_focus (it always hides).
+    {
+        name = "ui_size_float_auto_hide",
+        path = { "float", "auto_hide" },
+        group = "Size",
+        label = "Float auto hide on open",
+        type = "bool",
+        default = true,
+    },
+    {
+        name = "ui_size_area_auto_hide",
+        path = { "area", "auto_hide" },
+        group = "Size",
+        label = "Area auto hide on open",
+        type = "bool",
+        default = false,
+    },
+    {
+        name = "ui_size_area_keep_focus",
+        path = { "area", "keep_focus" },
+        group = "Size",
+        label = "Area keep focus after open",
+        type = "bool",
+        default = true,
+    },
+    {
+        name = "ui_size_bottom_auto_hide",
+        path = { "bottom", "auto_hide" },
+        group = "Size",
+        label = "Bottom auto hide on open",
+        type = "bool",
+        default = false,
+    },
+    {
+        name = "ui_size_bottom_keep_focus",
+        path = { "bottom", "keep_focus" },
+        group = "Size",
+        label = "Bottom keep focus after open",
+        type = "bool",
+        default = true,
+    },
 }
 
 --- The live `config.ui.size` table (created if missing).

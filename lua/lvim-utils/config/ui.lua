@@ -84,10 +84,17 @@ return {
     -- (preview keeps its content-fit height, the list takes the rest) so the dock never exceeds it. Defaults are
     -- FIXED (auto off) — a full-bleed terminal / form has no content height to fit, so auto would collapse it;
     -- turn an axis's `*_auto` on for content that should shrink to fit (a short list) up to that cap.
+    --
+    -- Two per-layout BEHAVIOUR flags also live here (edited from the same panels):
+    --   auto_hide  — close the surface when a file is opened FROM it. `float` closes (a modal is one-shot);
+    --                `area`/`bottom` DON'T (a dock stays so you can open more). The dock is NOT torn down — the
+    --                tool (which exits on select) is restarted IN PLACE, so the frame never flickers.
+    --   keep_focus — after opening a file from an area/bottom dock that stayed, keep focus IN the dock (default)
+    --                so you keep selecting, or move it to the opened file (false). Irrelevant to `float`.
     size = {
-        float = { height = 0.85, width = 0.8, height_auto = false, width_auto = false },
-        area = { height = 0.5, height_auto = false },
-        bottom = { height = 0.4, height_auto = false },
+        float = { height = 0.85, width = 0.8, height_auto = false, width_auto = false, auto_hide = true },
+        area = { height = 0.5, height_auto = false, auto_hide = false, keep_focus = true },
+        bottom = { height = 0.4, height_auto = false, auto_hide = false, keep_focus = true },
     },
     -- Disable all completion sources (native, nvim-cmp, blink.cmp) for input popups
     disable_completion = true,
