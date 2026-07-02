@@ -819,26 +819,15 @@ function M.tabs(opts)
     if #tabset > 1 then
         tab_btns = {}
         for i, t in ipairs(tabset) do
+            -- The tab button KIND comes from the shared `surface.STYLES.tab` (one style source across every bar);
+            -- deep-copied so each tab owns its style (independent instances). Colours stay the LvimUiTab* groups.
             tab_btns[i] = {
                 type = "button",
                 icon = t.icon,
                 text = t.label or ("Tab " .. i),
                 _tab = i,
                 active = (i == active),
-                style = {
-                    icon = {
-                        padding = { 2, 2 },
-                        normal = "LvimUiTabIconInactive",
-                        active = "LvimUiTabIconActive",
-                        hover = "LvimUiTabIconHover",
-                    },
-                    text = {
-                        padding = { 2, 2 },
-                        normal = "LvimUiTabTextInactive",
-                        active = "LvimUiTabTextActive",
-                        hover = "LvimUiTabTextHover",
-                    },
-                },
+                style = vim.deepcopy(frame.STYLES.tab.hl),
             }
         end
         -- `_follow` + `_sel` keep the ACTIVE tab scrolled into view on an overflowing tab bar, even when the

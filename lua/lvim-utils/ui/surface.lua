@@ -210,13 +210,13 @@ M.STYLES = {
         icon = true,
         hl = {
             icon = {
-                padding = { 1, 1 },
+                padding = { 2, 2 },
                 normal = "LvimUiTabIconInactive",
                 active = "LvimUiTabIconActive",
                 hover = "LvimUiTabIconHover",
             },
             text = {
-                padding = { 1, 1 },
+                padding = { 2, 2 },
                 normal = "LvimUiTabTextInactive",
                 active = "LvimUiTabTextActive",
                 hover = "LvimUiTabTextHover",
