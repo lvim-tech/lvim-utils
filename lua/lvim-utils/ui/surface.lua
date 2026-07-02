@@ -2814,6 +2814,14 @@ local function close(state)
         pcall(api.nvim_set_current_win, state.origin)
     end
     cursor.update() -- the frame's hide-cursor buffers are gone → show the cursor in the editor again
+    if state._host_seg then -- release our auto-hosted msgarea rows so the zone shrinks back (or closes)
+        pcall(function()
+            require("lvim-utils.msgarea").segment(state._host_seg):release()
+        end)
+    end
+    if area_current == state then -- this area dock is gone; the zone is free for the next
+        area_current = nil
+    end
     if state.cfg.on_close then
         pcall(state.cfg.on_close)
     end
@@ -2966,6 +2974,17 @@ local function open_native_split(state)
     })
 end
 
+--- Monotonic counter for auto-host segment names (one msgarea reserve per hostless cmdline surface).
+---@type integer
+local host_seq = 0
+
+--- The currently-open cmdline / area-docked surface, if any. The msgarea/cmdline zone hosts ONE app at a time —
+--- opening a new area dock EVICTS the previous (a picker gives way to a shell, and back). Module-level (there is
+--- one zone). The picker ALSO self-replaces finder→finder via its own registry; this covers the cross-consumer
+--- case (picker ↔ shell) too.
+---@type table?
+local area_current = nil
+
 --- Open a frame.
 ---@param cfg table  the frame config (see the module header)
 ---@return table state
@@ -3116,6 +3135,55 @@ function M.open(cfg)
     }
     state.close = function()
         close(state)
+    end
+    -- (SINGLE AREA OCCUPANT) A cmdline dock that HOSTS in the zone (auto-host `host == nil`, or an explicit host
+    -- fn) is the ONE app the zone holds at a time: opening a new one EVICTS the previous (a picker gives way to a
+    -- shell, and back). EXCLUDE `host == false` — that is the msgarea zone's OWN surface, which merely GROWS
+    -- cmdheight for the zone and must never be treated as an occupant (evicting it would tear down the zone). The
+    -- picker also self-replaces finder→finder via its own registry; this is the cross-consumer safety net.
+    if cfg.position == "cmdline" and cfg.host ~= false then
+        if area_current and area_current ~= state and not area_current._closed and area_current.close then
+            pcall(area_current.close)
+        end
+        area_current = state
+    end
+    -- (AUTO-HOST area dock) A `position = "cmdline"` surface with NO explicit `host` auto-homes itself in the
+    -- msgarea zone when that zone is enabled: the ENGINE (not the consumer) creates the reserve segment, derives
+    -- the stacked-row count from `preview_side`, and wires the descend + reflow-follow. So a consumer only asks
+    -- for `position = "cmdline"` — the zone owns the HEIGHT (its `reserve` clamps to `max_height * rows`) and the
+    -- placement; nobody passes a host. A consumer that DOES pass its own `cfg.host` still wins (this fills the
+    -- gap only). Hosting must sit ABOVE the zone's own panels (~200), so force the container zindex to 210 — a
+    -- hostless `cmdline` dock left at a lower zindex renders BEHIND the zone (mis-placed, half-height). The
+    -- closures read state.reposition / state.focus_sector / state.preview_side LAZILY (assigned in open_windows,
+    -- below), so at the initial reserve they may be nil — the guarded calls simply no-op until they exist.
+    if cfg.position == "cmdline" and cfg.host == nil then
+        local ok_ma, ma = pcall(require, "lvim-utils.msgarea")
+        if ok_ma and type(ma.is_enabled) == "function" and ma.is_enabled() then
+            host_seq = host_seq + 1
+            local seg_name = "lvim-surface-host-" .. host_seq
+            state._host_seg = seg_name
+            cfg.zindex = 210
+            cfg.host = function(h)
+                local seg = ma.segment(seg_name, { priority = 5 })
+                seg:configure({
+                    on_descend = function()
+                        if state.focus_sector then
+                            state.focus_sector(1)
+                        end
+                        return true
+                    end,
+                })
+                -- stacked preview (above/below) lays out two panel ROWS → reserve up to max_height*2; a single
+                -- panel / side-by-side is one row → the plain max_height cap.
+                local side = state.preview_side or cfg.preview_side
+                local rows = (side == "above" or side == "below") and 2 or 1
+                return seg:reserve(h, function(rect)
+                    if state.reposition then
+                        state.reposition(rect)
+                    end
+                end, rows)
+            end
+        end
     end
     -- A `native` split is a REAL window (not a float over a container) — for a navigable persistent side
     -- panel; everything else (modal float, docked-modal peek) uses the float chassis.

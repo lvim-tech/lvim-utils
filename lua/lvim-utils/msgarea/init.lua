@@ -439,6 +439,10 @@ local function open_surface()
     surf = surface.open({
         mode = "float",
         position = "cmdline",
+        -- This IS the zone's own surface — it must NOT auto-host itself in the zone (that would recurse), so
+        -- opt out explicitly. `false` is falsy, so the surface's `host == nil` auto-host gate skips it and
+        -- `host_geom` grows cmdheight for the zone itself (its intended behaviour).
+        host = false,
         border = "none",
         header_air = false, -- no title here, so drop the header "air" row (it would cover the statusline row)
         zindex = 200, -- sit in the cmdline layer; a low-zindex editor float gets re-anchored BELOW the

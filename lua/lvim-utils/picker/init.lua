@@ -1026,43 +1026,15 @@ function M.open(opts)
         return fb.band
     end
 
-    -- (HOSTED area) When the msgarea zone is enabled, the area finder HOSTS itself in it: it reserves its rows
-    -- ABOVE the messages (priority 5) instead of growing `cmdheight` on its own, so messages compose BELOW the
-    -- finder (no longer covering its footer) and it follows the zone via `reposition` as the zone reflows. When
-    -- the zone is off, `host` is nil and the surface grows cmdheight itself (the previous behaviour).
-    local host = msgarea
-        and function(h)
-            local seg = msgarea.segment("lvim-picker-host", { priority = 5 })
-            -- a descend from the EDITOR into the zone enters the FINDER at its TOP sector (the filter bar /
-            -- header) — so up/down then steps THROUGH the bar · list · footer — not skip into the list.
-            seg:configure({
-                on_descend = function()
-                    if state.st and state.st.focus_sector then
-                        state.st.focus_sector(1)
-                    else
-                        focus_list()
-                    end
-                    return true
-                end,
-            })
-            -- STACKED preview (above/below) lays out two panel ROWS, so the dock may grow to `max_height * 2`
-            -- (each row keeps its height); side-by-side / list-only is one row → the plain `max_height` cap.
-            local side = (state.st and state.st.preview_side) or opts.preview_side or "right"
-            local rows = (side == "above" or side == "below") and 2 or 1
-            return seg:reserve(h, function(rect)
-                if state.st and state.st.reposition then
-                    state.st.reposition(rect)
-                end
-            end, rows)
-        end
-
+    -- (HOSTED area) When the msgarea zone is enabled, a `position = "cmdline"` finder auto-homes in the zone —
+    -- the surface ENGINE creates the reserve (priority 5, ABOVE the messages that compose below), owns the
+    -- height (clamped to `max_height * rows`), wires the descend + reflow-follow, and bumps the zindex above the
+    -- zone. We only ask for the cmdline dock; no `host` is passed. Zone off → the surface grows cmdheight itself.
     surface.open({
         mode = "float",
-        -- "area" sits IN the cmdline region (grows cmdheight, heirline above) like the msgarea zone; the
-        -- zindex keeps it in the cmdline layer so it isn't re-anchored below the statusline. "bottom" just
-        -- floats over the bottom rows. When the msgarea zone is on, `host` re-homes us INSIDE it (above msgs).
+        -- "area" sits IN the cmdline region (grows cmdheight, heirline above) like the msgarea zone; "bottom"
+        -- just floats over the bottom rows. When the msgarea zone is on, the engine re-homes us INSIDE it.
         position = area and "cmdline" or (bottom and "bottom") or nil,
-        host = host,
         -- (HOSTED) <C-j> off the bottom sector (the footer bar) descends INTO the messages composed below —
         -- the bottom of the finder's vertical stack (list → footer → messages). Only when there ARE messages;
         -- else the sector nav wraps as usual. The cursor lands on the first message; `<C-k>`/`q`/`<Esc>` return.
@@ -1081,7 +1053,9 @@ function M.open(opts)
         -- HOSTED: float ABOVE the msgarea zone's own content panel (container 200 / panel 201) so our list /
         -- preview aren't covered by it — our panels land at 211, the prompt at 212, all clear of the messages
         -- that render in the zone panel BELOW us. Unhosted area stays in the cmdline layer at 200.
-        zindex = (host and 210) or (area and 200) or nil,
+        -- Unhosted area sits in the cmdline layer at 200; when the engine auto-hosts (msgarea on) it FORCES
+        -- 210 (above the zone's own panels), so this base only applies to the zone-off case.
+        zindex = area and 200 or nil,
         header_air = false, -- no LEADING air row; the filter bar (or the input prompt) is the top content row
         direction = vertical and "vertical" or nil,
         preview_side = preview_provider and side or nil, -- so the surface can rotate the preview live (C-n/C-p)
@@ -1188,11 +1162,7 @@ function M.open(opts)
                 pcall(require("lvim-utils.cursor").mark_cursor_buffer, state.input_buf, nil)
             end
             source.clear_active(active_entry) -- forget the current finder once it closes (only if it is still us)
-            if msgarea then -- release our hosted rows so the zone shrinks back (or closes if nothing else)
-                pcall(function()
-                    msgarea.segment("lvim-picker-host"):release()
-                end)
-            end
+            -- (the engine releases its own auto-host msgarea segment on surface close — nothing to do here)
             if state.live_augroup then
                 pcall(api.nvim_del_augroup_by_id, state.live_augroup)
                 state.live_augroup = nil
