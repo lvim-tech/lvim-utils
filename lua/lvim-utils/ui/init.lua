@@ -1,5 +1,7 @@
--- lua/lvim-utils/ui/init.lua
--- Public API for lvim-utils floating UI components.
+-- lvim-utils.ui: public API for the lvim-utils floating UI components — the thin presenter layer
+-- that turns high-level opts (select/multiselect/input/confirm/tabs/info) into a configured surface +
+-- form. It owns only the option-shaping and callback wiring; the actual window/frame lives in surface
+-- and the typed-row logic in form.
 --
 -- Modes and their callback signatures:
 --   select      → callback(confirmed: boolean, index: integer)
@@ -17,11 +19,14 @@
 --   M.tabs(opts)          – tabbed view with typed rows or simple item lists
 --   M.info(content, opts) – read-only markdown/text info window
 --   M.close_info(win)     – programmatically close an info window
+---@module "lvim-utils.ui"
 
 local frame = require("lvim-utils.ui.surface")
 local form = require("lvim-utils.ui.form")
 local rows = require("lvim-utils.ui.rows")
 local util = require("lvim-utils.ui.util")
+local config = require("lvim-utils.config")
+local overlay = require("lvim-utils.chrome.overlay")
 
 local M = {}
 
@@ -90,7 +95,7 @@ M.CONTENT_BORDER = CONTENT_BORDER
 ---@param layout string  "float" | "area" | "bottom"
 ---@return table size  { height = table?, width = table? }
 function M.size(layout)
-    local sz = (require("lvim-utils.config").ui or {}).size or {}
+    local sz = (config.ui or {}).size or {}
     local auto_max = sz.auto_max or 0.85
     local function dim(v)
         if v == "auto" then
@@ -961,7 +966,7 @@ function M.tabs(opts)
         on_close = function()
             if docked then
                 pcall(function()
-                    require("lvim-utils.chrome.overlay").clear()
+                    overlay.clear()
                 end)
             end
             -- (HOSTED area) release our reserved rows so the msgarea zone shrinks back / closes — else the

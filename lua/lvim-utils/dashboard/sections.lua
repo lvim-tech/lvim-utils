@@ -1,5 +1,4 @@
--- lua/lvim-utils/dashboard/sections.lua
--- The built-in SECTION generators referenced by `{ section = "<name>" }` in config.dashboard.sections. Each
+-- lvim-utils.dashboard.sections: the built-in SECTION generators referenced by `{ section = "<name>" }` in config.dashboard.sections. Each
 -- `M.<name>(item)` returns either a single item, a list of items, or a `fun(self)` producing them — the
 -- render engine (dashboard.render.resolve) then flattens it. They pull their CONTENT from the user's config
 -- (preset.header / preset.keys) or live data (oldfiles, git roots, startup stats); the module ships no baked-
@@ -198,7 +197,7 @@ function M.startup(item)
             align = "center",
             padding = opts.padding,
             text = {
-                { "⚡ ", hl = "special" },
+                { " ", hl = "special" },
                 { "Loaded ", hl = "footer" },
                 { tostring(stats.loaded) .. "/" .. tostring(stats.count), hl = "special" },
                 { " plugins in ", hl = "footer" },

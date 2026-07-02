@@ -1,5 +1,4 @@
--- lua/lvim-utils/msgarea/integrations/init.lua
--- Loader for the msgarea source integrations — the per-source glue that routes OTHER UIs (blink.cmp
+-- lvim-utils.msgarea.integrations: loader for the msgarea source integrations — the per-source glue routing OTHER UIs (blink.cmp
 -- completion, later fzf-lua, the lvim-tech plugin floats, …) INTO the message zone. Each integration
 -- is its own module under `msgarea/integrations/<name>.lua` exposing `enable()` / `disable()`; this
 -- loader turns them on/off from `config.msgarea.integrations` (a `<name> = true|false` map), so they

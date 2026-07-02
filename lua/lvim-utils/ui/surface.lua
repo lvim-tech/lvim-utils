@@ -74,6 +74,16 @@ M.CONTENT_BORDER = config.ui.content_border
 -- is called right after a programmatic focus change so it applies without a one-frame flash.
 local FRAME_FT = "lvim-ui-frame"
 local cursor_registered = false
+
+--- The currently-open cmdline / area-docked surface, if any. The msgarea/cmdline zone hosts ONE app at a time —
+--- opening a new area dock EVICTS the previous (a picker gives way to a shell, and back). Module-level (there is
+--- one zone). The picker ALSO self-replaces finder→finder via its own registry; this covers the cross-consumer
+--- case (picker ↔ shell) too. Declared HERE (above every consumer) so the close handler and M.open share the
+--- one upvalue — not a stray global.
+---@type table?
+local area_current = nil
+--- Register the frame filetype as a CURRENT-ONLY cursor-hide panel ft with the lvim-utils cursor module,
+--- once per session (idempotent via `cursor_registered`).
 local function register_frame_ft()
     if not cursor_registered then
         cursor_registered = true
@@ -2288,6 +2298,7 @@ local function open_windows(state)
     end
     --- Focus center panel `i` (used by a panel hosting an external buffer — the preview — and the
     --- "preview" footer action) through the proper sector model.
+    ---@param i integer
     state.focus_panel = function(i)
         state.center_panel = math.max(1, math.min(i, #state.panels))
         local ci = center_idx()
@@ -2314,6 +2325,7 @@ local function open_windows(state)
     --- Move LEFT/RIGHT between the center panels (`dir` = +1 / -1). Only meaningful inside the center.
     --- Reads the REAL focused window (not just the tracked `center_panel`), so it works even when the
     --- preview was focused without going through `focus_panel` (e.g. its own buffer keymaps).
+    ---@param dir integer  +1 (right) / -1 (left)
     state.panel = function(dir)
         if state.cfg.direction == "vertical" then
             return -- vertical stack: panels are top↔bottom, walked with the sector nav (<C-j>/<C-k>), not <C-l>/<C-h>
@@ -2333,6 +2345,7 @@ local function open_windows(state)
     end
     --- Cycle the focused sector header · center · footer (exposed so an external-buffer panel can drive
     --- the same navigation from its own keymaps).
+    ---@param dir integer  +1 (down) / -1 (up)
     state.sector = function(dir)
         sector_cycle(state, dir)
     end
@@ -3027,13 +3040,6 @@ end
 --- Monotonic counter for auto-host segment names (one msgarea reserve per hostless cmdline surface).
 ---@type integer
 local host_seq = 0
-
---- The currently-open cmdline / area-docked surface, if any. The msgarea/cmdline zone hosts ONE app at a time —
---- opening a new area dock EVICTS the previous (a picker gives way to a shell, and back). Module-level (there is
---- one zone). The picker ALSO self-replaces finder→finder via its own registry; this covers the cross-consumer
---- case (picker ↔ shell) too.
----@type table?
-local area_current = nil
 
 --- Open a frame.
 ---@param cfg table  the frame config (see the module header)

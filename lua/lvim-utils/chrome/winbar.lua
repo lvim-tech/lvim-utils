@@ -12,6 +12,7 @@
 
 local api = vim.api
 local engine = require("lvim-utils.chrome.engine")
+local config = require("lvim-utils.config")
 
 local M = {}
 
@@ -23,7 +24,7 @@ local inst = engine.new({ volatile = true, fill = false })
 --- predefined sections: unset / empty / failing config yields a blank winbar.
 ---@return LvimChromeSegment[]
 local function active_segments()
-    local segs = (require("lvim-utils.config").chrome.winbar or {}).segments
+    local segs = (config.chrome.winbar or {}).segments
     if type(segs) == "function" then
         local ok, res = pcall(segs)
         segs = ok and res or nil

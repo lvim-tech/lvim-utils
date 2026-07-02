@@ -1,4 +1,4 @@
--- lua/lvim-utils/picker/init.lua
+-- lvim-utils.picker: the native fuzzy-finder — the tint-striped Lua list backend plus the ready-made finders.
 -- A native fuzzy finder built on the lvim-utils.ui.surface chassis: a centred float with a typed query
 -- INPUT band on top (a surface header input), a results LIST panel on the left and a scrollable PREVIEW
 -- panel on the right — the diagnostics-peek layout, but fuzzy. The MATCHING ENGINE is the native `fzf`
@@ -11,6 +11,7 @@
 ---@module "lvim-utils.picker"
 
 local api = vim.api
+local config = require("lvim-utils.config")
 local fuzzy = require("lvim-utils.fuzzy")
 local utils = require("lvim-utils.utils")
 local status = require("lvim-utils.chrome.overlay")
@@ -33,7 +34,7 @@ local spawn_stream = source.spawn_stream
 --- updates); the structured finders (lsp / diagnostics / …) always use the tint-striped list below.
 ---@return table?
 local function fzf_backend()
-    if (require("lvim-utils.config").picker or {}).fzf_tui == false then
+    if (config.picker or {}).fzf_tui == false then
         return nil
     end
     local ok, b = pcall(require, "lvim-utils.picker.fzf")
@@ -221,7 +222,7 @@ function M.open(opts)
     opts = opts or {}
     -- Default the LAYOUT from `config.picker.layout` (default "area") when the caller gave none — so every
     -- finder + `:LvimPicker <finder>` lands in the configured layout unless overridden per call.
-    opts.layout = opts.layout or (require("lvim-utils.config").picker or {}).layout or "area"
+    opts.layout = opts.layout or (config.picker or {}).layout or "area"
     -- A finder already open (EITHER backend)? Close it FIRST via the shared registry so this open() replaces
     -- it in place — its docked area is released, instead of a new finder stacking above the old one.
     source.close_active()
@@ -253,7 +254,7 @@ function M.open(opts)
 
     -- Every highlight group is configurable + shared via `config.picker.hl` (fall back to the built-in
     -- tint-canon / peek groups).
-    local pkcfg = require("lvim-utils.config").picker or {}
+    local pkcfg = config.picker or {}
     local phl = pkcfg.hl or {}
     local function hl(key, default)
         return phl[key] or default
@@ -302,9 +303,9 @@ function M.open(opts)
     local move, confirm, cancel, focus_input, act, scroll_preview
 
     -- ── multi-select marking + quickfix (config.picker.keys.mark / .quickfix, shared with the fzf backend) ──
-    local pkc = (require("lvim-utils.config").picker or {})
+    local pkc = (config.picker or {})
     local kcfg = pkc.keys or {}
-    local marker = pkc.marker or "●"
+    local marker = pkc.marker or "➤"
     --- A config key value (a single key, a list, or "") → a list of keys.
     ---@param v string|string[]|nil
     ---@return string[]
@@ -406,9 +407,14 @@ function M.open(opts)
     -- contributes its result count; the preview contributes its content's line count (cached on selection).
     -- 0 results ⇒ both are 0 ⇒ only the prompt + the preview winbar show. relayout() re-fits on every change.
     state.preview_lines = {}
+    --- The LIST's own content height: the result count capped at `max_rows` (0 when empty — no body row).
+    ---@return integer
     local function list_h()
         return math.min(#state.filtered, maxr) -- 0 when empty (no [no matches] body row)
     end
+    --- The PREVIEW's own content height: the editable file's line count (preview_file) or the cached scratch
+    --- preview line count, capped at `max_rows`.
+    ---@return integer
     local function preview_h()
         if opts.preview_file then
             -- the editable preview fits the FILE: a 3-line file is 3 rows; a big one is capped at max_rows
@@ -423,6 +429,8 @@ function M.open(opts)
         end
         return math.min(#state.preview_lines, maxr)
     end
+    --- True when the filter left at least one result (drives the winbar / empty-state rendering).
+    ---@return boolean
     local function has_results()
         return #state.filtered > 0
     end
@@ -443,9 +451,14 @@ function M.open(opts)
 
     -- Each panel carries a WINBAR title, the lvim-lsp peek look: the list shows the title + result count,
     -- the preview shows the selected file (tail + dir). `%%` escapes a literal `%` in a name.
+    --- Escape a string for use in a statusline/winbar format (doubles every literal `%`).
+    ---@param s any
+    ---@return string
     local function esc(s)
         return (tostring(s or ""):gsub("%%", "%%%%"))
     end
+    --- Paint the LIST panel's winbar: blank with a preview (the scoped prompt overlays it), else the
+    --- title + result count; nothing when there are no results (the panel is a single row).
     local function set_list_winbar()
         local p = state.list_pan
         if not (p and p.win and api.nvim_win_is_valid(p.win)) then
@@ -710,8 +723,8 @@ function M.open(opts)
             pcall(api.nvim_win_set_cursor, p.win, { math.max(1, math.min(#state.filtered, state.sel)), 0 })
         end
     end
-    -- Fetch the CURRENT selection's preview content into the cache (so `content_h`/`size` know its line
-    -- count before relayout, and `update` writes it). No preview, or no selection ⇒ empty.
+    --- Fetch the CURRENT selection's preview content into the cache (so `content_h`/`size` know its line
+    --- count before relayout, and `update` writes it). No preview, or no selection ⇒ empty.
     local function fetch_preview()
         if opts.preview_file or not opts.preview then
             -- the editable file preview owns its buffer (ui.preview); no scratch lines to cache
@@ -737,8 +750,8 @@ function M.open(opts)
             state.st.relayout()
         end
     end
-    -- Re-render everything after a selection or result change: refresh the preview cache, re-fit the height,
-    -- then re-render both panels + the chrome.
+    --- Re-render everything after a selection or result change: refresh the preview cache, re-fit the height,
+    --- then re-render both panels + the chrome.
     local function rerender()
         fetch_preview()
         refit()
@@ -759,7 +772,8 @@ function M.open(opts)
         state.sel = math.max(1, math.min(#state.filtered, state.sel + d))
         rerender() -- the preview (and so the height) changes with the selection
     end
-    -- Apply a new result list (from the fuzzy filter or a live source) to the UI.
+    --- Apply a new result list (from the fuzzy filter or a live source) to the UI.
+    ---@param list table[]
     local function apply(list)
         if state.closed then
             return
@@ -769,6 +783,8 @@ function M.open(opts)
     end
     -- A generation guard so a slow async source/filter callback for an OLD query can't overwrite a newer one.
     local refilter_gen = 0
+    --- Re-run the filter (static list) or live source for query `q`, then push the ranked results to the UI.
+    ---@param q string?
     local function refilter(q)
         state.query = q or ""
         refilter_gen = refilter_gen + 1
@@ -961,7 +977,7 @@ function M.open(opts)
     -- Prompt badge (shared `config.picker.prompt`): an icon and/or label on the STRONG tint, then a gap on
     -- the LIGHT input tint before the typed text. Two virt_text chunks so the badge and the gap carry their
     -- own backgrounds. A per-call `opts.prompt` STRING overrides it (a single badge-tint chunk).
-    local pcfg = (require("lvim-utils.config").picker or {}).prompt or {}
+    local pcfg = (config.picker or {}).prompt or {}
     local prompt_hl = hl("prompt", "LvimUiPickerPrompt")
     local input_hl = hl("input", "LvimUiPickerInput")
     local prompt_text
@@ -1003,12 +1019,10 @@ function M.open(opts)
     end
     footer_items[#footer_items + 1] = { key = "C-c", name = "close" }
 
-    -- The header FILTER bar: a centred button bar (one button per filter, `●` between groups). Each button
-    -- shows a live count (items passing it + the OTHER groups), highlights when active, and toggles its
-    -- group on press. Built from `opts.filters`.
     -- The header FILTER bar, built through the SHARED filter-group model (lvim-utils.ui.filters) — identical to
     -- the one ui.tabs uses. The picker only supplies the SEMANTICS: the live count (items passing the OTHER
     -- groups AND this button's predicate) and the activation (set_filter). Colours default to LvimUiPeekFilter*.
+    ---@return table  the header bar band spec handed to the surface
     local function build_filter_bar()
         local fb = ui_filters.bar(filters, {
             count = function(g, b)

@@ -1,5 +1,4 @@
--- lua/lvim-utils/cmdline/init.lua
--- Self-rendered command-line. Externalises the cmdline via vim.ui_attach({ ext_cmdline })
+-- lvim-utils.cmdline: self-rendered command-line. Externalises the cmdline via vim.ui_attach({ ext_cmdline })
 -- and draws it in an owned float + buffer, the way ui.nvim / noice do. Owning the buffer
 -- lets us reserve real cells for a padded, coloured icon badge ( <icon> ) followed by the
 -- command text on a tinted background — which decorating the built-in cmdline cannot do

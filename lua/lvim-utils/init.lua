@@ -1,6 +1,9 @@
--- lua/lvim-utils/init.lua
--- Entry point for lvim-utils. Exposes all sub-modules and provides a single
--- setup() call that configures every module from one options table.
+-- lvim-utils: the entry point — exposes every sub-module and a single setup() call that
+-- configures them all from one options table. setup() merges each namespace into the live
+-- `config.<mod>` tables in place (via config.setup → utils.merge), then activates the modules
+-- from that merged config, so every override actually reaches the code that reads it.
+--
+---@module "lvim-utils"
 
 local M = {}
 
@@ -58,8 +61,10 @@ function M.setup(opts)
     -- 4. Activate palette sync from lvim-colorscheme (idempotent).
     M.colors._activate()
 
+    -- cursor: pass the LIVE merged config (config.setup already merged opts.cursor into it) so the
+    -- module registers the effective ft / panel_ft / hide_on_cmdline — not the raw pre-merge opts.
     if opts.cursor then
-        M.cursor.setup(opts.cursor)
+        M.cursor.setup(M.config.cursor)
     end
 
     -- colorcolumn: keep 'colorcolumn' meaningful under 'wrap' (drop entries that would otherwise wrap to a

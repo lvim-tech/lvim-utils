@@ -1,5 +1,4 @@
--- lua/lvim-utils/msgarea/init.lua
--- A persistent, toggleable MESSAGE AREA docked under (or over) the editor — an Emacs-minibuffer-ish
+-- lvim-utils.msgarea: a persistent, toggleable MESSAGE AREA docked under (or over) the editor — an Emacs-minibuffer-ish
 -- zone where messages STAY readable instead of vanishing after a timeout / on the next cursor move.
 --
 -- It is NOT a second `vim.ui_attach` and does NOT patch any Neovim internals (unlike msgarea.nvim).
@@ -16,6 +15,8 @@
 local api = vim.api
 local levels = vim.log.levels
 local status = require("lvim-utils.chrome.overlay")
+local config = require("lvim-utils.config")
+local merge = require("lvim-utils.utils").merge
 
 --- Publish the completion match counter to the statusline — but ONLY when a transient action already owns
 --- it (the cmdline published its mode), so this never activates the line on its own (it respects the
@@ -36,8 +37,8 @@ local M = {}
 ---@field count integer
 ---@field ts integer
 
----@type table  the live config (set by setup)
-local cfg = {}
+---@type table  the live config — an alias to `config.msgarea`, merged in place by setup()
+local cfg = config.msgarea
 ---@type LvimMsgAreaMsg[]  the scrollback ring buffer
 local ring = {}
 ---@type integer? autocmd group
@@ -148,7 +149,7 @@ local function level_icon(level)
         return ""
     end
     local key = (LEVEL[level] or LEVEL[levels.INFO]).icon
-    local icons = (require("lvim-utils.config").notify or {}).icons or {}
+    local icons = (config.notify or {}).icons or {}
     local ic = icons[key]
     return ic and (ic .. " ") or ""
 end
@@ -1369,10 +1370,15 @@ function M.blur()
     update_visibility()
 end
 
---- Initialise from the merged config. Registers `:LvimMsgArea` (toggle) and enables if configured.
----@param user_cfg table
+--- Initialise the message area: merge `user_cfg` into the live `config.msgarea` IN PLACE (so the
+--- `cfg` alias and every reader see the effective values), register `:LvimMsgArea` (toggle), and
+--- enable the zone + opt-in source integrations if configured. Safe to call directly with a partial
+--- table (defaults are preserved) or via `require("lvim-utils").setup({ msgarea = {...} })`.
+---@param user_cfg? table  msgarea config overrides (merged into config.msgarea)
 function M.setup(user_cfg)
-    cfg = user_cfg or {}
+    if user_cfg then
+        merge(cfg, user_cfg)
+    end
     pcall(api.nvim_create_user_command, "LvimMsgArea", function()
         M.toggle()
     end, { desc = "Toggle the lvim-utils message area" })

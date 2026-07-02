@@ -1,5 +1,4 @@
--- lua/lvim-utils/dashboard/init.lua
--- The START DASHBOARD — a declarative, section-based greeter buffer (the snacks.nvim dashboard model,
+-- lvim-utils.dashboard: the START DASHBOARD — a declarative, section-based greeter buffer (the snacks.nvim dashboard model,
 -- reimplemented on the lvim-utils stack). The render engine lives in dashboard.render; the built-in sections
 -- in dashboard.sections; this file owns the public API + the INSTANCE LIFECYCLE:
 --   • open()   — make the scratch buffer + window, strip its chrome, render, wire keys + the cursor snap;
@@ -14,6 +13,7 @@
 
 local api = vim.api
 local render = require("lvim-utils.dashboard.render")
+local config = require("lvim-utils.config")
 
 local M = {}
 
@@ -46,7 +46,7 @@ D.__index = D
 --- Read the live config (merged in place by setup()).
 ---@return table
 local function cfg()
-    return require("lvim-utils.config").dashboard or {}
+    return config.dashboard or {}
 end
 
 --- Run an item ACTION: a `:Cmd` string, a raw-keys string, or a `fun(self)`. Closes the dashboard first.

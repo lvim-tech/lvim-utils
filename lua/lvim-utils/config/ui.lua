@@ -1,6 +1,38 @@
--- lua/lvim-utils/config/ui.lua
--- Default config for the floating UI (popup geometry, icons, keys, tint, labels).
+-- lvim-utils.config.ui: the live config for the shared windowed-UI chassis — frame borders, surface geometry
+-- per layout, the popup icons / labels / keys, the tint strengths, and the two-pane peek navigator. These are
+-- THE single sources of truth read live at open time by every consumer (pickers, ui.tabs, lvim-lsp peeks, …),
+-- so changing one key here re-frames them all on the next open. `setup()` merges the user's `ui = {…}` into
+-- this table in place (via lvim-utils.utils.merge); readers `require("lvim-utils.config").ui`.
+--
+---@module "lvim-utils.config.ui"
 
+---@class LvimUtilsUiConfig
+---@field border             string|string[]      Container frame border ("none" or an 8-element ring) — the single source for the outer frame
+---@field content_border     string|string[]      Per-content-panel border ("none" or an 8-element ring) drawn around each data block
+---@field separator          boolean|string|table Inter-panel divider between adjacent content panels ({ h, v, hl }; false to disable)
+---@field group_border       string[]             Common ring around the data panels as a group (8-element; false to disable)
+---@field separator_hl       string               Highlight group for the inter-panel divider
+---@field size               table                Shared surface geometry per layout (float / area / bottom + auto_max)
+---@field disable_completion boolean              Disable all completion sources (native, nvim-cmp, blink.cmp) for input popups
+---@field position           string               Popup anchor ("editor")
+---@field width              number               Default popup width (fraction of the editor)
+---@field max_width          number               Maximum popup width (fraction)
+---@field height             number               Default popup height (fraction)
+---@field max_height         number               Maximum popup height (fraction)
+---@field max_items          integer              Maximum list rows shown before scrolling
+---@field filetype           string               Filetype set on the popup buffer
+---@field close_keys         string[]             Keys that close the popup
+---@field markview           boolean              Enable markview rendering in the popup
+---@field title_line         string               Where a frame's title goes: "row" | "border" | "statusline"
+---@field counter            string               Where a supplied count renders: "title" | "footer"
+---@field title_pos          string               Title alignment: "left" | "center" | "right"
+---@field tint               table                Background tint strengths (strong / body) for the themed chrome cells
+---@field icons              table                Glyphs for the popup (booleans, select, kinds, markers, current pointer)
+---@field labels             table                Footer-legend action labels (navigate / confirm / cancel / …)
+---@field keys               table                Popup + chassis navigation keys (vim notation; strings or lists)
+---@field peek               table                Two-pane location navigator (mode, geometry, borders, icons, keys)
+
+---@type LvimUtilsUiConfig
 return {
     -- THE single source of truth for the windowed-UI frame CONTAINER border — "none": no outer frame at all.
     -- The title + counter live in a CONTENT row at the top (`title_line = "row"`), so no border-title is needed;

@@ -1,14 +1,15 @@
--- lua/lvim-utils/cursor/init.lua
--- Cursor visibility management for lvim-utils popups.
--- Hides the cursor whenever a buffer with a registered filetype is visible
--- in any window. Uses a dedicated highlight group (LvimUtilsHiddenCursor)
--- with blend=100 and a 1-cell vertical bar shape, making the cursor
--- imperceptible in both GUI and TUI (termguicolors) environments.
+-- lvim-utils.cursor: cursor-visibility management for lvim-utils popups and panels. Hides the
+-- hardware cursor whenever a buffer with a REGISTERED filetype owns the screen. Uses a dedicated
+-- highlight group (LvimUtilsHiddenCursor) with blend=100 and a 1-cell vertical bar shape, making
+-- the cursor imperceptible in both GUI and TUI (termguicolors) environments. Reads its live config
+-- from `config.cursor` (ft / panel_ft / hide_on_cmdline), merged in place by the top-level setup().
 --
 -- Public API:
 --   M.setup(opts)               – register filetypes and install autocmds
 --   M.mark_input_buffer(buf, v) – exempt a buffer from cursor hiding
 --   M.update()                  – force-refresh cursor state from outside
+--
+---@module "lvim-utils.cursor"
 
 local M = {}
 

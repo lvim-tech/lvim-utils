@@ -9,6 +9,9 @@
 --
 ---@module "lvim-utils.chrome.overlay"
 
+local colors = require("lvim-utils.colors")
+local config = require("lvim-utils.config")
+
 local M = {}
 
 -- ─── highlight (tint canon) ────────────────────────────────────────────────────
@@ -16,7 +19,7 @@ local M = {}
 --- change). Each segment is its accent fg on a light blend of that accent — the cmdline / msgarea tint canon.
 ---@return table<string, table>
 local function build()
-    local c = require("lvim-utils.colors")
+    local c = colors
     local b, bg = c.blend, c.bg
     local g = {}
     local function pair(name, col)
@@ -83,7 +86,7 @@ end
 --- counter, then the action / query. All padding is read from `config.chrome.overlay`.
 ---@return string
 function M.line()
-    local cfg = require("lvim-utils.config").chrome.overlay or {}
+    local cfg = config.chrome.overlay or {}
     local function seg(group, text, l, r)
         return ("%%#%s#%s%s%s%%*"):format(group, string.rep(" ", l or 0), text, string.rep(" ", r or 0))
     end
@@ -165,7 +168,7 @@ end
 --- The master switch — true when the echo/info overlay model is enabled (`config.chrome.overlay.enabled`).
 ---@return boolean
 function M.is_enabled()
-    local cfg = require("lvim-utils.config").chrome.overlay or {}
+    local cfg = config.chrome.overlay or {}
     return cfg.enabled ~= false
 end
 

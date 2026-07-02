@@ -8,6 +8,9 @@
 local api = vim.api
 local parts = require("lvim-utils.chrome.parts")
 local git = require("lvim-utils.chrome.git")
+local colors = require("lvim-utils.colors")
+local highlight = require("lvim-utils.highlight")
+local config = require("lvim-utils.config")
 
 local M = {}
 
@@ -24,10 +27,10 @@ local STATUSCOLUMN = "%!v:lua.require'lvim-utils.chrome.statuscolumn'.render()"
 
 --- The `LvimUiChrome*` highlight groups, recomputed from the live palette (bound on setup, re-applied on
 --- theme change). Accent fg groups sit on the bar bg; mode pills + tab cells are bg-coloured.
----@param colors? table
+---@param palette? table
 ---@return table<string, table>
-local function build(colors)
-    local c = colors or require("lvim-utils.colors")
+local function build(palette)
+    local c = palette or colors
     local bg = c.bg_dark
     local pill_fg = (vim.o.background == "dark") and c.bg or c.fg
     local g = {}
@@ -82,16 +85,15 @@ end
 --- Force the standard bar groups to the bar bg so the un-highlighted gaps (`%=`, padding) match the segments.
 --- `define` always applies (overrides the colorscheme); re-run on ColorScheme.
 local function force_bars()
-    local c = require("lvim-utils.colors")
-    local hl = require("lvim-utils.highlight")
+    local c = colors
     local bg = c.bg_dark
-    hl.define("StatusLine", { bg = bg, fg = c.fg })
-    hl.define("StatusLineNC", { bg = bg, fg = c.fg_dim })
-    hl.define("WinBar", { bg = bg, fg = c.fg })
-    hl.define("WinBarNC", { bg = bg, fg = c.fg_dim })
-    hl.define("TabLine", { bg = bg, fg = c.green })
-    hl.define("TabLineFill", { bg = bg })
-    hl.define("TabLineSel", { bg = c.green, fg = bg, bold = true })
+    highlight.define("StatusLine", { bg = bg, fg = c.fg })
+    highlight.define("StatusLineNC", { bg = bg, fg = c.fg_dim })
+    highlight.define("WinBar", { bg = bg, fg = c.fg })
+    highlight.define("WinBarNC", { bg = bg, fg = c.fg_dim })
+    highlight.define("TabLine", { bg = bg, fg = c.green })
+    highlight.define("TabLineFill", { bg = bg })
+    highlight.define("TabLineSel", { bg = c.green, fg = bg, bold = true })
     -- NOTE: the statuscolumn gutter is intentionally NOT forced here — it inherits the colorscheme's own
     -- (dimmed) LineNr / SignColumn / CursorLineNr background, so the gutter stays uniform AND dimmed like
     -- before. The statuscolumn cells use native (no-bg) groups to keep that one continuous gutter bg.
@@ -103,7 +105,7 @@ local function apply_window(win)
     if not api.nvim_win_is_valid(win) then
         return
     end
-    local cfg = require("lvim-utils.config").chrome
+    local cfg = config.chrome
     local buf = api.nvim_win_get_buf(win)
     local float = api.nvim_win_get_config(win).relative ~= ""
     -- Each component honours its OWN blacklist (winbar vs statuscolumn can exclude different buffers). only
@@ -132,11 +134,10 @@ end
 
 --- Configure and activate the chrome components from `config.chrome`.
 function M.setup()
-    local cfg = require("lvim-utils.config").chrome
-    local hl = require("lvim-utils.highlight")
+    local cfg = config.chrome
 
     -- theming
-    hl.bind(build) -- the LvimUiChrome* groups (auto re-applied on theme change)
+    highlight.bind(build) -- the LvimUiChrome* groups (auto re-applied on theme change)
     force_bars()
 
     local grp = api.nvim_create_augroup("LvimUiChrome", { clear = true })

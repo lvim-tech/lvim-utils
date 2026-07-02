@@ -1,4 +1,4 @@
--- lua/lvim-utils/picker/source.lua
+-- lvim-utils.picker.source: the shared SOURCE layer for both finder backends.
 -- Shared SOURCE layer for the finder: the LISTING commands (files / directories), the content PREVIEW
 -- reader, and the async line STREAMER. Both picker backends use it so they list and ignore IDENTICALLY:
 --   • the tint backend (picker/init.lua) — streams the lines into the Lua-rendered list;
@@ -7,6 +7,8 @@
 -- hidden / follow / respect_gitignore / file_types), so a project's fd / rg / fzf-lua setup is matched.
 --
 ---@module "lvim-utils.picker.source"
+
+local config = require("lvim-utils.config")
 
 local M = {}
 
@@ -48,7 +50,7 @@ end
 ---@param modes string
 ---@return string
 function M.caret_fragment(modes)
-    local caret = (require("lvim-utils.config").picker or {}).caret or {}
+    local caret = (config.picker or {}).caret or {}
     return modes .. ":" .. (caret.shape or "ver25") .. "-" .. (caret.hl or "LvimUiPickerCursor")
 end
 
@@ -67,7 +69,7 @@ end
 ---@param kind "files"|"dirs"
 ---@return string[]
 function M.build_list_cmd(kind)
-    local cfg = (require("lvim-utils.config").picker or {}).source or {}
+    local cfg = (config.picker or {}).source or {}
     local hidden = cfg.hidden ~= false
     local follow = cfg.follow == true
     local no_ignore = cfg.respect_gitignore == false
@@ -223,7 +225,7 @@ end
 ---@param argv string[]
 ---@return string[]
 function M.with_icons(argv)
-    if (require("lvim-utils.config").picker or {}).show_icons == false then
+    if (config.picker or {}).show_icons == false then
         return argv
     end
     local ic = icons()
@@ -243,10 +245,10 @@ end
 ---@param argv string[]
 ---@return string[]
 function M.with_dir_icon(argv)
-    if (require("lvim-utils.config").picker or {}).show_icons == false then
+    if (config.picker or {}).show_icons == false then
         return argv
     end
-    local glyph = (require("lvim-utils.config").dashboard.icons or {}).directory or ""
+    local glyph = (config.dashboard.icons or {}).directory or ""
     if glyph == "" then
         return argv
     end
@@ -286,7 +288,7 @@ local lua_icon_cache = {}
 ---@param name string
 ---@return string
 function M.file_icon(name)
-    if (require("lvim-utils.config").picker or {}).show_icons == false then
+    if (config.picker or {}).show_icons == false then
         return ""
     end
     local ok, dev = pcall(require, "nvim-web-devicons")
@@ -316,7 +318,7 @@ end
 ---@param name string
 ---@return string? glyph, string? hl
 function M.devicon(name)
-    if (require("lvim-utils.config").picker or {}).show_icons == false then
+    if (config.picker or {}).show_icons == false then
         return nil
     end
     local ok, dev = pcall(require, "nvim-web-devicons")
@@ -335,7 +337,7 @@ end
 ---@return string[]
 function M.grep_cmd(query, regex)
     local rg = { "rg", "--vimgrep", "--smart-case", "--color=never" }
-    local src = (require("lvim-utils.config").picker or {}).source or {}
+    local src = (config.picker or {}).source or {}
     if src.hidden ~= false then
         rg[#rg + 1] = "--hidden"
     end
@@ -397,7 +399,7 @@ function M.fzf_multiline()
     if fzf_ml ~= nil then
         return fzf_ml
     end
-    local want = tonumber((require("lvim-utils.config").picker or {}).grep_multiline) or 0
+    local want = tonumber((config.picker or {}).grep_multiline) or 0
     if want <= 0 then
         fzf_ml = 0
         return fzf_ml
@@ -427,7 +429,7 @@ local function grep_shell(argv)
     for _, a in ipairs(argv) do
         parts[#parts + 1] = vim.fn.shellescape(a)
     end
-    local ic = (require("lvim-utils.config").picker or {}).show_icons ~= false and icons()
+    local ic = (config.picker or {}).show_icons ~= false and icons()
     local awk
     if M.fzf_multiline() > 0 then
         -- 2-row layout: the awk splits at the 3rd colon, inserts the `\n    `, and NUL-terminates each record

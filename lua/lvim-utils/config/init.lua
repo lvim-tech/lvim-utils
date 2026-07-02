@@ -1,8 +1,14 @@
--- lua/lvim-utils/config/init.lua
--- Central configuration hub. Loads each module's default config from its
--- own file (config/ui.lua, config/cursor.lua, config/gx.lua) and exposes
--- them as live tables that modules read at call time.
--- setup() deep-merges user overrides into the live tables.
+-- lvim-utils.config: the central configuration hub for every lvim-utils module.
+-- Loads each module's default config from its own file (config/ui.lua, config/cursor.lua,
+-- config/gx.lua, …) into ONE live table per module, and exposes them as tables that modules
+-- read at call time. setup() merges user overrides into those live tables IN PLACE via
+-- lvim-utils.utils.merge — never reassigning them — so a module that hoisted a `local cfg =
+-- config.<mod>` alias at load keeps seeing the effective values, and a shorter override LIST
+-- cleanly REPLACES the default (not an index-merge that leaves stale tail elements).
+--
+---@module "lvim-utils.config"
+
+local merge = require("lvim-utils.utils").merge
 
 local M = {}
 
@@ -21,50 +27,48 @@ M.fuzzy = vim.deepcopy(require("lvim-utils.config.fuzzy"))
 M.picker = vim.deepcopy(require("lvim-utils.config.picker"))
 M.dashboard = vim.deepcopy(require("lvim-utils.config.dashboard"))
 
----Merge user-provided options into each module's config.
+--- Merge user-provided options into each module's LIVE config table, in place. Every module
+--- config is merged with the same `utils.merge` (deep-merge maps, REPLACE lists/scalars whole),
+--- so the merge is uniform and a user's shorter list (e.g. `cmdline.newline_keys = {}`,
+--- `picker.source.exclude = {...}`, `fuzzy.sort = {...}`) truly replaces the default instead of
+--- leaving stale trailing entries.
 ---@param opts? { ui?: table, cursor?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table, dashboard?: table }
 function M.setup(opts)
     opts = opts or {}
     if opts.ui then
-        M.ui = vim.tbl_deep_extend("force", M.ui, opts.ui)
+        merge(M.ui, opts.ui)
     end
     if opts.cursor then
-        M.cursor = vim.tbl_deep_extend("force", M.cursor, opts.cursor)
+        merge(M.cursor, opts.cursor)
     end
     if opts.gx then
-        M.gx = vim.tbl_deep_extend("force", M.gx, opts.gx)
+        merge(M.gx, opts.gx)
     end
     if opts.notify then
-        M.notify = vim.tbl_deep_extend("force", M.notify, opts.notify)
+        merge(M.notify, opts.notify)
     end
     if opts.cmdline then
-        M.cmdline = vim.tbl_deep_extend("force", M.cmdline, opts.cmdline)
+        merge(M.cmdline, opts.cmdline)
     end
     if opts.input then
-        M.input = vim.tbl_deep_extend("force", M.input, opts.input)
+        merge(M.input, opts.input)
     end
     if opts.msgarea then
-        M.msgarea = vim.tbl_deep_extend("force", M.msgarea, opts.msgarea)
+        merge(M.msgarea, opts.msgarea)
     end
     if opts.chrome then
-        -- utils.merge replaces LIST values wholesale (so a user `exclude.filetype` overrides, not index-merges).
-        require("lvim-utils.utils").merge(M.chrome, opts.chrome)
+        merge(M.chrome, opts.chrome)
     end
     if opts.fuzzy then
-        -- `sort` may be a string OR a list OR a function — replace it wholesale (deep_extend would merge a
-        -- list element-wise). Merge the rest, then overwrite sort if the user gave one.
-        M.fuzzy = vim.tbl_deep_extend("force", M.fuzzy, opts.fuzzy)
-        if opts.fuzzy.sort ~= nil then
-            M.fuzzy.sort = opts.fuzzy.sort
-        end
+        -- `sort` may be a string OR a list OR a function — merge REPLACES each wholesale, so all
+        -- three forms land correctly without a special case.
+        merge(M.fuzzy, opts.fuzzy)
     end
     if opts.picker then
-        M.picker = vim.tbl_deep_extend("force", M.picker, opts.picker)
+        merge(M.picker, opts.picker)
     end
     if opts.dashboard then
-        -- utils.merge replaces LIST values wholesale (so a user `sections` / `preset.keys` overrides, not
-        -- index-merges into the defaults).
-        require("lvim-utils.utils").merge(M.dashboard, opts.dashboard)
+        merge(M.dashboard, opts.dashboard)
     end
 end
 

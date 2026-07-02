@@ -1,16 +1,18 @@
--- lua/lvim-utils/gx/init.lua
--- Universal "open under cursor" — resolves URLs, local paths (with optional
--- :line:col suffix), bare domain/repo references, and file-manager buffers
--- (neo-tree, nvim-tree, oil, mini.files, netrw) via registered adapters,
--- then falls back to a proximity scan of nearby lines.
+-- lvim-utils.gx: universal "open under cursor" — resolves URLs, local paths (with optional
+-- :line:col suffix), bare domain/repo references, and file-manager buffers (neo-tree,
+-- nvim-tree, oil, mini.files, netrw) via registered adapters, then falls back to a proximity
+-- scan of nearby lines. Reads its live config from `config.gx` (merged in place by setup).
 --
 -- Public API:
 --   M.setup(opts?)          – initialise with optional config overrides
 --   M.register_adapter(def) – add a custom file-manager adapter at runtime
 --   M.map_default()         – bind gx → :GxOpen in normal mode
 --   M.open_current()        – programmatically trigger open on current cursor
+--
+---@module "lvim-utils.gx"
 
 local config_mod = require("lvim-utils.config")
+local merge = require("lvim-utils.utils").merge
 local M = {}
 
 local uv = vim.uv or vim.loop
@@ -763,13 +765,14 @@ end
 -- ─── public api ───────────────────────────────────────────────────────────────
 
 --- Initialise the gx module with optional config overrides.
---- Resets the adapter list and re-registers all enabled built-in adapters.
+--- Merges `opts` into the live `config.gx` IN PLACE (so the hoisted `cfg` alias stays valid and
+--- the central config reflects the override), then resets and re-registers the enabled adapters.
+--- Usually called with no args: `require("lvim-utils").setup({ gx = {...} })` has already merged
+--- the user's overrides into `config.gx`, so a bare `gx.setup()` just re-reads them.
 ---@param opts GxConfig|nil
 function M.setup(opts)
     if opts then
-        local config = config_mod
-        config.gx = vim.tbl_deep_extend("force", config.gx, opts)
-        cfg = config.gx
+        merge(cfg, opts)
     end
     adapters = {}
     adapters_initialized = false

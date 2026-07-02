@@ -1,6 +1,34 @@
--- lua/lvim-utils/config/notify.lua
--- Default configuration for the notify module.
+-- lvim-utils.config.notify: the live defaults for the notify module — the toast/history model, the panel
+-- geometry + separators, print()/message interception (ext_messages), per-kind routing, level icons/names,
+-- and the :Messages history zone with its filter bar. `setup()` merges the user's `notify = {…}` into this
+-- table in place; readers `require("lvim-utils.config").notify`.
+--
+---@module "lvim-utils.config.notify"
 
+---@class LvimUtilsNotifyConfig
+---@field max_history       integer  Ring-buffer size for M.history()
+---@field timeout           integer  Auto-dismiss delay in ms; 0 = sticky
+---@field dedup             boolean  Collapse identical consecutive toasts into one with a ×N badge
+---@field min_width         integer  Panel minimum width
+---@field max_width         integer  Panel maximum width
+---@field padding           integer  Horizontal padding inside the panel
+---@field bottom_margin     integer  Gap (rows) above the statusline
+---@field panel_gap         integer  Rows between stacked level panels
+---@field border            string   Floating window border (passed to nvim_open_win)
+---@field zindex            integer  Floating window z-index
+---@field separator         string   Character repeated across the panel width as entry separator
+---@field show_separator    boolean  Show a separator line between individual messages in the same panel
+---@field override_print    boolean  Replace global print() as well
+---@field ext_messages      boolean  Intercept all Neovim messages via vim.ui_attach (ext_messages)
+---@field ext_echo_timeout  integer  Timeout (ms) for echo/info-level ext messages
+---@field ext_kinds         table<string, string> Per-kind behaviour: "toast" | "history" | "ignore"
+---@field printers          table    Active printers on load ("toast" / "history" / { name, fn } / fn)
+---@field progress_width    integer|nil Width of the progress panel (nil = max_width)
+---@field icons             table<string, string> Level icons
+---@field level_names       table<string, string> Singular/plural level names shown in the header bar
+---@field history           table    The :Messages history zone + its filter bar
+
+---@type LvimUtilsNotifyConfig
 return {
     -- Ring-buffer size for M.history()
     max_history = 100,

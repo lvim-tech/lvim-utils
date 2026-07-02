@@ -1,5 +1,4 @@
--- lua/lvim-utils/health.lua
--- `:checkhealth lvim-utils` — verifies the environment lvim-utils relies on: truecolor,
+-- lvim-utils.health: `:checkhealth lvim-utils` — verifies the environment lvim-utils relies on: truecolor,
 -- Neovim version, palette sync from lvim-colorscheme, self-themed UI groups, and possible
 -- ext_cmdline conflicts.
 ---@module "lvim-utils.health"
@@ -81,6 +80,9 @@ function M.check()
     end
 
     -- picker / finder backends
+    --- Whether an executable is on PATH.
+    ---@param bin string
+    ---@return boolean
     local function has(bin)
         return vim.fn.executable(bin) == 1
     end

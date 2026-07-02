@@ -1,5 +1,4 @@
--- lua/lvim-utils/config/fuzzy.lua
--- Live config for the shared fuzzy engine (lvim-utils.fuzzy) — applies to EVERY consumer (the picker /
+-- lvim-utils.config.fuzzy: live config for the shared fuzzy engine — applies to EVERY consumer (the picker /
 -- navigator and the native cmdline completion). setup() merges user opts in place; readers do
 -- `require("lvim-utils.config").fuzzy`.
 --

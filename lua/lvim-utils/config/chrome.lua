@@ -60,6 +60,16 @@ local function chrome_exclude(extra_ft)
     }
 end
 
+---@class LvimUtilsChromeConfig
+---@field statusline   table  The bottom line component (enabled / segments / exclude)
+---@field winbar       table  The per-window top line component (enabled / segments / exclude)
+---@field tabline      table  The top tabline component (enabled / showtabline / segments / exclude)
+---@field statuscolumn table  The per-line gutter component (enabled / segments / exclude)
+---@field overlay      table  The transient finder/echo overlay (enabled / show_action / show_counter / pads)
+---@field git          table  Shared git poller (poll_ms — the .git/HEAD fs_poll interval)
+---@field icons        table  Single-width Nerd-font glyphs for every component (mode / git / diagnostics / scrollbar / …)
+
+---@type LvimUtilsChromeConfig
 return {
     -- ── statusline ────────────────────────────────────────────────────────────
     -- The bottom line, rendered by lvim-utils.chrome.engine. There are NO predefined segments (like heirline) —

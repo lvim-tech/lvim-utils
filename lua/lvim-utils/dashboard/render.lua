@@ -1,5 +1,4 @@
--- lua/lvim-utils/dashboard/render.lua
--- The dashboard RENDER ENGINE: turn the declarative `sections` tree (config.dashboard.sections) into a laid-
+-- lvim-utils.dashboard.render: the dashboard RENDER ENGINE: turn the declarative `sections` tree (config.dashboard.sections) into a laid-
 -- out buffer. The pipeline is resolve → format → layout → paint:
 --   • resolve  — flatten the section tree (functions, `{ section = … }` built-ins, nested arrays, titles,
 --                gap/padding) into one flat list of ITEMS;
@@ -14,6 +13,9 @@
 ---@module "lvim-utils.dashboard.render"
 
 local api = vim.api
+local config = require("lvim-utils.config")
+local sections = require("lvim-utils.dashboard.sections")
+
 local M = {}
 
 -- ─── small helpers ────────────────────────────────────────────────────────────
@@ -108,7 +110,7 @@ end
 ---@param kind string  "file" | "directory"
 ---@return table
 local function devicon(self, file, kind)
-    local icons = require("lvim-utils.config").dashboard.icons
+    local icons = config.dashboard.icons
     if kind == "directory" then
         return { icons.directory .. " ", hl = rhl(self, "icon") }
     end
@@ -376,7 +378,7 @@ function M.resolve(self, section, out, parent)
         return out
     end
     if section.section then -- a built-in section generator
-        local gen = require("lvim-utils.dashboard.sections")[section.section]
+        local gen = sections[section.section]
         if gen then
             local first = #out + 1
             M.resolve(self, gen(section), out, section)

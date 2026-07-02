@@ -1,5 +1,4 @@
--- lua/lvim-utils/config/msgarea.lua
--- Live config for the persistent, toggleable message area (lvim-utils.msgarea). A docked split
+-- lvim-utils.config.msgarea: live config for the persistent, toggleable message area. A docked split
 -- under (or over) the editor that ACCUMULATES messages routed to it by the notify hub, so they
 -- stay readable instead of vanishing. setup() merges user opts into this table IN PLACE; readers
 -- do `require("lvim-utils.config").msgarea` and see the effective values.
@@ -82,6 +81,7 @@ return {
     -- `msgarea/integrations/` with `enable()` / `disable()`; only the enabled ones load.
     integrations = {
         blink = false, -- blink.cmp completion menu docks at the zone (above the command line)
+        native = false, -- native cmdline completion docks at the zone (symmetric alternative to blink)
     },
 
     -- ── Keys (active only while the panel is FOCUSED) ────────────────────────────────────────────

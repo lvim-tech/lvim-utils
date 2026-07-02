@@ -11,6 +11,7 @@
 
 local api = vim.api
 local engine = require("lvim-utils.chrome.engine")
+local config = require("lvim-utils.config")
 
 local M = {}
 
@@ -23,7 +24,7 @@ local inst = engine.new({ volatile = true, fill = "LvimUiChromeFill" })
 --- predefined sections: unset / empty / failing config yields a blank tabline.
 ---@return LvimChromeSegment[]
 local function active_segments()
-    local segs = (require("lvim-utils.config").chrome.tabline or {}).segments
+    local segs = (config.chrome.tabline or {}).segments
     if type(segs) == "function" then
         local ok, res = pcall(segs)
         segs = ok and res or nil
@@ -31,19 +32,19 @@ local function active_segments()
     return type(segs) == "table" and segs or {}
 end
 
---- The `%!`-evaluated tabline string. The engine renders the config's sections.
----@return string
---- The last bar STRING we actually showed, and a candidate awaiting confirmation. The tabline is a global
---- `%!`-expression nvim re-evaluates synchronously on every redraw, so we cannot defer the call itself — but
---- we can WAIT to SHOW a change: a new value is only committed once it survives TWO consecutive evaluations.
---- A one-frame transient (e.g. the editor/file focused for a single frame while a picker closes and the panel
---- re-opens) never survives twice, so it is never painted; we keep showing the last committed bar and force a
---- re-evaluation next tick via `redrawtabline`.
+-- The last bar STRING we actually showed, and a candidate awaiting confirmation. The tabline is a global
+-- `%!`-expression nvim re-evaluates synchronously on every redraw, so we cannot defer the call itself — but
+-- we can WAIT to SHOW a change: a new value is only committed once it survives TWO consecutive evaluations.
+-- A one-frame transient (e.g. the editor/file focused for a single frame while a picker closes and the panel
+-- re-opens) never survives twice, so it is never painted; we keep showing the last committed bar and force a
+-- re-evaluation next tick via `redrawtabline`.
 ---@type string?
 local _shown = nil
 ---@type string?
 local _cand = nil
 
+--- The `%!`-evaluated tabline string. The engine renders the config's sections.
+---@return string
 function M.render()
     local win = api.nvim_get_current_win()
     ---@type LvimChromeCtx

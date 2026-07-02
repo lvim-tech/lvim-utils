@@ -1,5 +1,4 @@
--- lua/lvim-utils/highlight/init.lua
--- Dynamic highlight group registration that survives colorscheme changes,
+-- lvim-utils.highlight: dynamic highlight group registration that survives colorscheme changes,
 -- plus color manipulation helpers (blend, lighten, darken) and group utilities.
 --
 -- Public API:
@@ -17,6 +16,8 @@
 --   M.get(name)                      – get highlight group attributes
 --   M.link(name, link_to)            – link one group to another
 --   M.group_exists(name)             – check if a group is defined
+--
+---@module "lvim-utils.highlight"
 
 local M = {}
 

@@ -1,5 +1,4 @@
--- lua/lvim-utils/fuzzy/init.lua
--- Shared fuzzy MATCHING engine: rank a list of strings against a query. The engine is the native `fzf`
+-- lvim-utils.fuzzy: shared fuzzy MATCHING engine: rank a list of strings against a query. The engine is the native `fzf`
 -- binary in `--filter` mode (no TUI) — candidates go in on stdin, fzf returns them matched + ranked by its
 -- score; without fzf it falls back to a pure-Lua subsequence matcher. fzf's `--filter` does NOT emit match
 -- positions, so they are computed locally (utils.match_indices) for highlighting. Used by the picker and by
@@ -8,6 +7,7 @@
 ---@module "lvim-utils.fuzzy"
 
 local utils = require("lvim-utils.utils")
+local config = require("lvim-utils.config")
 
 local M = {}
 
@@ -70,7 +70,7 @@ end
 ---@param texts string[]
 ---@return { idx: integer, match?: integer[] }[]
 local function apply_sort(ranked, texts)
-    local spec = (require("lvim-utils.config").fuzzy or {}).sort or "score"
+    local spec = (config.fuzzy or {}).sort or "score"
     if spec == "score" then
         return ranked -- already in best-match order
     end
@@ -188,7 +188,7 @@ function M.filter(texts, query, cb)
     -- Hard cap on materialised results (config.fuzzy.max_results): fzf still searches ALL candidates, but we
     -- only hand back the top `max`, so a broad / empty query over a huge tree never builds hundreds of
     -- thousands of rows on a keystroke (the per-keystroke freeze).
-    local max = (require("lvim-utils.config").fuzzy or {}).max_results or 1000
+    local max = (config.fuzzy or {}).max_results or 1000
     -- Keep the candidate temp file warm (incrementally) on EVERY call — including the empty-query path used
     -- while a stream feeds — so a real query reads a READY file instead of paying to build it then.
     local path = ensure_file(texts)

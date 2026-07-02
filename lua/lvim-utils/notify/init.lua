@@ -1,11 +1,13 @@
--- lua/lvim-utils/notify/init.lua
--- Notification hub: intercepts vim.notify (and optionally print), routes
--- every message through a list of pluggable printers, and ships two
--- built-in printers:
+-- lvim-utils.notify: the notification hub — intercepts vim.notify (and optionally print), routes
+-- every message through a list of pluggable printers, and ships two built-in printers:
 --   "toast"   – one floating panel per severity level, stacked vertically
 --   "history" – ring-buffer; browsable with M.history()
 --
--- Works out-of-the-box after require() — no setup() call needed.
+-- Works out-of-the-box after require() — no setup() call needed. Its live config is
+-- `config.notify`; setup() merges user opts into it IN PLACE (via utils.merge) so the `_cfg`
+-- alias and every `require("lvim-utils.config").notify` reader see the effective values.
+--
+---@module "lvim-utils.notify"
 
 local M = {}
 
@@ -13,6 +15,7 @@ local api = vim.api
 local colors = require("lvim-utils.colors")
 local config = require("lvim-utils.config")
 local hl = require("lvim-utils.highlight")
+local merge = require("lvim-utils.utils").merge
 local levels = vim.log.levels
 local NS = api.nvim_create_namespace("lvim_utils_notify")
 
@@ -1421,9 +1424,14 @@ pcall(function()
     hl.bind(M.msg_highlights)
 end)
 
+--- Initialise the notify hub: merge `user_cfg` into the live `config.notify` IN PLACE, build the
+--- printer list, intercept vim.notify (once), and — when configured — override print / attach the
+--- ext_messages UI. Safe to call directly (`require("lvim-utils.notify").setup({...})`) or via the
+--- top-level `require("lvim-utils").setup({ notify = {...} })`.
+---@param user_cfg? table  notify config overrides (merged into config.notify)
 function M.setup(user_cfg)
     user_cfg = user_cfg or {}
-    _cfg = vim.tbl_deep_extend("force", _cfg, user_cfg)
+    merge(_cfg, user_cfg)
 
     -- LvimNotify* groups are self-themed centrally via highlight.bind (config factory),
     -- so notify no longer re-registers them here.

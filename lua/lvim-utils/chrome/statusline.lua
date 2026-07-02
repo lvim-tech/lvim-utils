@@ -15,6 +15,7 @@ local utils = require("lvim-utils.chrome.utils")
 local engine = require("lvim-utils.chrome.engine")
 local git_poller = require("lvim-utils.chrome.git")
 local parts = require("lvim-utils.chrome.parts")
+local config = require("lvim-utils.config")
 
 local is_ui_float = utils.is_ui_float
 
@@ -41,7 +42,7 @@ end
 --- segments: an unset / empty / failing config yields a blank line.
 ---@return LvimChromeSegment[]
 local function active_segments()
-    local segs = (require("lvim-utils.config").chrome.statusline or {}).segments
+    local segs = (config.chrome.statusline or {}).segments
     if type(segs) == "function" then
         local ok, res = pcall(segs)
         segs = ok and res or nil
@@ -94,7 +95,7 @@ function M.install_autocmds(grp)
     api.nvim_create_autocmd("DirChanged", {
         group = grp,
         callback = function()
-            git_poller.start((require("lvim-utils.config").chrome.git or {}).poll_ms or 1000)
+            git_poller.start((config.chrome.git or {}).poll_ms or 1000)
             pcall(vim.cmd, "redrawstatus")
         end,
     })

@@ -1,6 +1,11 @@
--- lua/lvim-utils/config/gx.lua
--- Default config for the gx module (open-under-cursor: match highlight + handlers).
+-- lvim-utils.config.gx: the live defaults for the gx "open under cursor" module — match highlighting, the
+-- system-opener behaviour, bare-domain / directory handling, the proximity scan bounds, the token pattern,
+-- and which file-manager adapters are enabled. `setup()` merges the user's `gx = {…}` into this table in
+-- place; readers `require("lvim-utils.config").gx`. Field docs live on `GxConfig` in lvim-utils/gx/init.lua.
+--
+---@module "lvim-utils.config.gx"
 
+---@type GxConfig
 return {
     highlight_match = true,
     highlight_duration_ms = 300,

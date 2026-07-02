@@ -1,11 +1,12 @@
--- lua/lvim-utils/quit/init.lua
--- Quit dialog for lvim-utils.
+-- lvim-utils.quit: quit dialog for lvim-utils.
 -- Opens a tabs popup listing all unsaved normal buffers as toggle rows.
 -- The user can choose which files to save before quitting, quit without
 -- saving, or cancel.  When there are no unsaved buffers, quits immediately.
 --
 -- Public API:
 --   M.open(opts?) – open the quit dialog (or quit immediately if nothing is dirty)
+--
+---@module "lvim-utils.quit"
 
 local ui = require("lvim-utils.ui")
 local util = require("lvim-utils.ui.util")

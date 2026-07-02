@@ -1,5 +1,4 @@
--- lua/lvim-utils/msgarea/integrations/blink.lua
--- blink.cmp ↔ msgarea: the ENGINE stays blink (sources, fuzzy, selection, accept); the PREVIEW is taken
+-- lvim-utils.msgarea.integrations.blink: blink.cmp ↔ msgarea: the ENGINE stays blink (sources, fuzzy, selection, accept); the PREVIEW is taken
 -- over by the zone. We INTERCEPT blink's live list via its `BlinkCmp*` User autocmds and render the items
 -- IN the area via its public "completion" SEGMENT handle — NO blink popup. blink's menu is suppressed in cmdline
 -- via its `auto_show` (returns false for cmdline), so only the engine runs; insert-mode completion is left
@@ -8,6 +7,7 @@
 ---@module "lvim-utils.msgarea.integrations.blink"
 
 local api = vim.api
+local config = require("lvim-utils.config")
 
 local M = {}
 
@@ -47,7 +47,7 @@ end
 --- Grid layout opts read from the msgarea config (columns / max visible rows).
 ---@return { columns?: integer, max_rows?: integer }
 local function grid_opts()
-    local mc = require("lvim-utils.config").msgarea or {}
+    local mc = config.msgarea or {}
     return { columns = mc.completion_columns, max_rows = mc.completion_max }
 end
 
@@ -169,7 +169,7 @@ end
 --- The configured grid column count.
 ---@return integer
 local function columns()
-    return math.max(1, (require("lvim-utils.config").msgarea or {}).completion_columns or 1)
+    return math.max(1, (config.msgarea or {}).completion_columns or 1)
 end
 
 --- Move blink's selection by `delta` items (clamped); returns false when there is nothing to move.
@@ -253,15 +253,23 @@ function M.enter()
     })
 end
 
+--- Move down a whole grid ROW (by the column count).
+---@return boolean handled
 function M.grid_down()
     return move(columns())
 end
+--- Move up a whole grid ROW.
+---@return boolean handled
 function M.grid_up()
     return move(-columns())
 end
+--- Move one cell right.
+---@return boolean handled
 function M.grid_right()
     return move(1)
 end
+--- Move one cell left.
+---@return boolean handled
 function M.grid_left()
     return move(-1)
 end

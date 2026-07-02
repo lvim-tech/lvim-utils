@@ -1,5 +1,4 @@
--- lua/lvim-utils/msgarea/integrations/native.lua
--- NATIVE command-line completion ↔ msgarea: the ENGINE is Neovim's own `getcompletion` (no plugin), the
+-- lvim-utils.msgarea.integrations.native: NATIVE command-line completion ↔ msgarea: the ENGINE is Neovim's own `getcompletion` (no plugin), the
 -- VIEW is the message zone. On every change of a `:` command line we compute the completion candidates and
 -- render them IN the area via the public "completion" SEGMENT — AUTOMATICALLY (no <Tab> needed), exactly
 -- like the blink integration but with the built-in completion as the source. Navigation + accept are driven
@@ -11,6 +10,7 @@
 
 local api = vim.api
 local fuzzy = require("lvim-utils.fuzzy")
+local config = require("lvim-utils.config")
 
 local M = {}
 
@@ -33,7 +33,7 @@ end
 --- Grid layout opts read from the msgarea config (columns / max visible rows).
 ---@return integer columns, integer? max_rows
 local function grid_opts()
-    local mc = require("lvim-utils.config").msgarea or {}
+    local mc = config.msgarea or {}
     return mc.completion_columns or 1, mc.completion_max
 end
 
@@ -80,7 +80,7 @@ local function refresh()
     -- getcompletion omits dotfiles unless the prefix has a leading dot. For FILE/DIR completion with
     -- `completion_hidden`, fetch the dotfile variant (`<prefix>.`) too and merge — dropping the `.`/`..`
     -- pseudo-entries — so hidden files/folders are fuzzy-completable.
-    local mc = require("lvim-utils.config").msgarea or {}
+    local mc = config.msgarea or {}
     local ctype = vim.fn.getcmdcompltype()
     if mc.completion_hidden ~= false and (ctype:find("file") or ctype:find("dir")) then
         local okh, hidden = pcall(vim.fn.getcompletion, stem .. bprefix .. ".", "cmdline")
@@ -256,7 +256,7 @@ local mapped_keys = {}
 --- the zone's window+buffer — forbidden under the expr textlock, E565) and consumes the key; otherwise the
 --- key falls through to its native cmdline behaviour.
 local function install_keys()
-    local keys = (require("lvim-utils.config").msgarea or {}).completion_keys or {}
+    local keys = (config.msgarea or {}).completion_keys or {}
     for action, method in pairs(KEY_ACTIONS) do
         for _, lhs in ipairs(keys[action] or {}) do
             vim.keymap.set("c", lhs, function()

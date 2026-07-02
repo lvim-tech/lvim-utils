@@ -1,5 +1,4 @@
--- lua/lvim-utils/input/init.lua
--- Input dispatcher: installs a vim.ui.input that routes each prompt to either the
+-- lvim-utils.input: input dispatcher — installs a vim.ui.input that routes each prompt to either the
 -- self-rendered command-line (lvim-utils.cmdline) or a popup (lvim-utils.ui), so every
 -- input can be steered individually. Resolution order: route_next() one-shot →
 -- opts.ui ("cmdline"|"popup") → config default.

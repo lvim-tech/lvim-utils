@@ -1,5 +1,4 @@
--- lua/lvim-utils/config/dashboard.lua
--- Default configuration for the START DASHBOARD (lvim-utils.dashboard): a declarative, section-based greeter
+-- lvim-utils.config.dashboard: default config for the START DASHBOARD — a declarative, section-based greeter
 -- buffer — the same model as snacks.nvim's dashboard, reimplemented on the lvim-utils stack (own palette
 -- self-theming, lvim-utils.picker for the `pick` actions, a clean single-teardown lifecycle). `setup()`
 -- merges the user's `dashboard = {…}` into THIS table in place (via lvim-utils.utils.merge — LIST values like
@@ -9,6 +8,26 @@
 --
 ---@module "lvim-utils.config.dashboard"
 
+---@class LvimUtilsDashboardConfig
+---@field enable      boolean  Master switch (false = no auto-open, :LvimDashboard not registered)
+---@field auto_open   boolean  Auto-open on an empty startup (no file, single window, not piped stdin)
+---@field should_open (fun(): boolean)? Extra gate on auto-open (return false to suppress); nil = no gate
+---@field hide_cursor boolean  Hide the hardware cursor while the dashboard is up (via lvim-utils.cursor)
+---@field width       integer  The dashboard pane width (one column's character width)
+---@field row         integer|nil Fixed vertical position (rows); nil = centred
+---@field col         integer|nil Fixed horizontal position (cols); nil = centred
+---@field pane_gap    integer  Empty columns between side-by-side panes
+---@field autokeys    string   The pool of keys auto-assigned to items asking for one (autokey = true)
+---@field preset      table    Shared building blocks the built-in sections pull from (pick / keys / header)
+---@field sections    table    The sections rendered top to bottom (item tables / generators / built-in refs)
+---@field formats     table    Per-field formatters (icon / header / footer / file → styled text)
+---@field icons       table    Fallback leading glyphs for file/directory items with no devicon
+---@field hl          table    Highlight groups for every element (all default to the LvimUiDashboard* groups)
+---@field bo          table    The dashboard buffer options (a clean, chrome-free scratch buffer)
+---@field wo          table    The dashboard window options
+---@field debug       boolean  Trace the render/resolve passes to :messages (debugging only)
+
+---@type LvimUtilsDashboardConfig
 return {
     -- Master switch. false = the module does nothing (no auto-open, `:LvimDashboard` is not registered).
     enable = false,

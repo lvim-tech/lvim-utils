@@ -1,6 +1,10 @@
--- lua/lvim-utils/ui/util.lua
--- Shared utilities for lvim-utils UI components.
+-- lvim-utils.ui.util: shared low-level helpers for the UI layer — inline-hl registration/caching,
+-- display-width-aware string clipping/padding, border resolution, accent tinting, and axis/position
+-- math. Pure functions with no window state, so every UI module (and standalone plugin floats) can
+-- share ONE implementation of these size/border/highlight primitives.
+---@module "lvim-utils.ui.util"
 local config = require("lvim-utils.config")
+local highlight = require("lvim-utils.highlight")
 local api = vim.api
 
 local M = {}
@@ -14,7 +18,6 @@ M.FT = "lvim-utils-ui"
 --- Tables are registered as dynamic groups and their name is cached.
 local _hl_cache = {}
 local _hl_count = 0
-local _hl_registry = require("lvim-utils.highlight")
 function M.resolve_hl(val)
     if type(val) == "string" then
         return val
@@ -26,7 +29,7 @@ function M.resolve_hl(val)
     if not _hl_cache[key] then
         _hl_count = _hl_count + 1
         local name = "LvimUiInline_" .. _hl_count
-        _hl_registry.register({ [name] = val }, true)
+        highlight.register({ [name] = val }, true)
         _hl_cache[key] = name
     end
     return _hl_cache[key]

@@ -1,5 +1,6 @@
--- lua/lvim-utils/colors/init.lua
--- Public color palette for lvim-utils and external plugins.
+-- lvim-utils.colors: public color palette for lvim-utils and external plugins — bundled muted dark/light
+-- palettes plus blend/lighten/darken helpers, overridable via setup(). The bundled values are used only when
+-- lvim-colorscheme is not driving the colors.
 --
 -- Usage:
 --   local c = require("lvim-utils.colors")
@@ -10,6 +11,8 @@
 --
 -- Override via setup():
 --   require("lvim-utils").setup({ colors = { red = "#ff0000" } })
+--
+---@module "lvim-utils.colors"
 
 local M = {}
 

@@ -1,11 +1,28 @@
--- lua/lvim-utils/config/picker.lua
--- Shared config for the finder (lvim-utils.picker) — applies to EVERY finder (files / grep / buffers / …)
+-- lvim-utils.config.picker: shared config for the finder — applies to EVERY finder (files / grep / buffers / …)
 -- so they share one look. EVERYTHING visual is configurable here: the prompt badge content and a `hl`
 -- table mapping every element to a highlight group (all overridable). setup() merges user opts in place;
 -- readers do `require("lvim-utils.config").picker`.
 --
 ---@module "lvim-utils.config.picker"
 
+---@class LvimUtilsPickerConfig
+---@field layout          string   Default layout for every finder: "area" | "float" | "bottom"
+---@field fzf_tui         boolean  Use the real fzf TUI for heavy command-driven finders (false = the Lua tint list)
+---@field keys            table    All finder keys (accept / mark / quickfix / preview scroll / park / abort / nav)
+---@field marker          string   The mark indicator glyph drawn before a marked row (multi-select)
+---@field grep_multiline  integer|boolean The fzf grep result layout: 1 = 2-row, 2 = 2-row + gap, false/0 = 1-row
+---@field statusline      boolean  Publish the finder title + counter + query to the bottom statusline
+---@field source          table    files/directories listing engine + what it ignores (engine / exclude / hidden / …)
+---@field prompt          table    The prompt badge before the query (icon / label / spacing pads)
+---@field caret           table    The input caret (hl group + guicursor shape)
+---@field hl              table    Highlight groups for every finder element (all overridable)
+---@field preview         table    The preview winbar (devicon toggle + path pads)
+---@field preview_heights table    Area height per preview-stack direction (horizontal / vertical)
+---@field empty_text      string   Text shown when there are no results
+---@field empty_preview   string   The preview placeholder text when nothing is focused
+---@field list_wrap       boolean  Soft-wrap the list rows instead of truncating long matches
+
+---@type LvimUtilsPickerConfig
 return {
     -- The DEFAULT layout for every finder when a call (or `:LvimPicker <finder>`) gives no explicit one:
     -- "area" (the cmdheight/msgarea zone — the modern default) | "float" (a centred float) | "bottom" (a
@@ -40,8 +57,8 @@ return {
     },
 
     -- The MARK indicator drawn in the one blank column in front of a marked row (multi-select), in red — both
-    -- backends. A small, vertically-centred bullet reads cleanly in that single space.
-    marker = "•",
+    -- backends. The canonical pointer glyph `➤` (U+27A4) reads cleanly in that single space.
+    marker = "➤",
 
     -- (fzf grep) MULTILINE grep entries — the fzf-lua "2-line" result layout: each match is shown as a
     -- LOCATION row (`<icon> path:lnum:col`) with the matched TEXT indented on a second row beneath it, so a

@@ -214,13 +214,19 @@ function M.new(opts)
     return {
         hide_cursor = true,
         cursorline = opts.cursorline_hl or true,
-        -- Exposed for an external footer legend: the focused row's context hints, plus the actions a hint click
-        -- runs (cycle a value by ±1; activate = run/toggle/edit the focused row).
+        --- Exposed for an external footer legend: the focused row's context hints, plus the actions a hint click
+        --- runs (cycle a value by ±1; activate = run/toggle/edit the focused row).
+        ---@return { key: string, label: string, act: string }[]
         hints = function()
             return row_hints(flat()[cur_line()])
         end,
+        --- Cycle the focused select/segmented row's value by a delta (±1). Returns false when the row is not
+        --- cyclable (so a caller can fall back to e.g. moving a toolbar button). See `cycle_value`.
         cycle = cycle_value,
+        --- Activate the focused row (toggle / edit / run), per its type; takes the frame state. See `activate`.
         act = activate,
+        --- Content size the frame should allocate: the widest rendered row (+4 padding) and the row count.
+        ---@return integer width, integer height
         size = function()
             local fr = flat()
             local w = 1
@@ -229,6 +235,10 @@ function M.new(opts)
             end
             return w, math.max(1, #fr)
         end,
+        --- Render the current rows to `width` columns: returns the line strings plus the highlight spans
+        --- (`{ row, col_start, col_end, group, priority? }`) the panel applies.
+        ---@param width integer
+        ---@return string[] lines, table[] hls
         render = function(width)
             local fr = flat()
             local lines, hls = {}, {}
@@ -321,6 +331,12 @@ function M.new(opts)
             end
             return lines, hls
         end,
+        --- Install the panel's keymaps and cursor autocmds: j/k navigation, ↵ activate, ←/→ cycle-or-bar-nav,
+        --- ⌫ cycle-back, and toolbar click hit-testing. `map(lhs, fn)` binds keys on the panel; `p` is the
+        --- panel handle (`.win` / `.buf`); `st` is the frame state passed through to activate.
+        ---@param map fun(lhs: string|string[], fn: fun())
+        ---@param p table
+        ---@param st table
         keys = function(map, p, st)
             pan = p
             local fr = flat()

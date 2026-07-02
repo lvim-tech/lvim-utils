@@ -1,6 +1,8 @@
--- lua/lvim-utils/ui/rows.lua
--- Row type system: type annotations, display helpers, item accessors,
--- and row-navigation utilities used by the popup.
+-- lvim-utils.ui.rows: the row TYPE SYSTEM for the popup/form — the Row/RowType class aliases plus the
+-- display helpers, item accessors, and row-navigation utilities that turn a typed-row spec into rendered,
+-- editable content. Centralised here so the presenter (form/surface) stays agnostic of how each row type
+-- is shaped, valued, and moved between.
+---@module "lvim-utils.ui.rows"
 local util = require("lvim-utils.ui.util")
 local button = require("lvim-utils.ui.button")
 

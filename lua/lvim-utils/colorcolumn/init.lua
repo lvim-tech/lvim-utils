@@ -1,5 +1,4 @@
--- lua/lvim-utils/colorcolumn/init.lua
--- Keep 'colorcolumn' meaningful under 'wrap'.
+-- lvim-utils.colorcolumn: keep 'colorcolumn' meaningful under 'wrap'.
 --
 -- Neovim draws colorcolumn at a TEXT (virtual) column. With 'wrap' on and a window NARROWER than that column,
 -- the column cannot land on the first screen row — it falls onto a WRAPPED continuation row at screen col
@@ -29,6 +28,7 @@ local api = vim.api
 ---@field exclude_ft table<string, boolean>   Filetypes whose windows are forced to no colorcolumn
 ---@field applying   boolean                  True while WE write a window-local value (suppress our own OptionSet feedback)
 ---@field scheduled  boolean                  A coalesced refresh is already pending for this tick
+---@type ColorColumnState
 local state = {
     augroup = nil,
     enabled = true,

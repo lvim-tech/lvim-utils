@@ -1,6 +1,6 @@
--- lua/lvim-utils/config/highlight.lua
--- Highlight group definitions for lvim-utils UI components.
--- Returns a factory function so callers can re-evaluate with the current palette.
+-- lvim-utils.config.highlight: the highlight-group definitions for every lvim-utils UI component. Returns a
+-- FACTORY function (not a table) so callers can re-evaluate it against the CURRENT palette on a colorscheme
+-- change — the reason it lives here as `return function(c)` rather than a plain config table.
 --
 -- Style (the lvim-keys-helper convention, applied everywhere): the panel is a uniform
 -- `bg_dark`; every coloured chrome cell is its OWN accent blended toward that bg — a
@@ -8,8 +8,11 @@
 -- badges) and a LIGHT tint for the secondary ones (subtitles, inactive, stripes, labels,
 -- separators). List BODY rows stay fg-only — their selection is shown via CursorLine, so
 -- a tinted text span there would fight the cursorline. Tints are configurable via ui.tint.
+--
+---@module "lvim-utils.config.highlight"
 
 ---@param c? table  the live palette (passed by highlight.bind); falls back to a require
+---@return table<string, table>  map of highlight-group name → its highlight definition
 return function(c)
     -- Required inside the factory so each rebuild re-reads the live palette/blend helpers.
     c = c or require("lvim-utils.colors")

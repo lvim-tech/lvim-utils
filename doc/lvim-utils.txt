@@ -9,16 +9,22 @@ CONTENTS                                                        *lvim-utils*
   4. colors ................................. |lvim-utils-colors|
   5. highlight .............................. |lvim-utils-highlight|
   6. ui ..................................... |lvim-utils-ui|
-  7. notify ................................. |lvim-utils-notify|
-  8. cursor ................................. |lvim-utils-cursor|
-  9. gx ..................................... |lvim-utils-gx|
- 10. quit ................................... |lvim-utils-quit|
- 11. cmdline ................................ |lvim-utils-cmdline|
- 12. input .................................. |lvim-utils-input|
- 13. utils .................................. |lvim-utils-utils|
- 14. msgarea ................................ |lvim-utils-msgarea|
- 15. Highlight groups ....................... |lvim-utils-highlights|
- 16. Health ................................. |lvim-utils-health|
+  7. Runtime UI geometry .................... |lvim-utils-settings|
+  8. notify ................................. |lvim-utils-notify|
+  9. cursor ................................. |lvim-utils-cursor|
+ 10. colorcolumn ............................ |lvim-utils-colorcolumn|
+ 11. gx ..................................... |lvim-utils-gx|
+ 12. quit ................................... |lvim-utils-quit|
+ 13. cmdline ................................ |lvim-utils-cmdline|
+ 14. input .................................. |lvim-utils-input|
+ 15. utils .................................. |lvim-utils-utils|
+ 16. msgarea ................................ |lvim-utils-msgarea|
+ 17. fuzzy .................................. |lvim-utils-fuzzy|
+ 18. picker ................................. |lvim-utils-picker|
+ 19. chrome ................................. |lvim-utils-chrome|
+ 20. dashboard .............................. |lvim-utils-dashboard|
+ 21. Highlight groups ....................... |lvim-utils-highlights|
+ 22. Health ................................. |lvim-utils-health|
 
 ==============================================================================
 1. INTRODUCTION                                           *lvim-utils-intro*
@@ -29,8 +35,13 @@ lvim-utils is the shared foundation for the lvim-tech plugins. It provides:
   - a self-theming highlight engine (|lvim-utils-highlight|) every plugin uses to
     color its own UI from that palette while staying overwritable,
   - a floating popup toolkit (|lvim-utils-ui|): select, multiselect, input, tabs, info,
+  - a native fuzzy finder (|lvim-utils-picker|) and a shared fuzzy engine
+    (|lvim-utils-fuzzy|),
+  - the editor chrome (|lvim-utils-chrome|): statusline / winbar / tabline / statuscolumn,
+  - a declarative start dashboard (|lvim-utils-dashboard|),
   - a notification system (|lvim-utils-notify|) and a docked message/picker zone
-    (|lvim-utils-msgarea|), plus cursor, gx, quit, cmdline, input and misc helpers.
+    (|lvim-utils-msgarea|), plus cursor, colorcolumn, gx, quit, cmdline, input and misc
+    helpers.
 
 It has no hard dependency on lvim-colorscheme: absent it, the bundled muted palette
 is used and every group still renders.
@@ -38,17 +49,26 @@ is used and every group still renders.
 ==============================================================================
 2. SETUP                                                  *lvim-utils-setup*
 
-One `setup()` configures every module. All keys are optional.
+One `setup()` configures every module. All keys are optional. Each namespace is merged
+into its LIVE per-module config IN PLACE (via |lvim-utils-utils| `merge`), so a shorter
+override list replaces the default cleanly and every `require("lvim-utils.config").<mod>`
+reader sees the effective values.
 >lua
   require("lvim-utils").setup({
       colors = { red = "#ff5555" },   -- palette overrides (see |lvim-utils-colors|)
       highlights = {},                -- explicit highlight overrides (applied hard)
-      ui = {},                        -- popup config (see |lvim-utils-ui|)
+      ui = {},                        -- windowed-UI chassis (see |lvim-utils-ui|)
       cursor = { ft = { "neo-tree" } },
+      colorcolumn = { enabled = true }, -- wrap-aware colorcolumn (|lvim-utils-colorcolumn|)
       gx = {},
       notify = {},                    -- false to disable
       cmdline = { enable = true },    -- opt-in self-rendered cmdline
       input = {},                     -- vim.ui.input dispatcher; opt-in
+      msgarea = { enable = true },    -- docked message zone (|lvim-utils-msgarea|)
+      fuzzy = {},                     -- shared fuzzy engine (|lvim-utils-fuzzy|)
+      picker = {},                    -- the finder (|lvim-utils-picker|)
+      chrome = {},                    -- editor chrome (|lvim-utils-chrome|)
+      dashboard = { enable = true },  -- start dashboard (|lvim-utils-dashboard|)
   })
 <
 Order: palette overrides are applied first, then module configs, then the UI groups are
@@ -157,16 +177,16 @@ reference, `ui.new()` isolated instances, and popup positioning.
                                                        *lvim-utils-ui-frame*
 FRAME BORDER & TITLE ~
 
-Six `ui` config keys are the single source of truth for the windowed-UI "frame".
+Seven `ui` config keys are the single source of truth for the windowed-UI "frame".
 EVERY panel across all lvim-tech plugins (pickers, ui.tabs panels, lvim-lsp hover /
 diagnostic peeks, lvim-space, the control center, …) now resolves to them, so
 changing one key re-borders or re-titles the whole set on the next open.
 
   `border`         THE CONTAINER frame, a full 8-cell border { topleft, top, topright,
-                   right, botright, bot, botleft, left }. Default { "", " ", "", "", "",
-                   "", "", "" } — ONLY a top " " bar carrying the title + counter; no
-                   side/bottom ring (the group_border frames the panels). Set a full
-                   ring to box the whole container.
+                   right, botright, bot, botleft, left }. Default "none" — no outer frame;
+                   the title + counter live in a top CONTENT row (title_line = "row") and
+                   the panels are framed by group_border / divided by separator. Set a
+                   full ring to box the whole container.
   `content_border` THE per-panel ring — drawn around EACH DATA block INSIDE the container
                    (a picker's list + preview, the tabs content). Independent of `border`
                    and `group_border`. Default "none" (panels BORDERLESS): the group_border
@@ -183,6 +203,7 @@ changing one key re-borders or re-titles the whole set on the next open.
                    ("─") stacked (auto-oriented), `hl` the tint (default the border
                    tint). Drawn only at n-1 gaps, so a single-panel surface shows
                    none. `separator = false` disables it; a plain string = both axes.
+  `separator_hl`   Highlight group for the inter-panel divider (default LvimUiPeekBorder).
   `title_line`     "row" (default) | "border" | "statusline". Where a frame's TITLE
                    goes: a top CONTENT row drawn from column 0 (flush-left title,
                    flush-right counter), the native border-title (needs a top border,
@@ -265,7 +286,44 @@ severity filters. >lua
 <
 
 ==============================================================================
-7. NOTIFY                                                *lvim-utils-notify*
+7. RUNTIME UI GEOMETRY                                   *lvim-utils-settings*
+
+The shared surface geometry — `config.ui.size` — is runtime-configurable and persisted.
+Each layout has its own fraction of the available space (or "auto", fit-to-content up to
+`auto_max`):
+>lua
+  require("lvim-utils").setup({
+      ui = {
+          size = {
+              float  = { height = 0.8, width = 0.7 }, -- centred floats
+              area   = { height = 0.6 },              -- msgarea / cmdline dock (full-width)
+              bottom = { height = 0.4 },              -- a plain bottom dock (full-width)
+              auto_max = 0.85,                        -- cap for any "auto" dimension
+          },
+      },
+  })
+<
+Every consumer (pickers, ui.tabs, lvim-shell, lvim-space) reads this live via
+`require("lvim-utils.ui").size(layout)`, so a change re-sizes them all on the next open.
+
+                                                        *:LvimUtils*
+`:LvimUtils` opens a floating settings panel (an |lvim-utils-ui| `tabs`) that edits these
+values LIVE — a select row per dimension; changing one applies it into `config.ui.size`
+immediately and persists it via `lvim-utils.store`:
+
+  - standalone            a plain JSON file under stdpath("data")/lvim-utils/ (no sqlite).
+  - lvim-control-center   values flow through its sqlite backend; the setting names match
+                          control-center's, so its panel and `:LvimUtils` edit the SAME
+                          keys and never drift (the JSON store is migrated into the DB the
+                          first time the two cohabit).
+
+`lvim-utils.settings` holds the single spec list driving both panels (`settings.specs`,
+`settings.get`, `settings.set`, `settings.restore`, `settings.lcc_group`); `setup()` calls
+`settings.restore()` and registers `:LvimUtils` automatically. Neither the control-center
+nor sqlite is ever a hard dependency.
+
+==============================================================================
+8. NOTIFY                                                *lvim-utils-notify*
 
 Notification system with toast panels, a history pager, progress channels and pluggable
 printers.
@@ -280,7 +338,7 @@ toast persists while it keeps firing. See the README for progress channels, cust
 panels/printers and config.
 
 ==============================================================================
-8. CURSOR                                                *lvim-utils-cursor*
+9. CURSOR                                                *lvim-utils-cursor*
 
 Hides the hardware cursor based on the visible/current buffers' filetypes (via the
 `LvimUtilsHiddenCursor` group, blend=100). The ONE cursor system — the `ui` frame
@@ -290,48 +348,75 @@ engine delegates its cursor hiding here. Two lists:
 `mark_input_buffer(buf, true)` keeps the cursor VISIBLE in an input field.
 `mark_hide_buffer(buf, true)` HIDES the cursor while that buffer is the current
 window — by handle, for floats whose filetype is shared (e.g. a markdown hover)
-and so cannot be registered via `panel_ft`.
+and so cannot be registered via `panel_ft`. `hide_on_cmdline` (config) hides the
+hardware cursor while the command-line is active (the self-rendered cmdline draws
+its own caret).
 >lua
   require("lvim-utils.cursor").setup({
       ft = { "lvim-ui-frame", "neo-tree" },
       panel_ft = { "lvim-lsp-outline" },
+      hide_on_cmdline = false,
   })
 <
 ==============================================================================
-9. GX                                                        *lvim-utils-gx*
+10. COLORCOLUMN                                     *lvim-utils-colorcolumn*
+
+Keeps 'colorcolumn' meaningful under 'wrap'. Neovim draws colorcolumn at a TEXT column;
+with 'wrap' on in a window narrower than that column, the guide falls onto a wrapped
+continuation row as a stray highlighted cell near the left edge. This module drops, per
+window, the colorcolumn entries that would not fit while 'wrap' is on, and restores them
+once the window is wide enough (or 'wrap' is off). Opt-in.
+>lua
+  require("lvim-utils").setup({
+      colorcolumn = {
+          enabled = true,                       -- enabled = false sets up but stays inert
+          exclude_ft = { "neo-tree", "NvimTree" }, -- forced off on these filetypes
+      },
+  })
+<
+The DESIRED value is read from the GLOBAL 'colorcolumn' and only WINDOW-LOCAL values are
+written, so the source of truth is never clobbered.
+`require("lvim-utils.colorcolumn").refresh()` forces a coalesced re-apply across windows.
+
+==============================================================================
+11. GX                                                       *lvim-utils-gx*
 
 Open the URL / path / plugin spec under the cursor (a `gx` replacement).
 >lua
   require("lvim-utils.gx").setup()
 <
 ==============================================================================
-10. QUIT                                                    *lvim-utils-quit*
+12. QUIT                                                    *lvim-utils-quit*
 
 Confirm-to-quit flow used by the IDE layer.
 >lua
-  require("lvim-utils.quit").setup()
+  require("lvim-utils.quit").open()
 <
 ==============================================================================
-11. CMDLINE                                              *lvim-utils-cmdline*
+13. CMDLINE                                              *lvim-utils-cmdline*
 
 Opt-in self-rendered command line (ext_cmdline) with a floating prompt, themed from the
 palette. Enable via `setup({ cmdline = { enable = true } })`.
 
 ==============================================================================
-12. INPUT                                                  *lvim-utils-input*
+14. INPUT                                                  *lvim-utils-input*
 
 Routes |vim.ui.input| to the cmdline or a popup. Opt-in via `setup({ input = {...} })`.
 
 ==============================================================================
-13. UTILS                                                  *lvim-utils-utils*
+15. UTILS                                                  *lvim-utils-utils*
 
 Misc helpers (table merge, etc.) shared across plugins:
 >lua
   require("lvim-utils.utils").merge(a, b)  -- deep merge, arrays replaced
   require("lvim-utils.utils").match_indices(query, text)  -- 0-based matched char indices
 <
+`merge(target, opts)` deep-merges maps recursively but REPLACES lists / scalars wholesale
+(an override list IS the list), mutating `target` in place. Every plugin's setup() uses it
+to merge user options into its live config table.
+
 ==============================================================================
-14. MSGAREA                                              *lvim-utils-msgarea*
+16. MSGAREA                                              *lvim-utils-msgarea*
 
 A persistent, toggleable zone docked at the BOTTOM of the screen (a float over the
 `cmdheight` region, so a global statusline stays above it). It is a vertical stack of
@@ -384,33 +469,190 @@ scrolls. blink mirrors from the command line and is never focused, so the two ne
 INTEGRATIONS                                  *lvim-utils-msgarea-integrations*
 
 Per-source glue lives in `msgarea/integrations/<plugin>.lua` (an enable()/disable()
-module), gated by `setup({ msgarea = { integrations = { <plugin> = true } } })`. blink is
-the reference integration.
+module), gated by `setup({ msgarea = { integrations = { <plugin> = true } } })`. Two ship:
+`blink` (blink.cmp menu) and `native` (native cmdline completion) — symmetric alternatives.
 
 ==============================================================================
-15. HIGHLIGHT GROUPS                                  *lvim-utils-highlights*
+17. FUZZY                                                 *lvim-utils-fuzzy*
+
+The shared fuzzy MATCHING engine used by the |lvim-utils-picker| and the native
+command-line completion. `filter(texts, query, cb)` ranks a list of strings against a
+query — the `fzf` binary in `--filter` mode when present (async), a pure-Lua subsequence
+matcher otherwise — and calls `cb` with `{ idx, match }` entries (the source index + the
+matched-char positions for highlighting).
+
+Result ORDERING is configurable via `config.fuzzy.sort` and applies to EVERY consumer:
+>lua
+  require("lvim-utils").setup({
+      fuzzy = {
+          -- a preset name, a LIST of criteria (priority order — first decides, the rest
+          -- break ties), or a custom function(a, b) -> boolean comparator
+          sort = { "dirs_first", "score" },
+      },
+  })
+<
+Built-in criteria: `score` (best fuzzy match), `dirs_first`, `files_first`, `ext` (group
+by extension), `length`, `alpha`. The fuzzy rank is always the final tiebreak, so the
+order is deterministic. `config.fuzzy.max_results` caps how many ranked results are built.
+
+==============================================================================
+18. PICKER                                               *lvim-utils-picker*
+
+A native fuzzy finder built on the |lvim-utils-ui| surface chassis — a typed query, a
+results LIST and a scrollable PREVIEW — in any of the surface layouts. It has TWO render
+backends behind one chassis, picked by the nature of the data:
+
+  - fzf-TUI    the heavy, command-driven finders (files / grep / git_files / directories /
+              buffers): the real `fzf` binary runs as a TUI inside the list panel; the
+              producer (fd / rg) streams directly into it, so the list stays instant over
+              millions of files and Neovim never blocks. Needs `fzf` + `mkfifo`; falls
+              back to the tint list when missing. Toggle with `config.picker.fzf_tui`.
+  - tint list  the structured, in-memory finders (lsp locations, diagnostics, marks,
+              quickfix, …): a Lua-rendered tint-striped list; matching is the `fzf`
+              binary in --filter mode (a pure-Lua matcher when fzf is absent).
+
+>lua
+  require("lvim-utils.picker").open({
+      items = { "one", "two", "three" },      -- strings, or tables (with `format`)
+      title = "Pick",
+      on_confirm = function(item) vim.print(item) end,
+      preview = function(item) return { "preview of " .. tostring(item) } end,
+  })
+  require("lvim-utils.picker").files()        -- ready finder over cwd files
+<
+Layouts: `layout = "float"` (default) | "bottom" | "area". Preview side:
+`preview_side = "right"` (default) | "left" | "below" | "above". Ordering is the shared
+`config.fuzzy.sort` (|lvim-utils-fuzzy|).
+
+READY FINDERS ~
+
+  buffers, files, directories, grep (live ripgrep), oldfiles, help_tags, git_files,
+  colorschemes, commands, marks, keymaps, quickfix, jumplist.
+
+                                                        *:LvimPicker*
+Every ready finder is reachable from one command:
+>
+  :LvimPicker <finder> [layout]
+<
+`<finder>` is any ready finder name; the optional `[layout]` is float / bottom / area
+(overrides `config.picker.layout` for that call). Both arguments tab-complete.
+`require("lvim-utils.picker").setup_command()` (called by the top-level setup) registers it.
+
+Query keys (insert mode): type to filter, <C-j>/<Down> and <C-k>/<Up> move the selection,
+<C-d>/<C-u> scroll the preview, <CR> confirms, <Esc>/<C-c> cancels.
+
+==============================================================================
+19. CHROME                                               *lvim-utils-chrome*
+
+The editor chrome family — statusline, winbar, tabline and statuscolumn — plus a folded
+transient finder/echo overlay. One `setup()` registers all four as `%!`-evaluated
+expressions, self-themes the `LvimUiChrome*` groups from the live palette, starts a shared
+git poller, and installs the redraw + per-window autocmds. Like the dashboard it ships the
+ENGINE only — there are NO predefined segments (unlike heirline): you define every segment
+in your config, composed from the helper modules.
+>lua
+  require("lvim-utils").setup({
+      chrome = {
+          statusline   = { enabled = true, segments = { … } },
+          winbar       = { enabled = true, segments = function() return { … } end },
+          tabline      = { enabled = true, showtabline = 2, segments = { … } },
+          statuscolumn = { enabled = true, segments = { … } },
+          overlay      = { enabled = true }, -- finder/echo model on the statusline
+          git          = { poll_ms = 1000 }, -- .git/HEAD fs_poll interval
+      },
+  })
+<
+`chrome = false` disables the whole family; each component is independently toggleable. A
+`segments` value is a LIST of specs, OR a FUNCTION returning one (resolved lazily at render
+time). Each spec:
+>lua
+  { name, content = function(ctx) return "…" end, hl?, when?, events?, click?, buf?, align? }
+<
+Compose segments from the helper modules:
+  lvim-utils.chrome.parts     seg / icons / devicon / unique_name / excluded + M.cfg()
+  lvim-utils.chrome.utils     small formatting helpers
+  lvim-utils.chrome.git       the shared git poller (branch + diff counts)
+  lvim-utils.chrome.gutter    statuscolumn cells: signs / diag_icon / mark_letter
+  lvim-utils.chrome.engine    the renderer + click_region(key, fn, text)
+  lvim-utils.chrome.overlay   the transient finder/echo status model
+
+Each component carries its OWN `exclude = { buftype, filetype }` blacklist (the start
+dashboard, tool panels, terminals, … get no chrome). All glyphs are configurable
+single-width Nerd-font codepoints under `chrome.icons`. See config/chrome.lua for the full
+schema. The `LvimUiChrome*` groups self-theme from the palette (|lvim-utils-highlights|).
+
+==============================================================================
+20. DASHBOARD                                         *lvim-utils-dashboard*
+
+A declarative, section-based start dashboard (greeter) — the snacks.nvim dashboard model,
+reimplemented on the lvim-utils stack. Like the chrome components it ships the ENGINE only;
+the CONTENT (banner, menu, layout) is yours. Opt-in; with `auto_open` (default on) it
+replaces the blank start buffer when Neovim is launched with no file.
+>lua
+  require("lvim-utils").setup({
+      dashboard = {
+          enable = true,
+          preset = {
+              header = "  L V I M",
+              keys = {
+                  { icon = "󰈞 ", key = "f", desc = "Find File", action = ":LvimDashboard pick files" },
+                  { icon = "󰗼 ", key = "q", desc = "Quit", action = ":qa" },
+              },
+          },
+          sections = {
+              { section = "header" },
+              { section = "keys", gap = 1, padding = 1 },
+              { pane = 2, icon = " ", title = "Recent Files", section = "recent_files", indent = 2 },
+              { section = "startup" },
+          },
+      },
+  })
+<
+A `sections` list (top to bottom) drives it — each entry an item TABLE, a generator
+`function(self)`, or `{ section = "<built-in>" }`. Built-in sections: `header`, `keys`,
+`recent_files`, `projects`, `startup`, `session`. `pane = N` lays sections out in
+side-by-side columns.
+
+                                                        *:LvimDashboard*
+`:LvimDashboard` opens it; `:LvimDashboard pick <source>` opens a finder via
+|lvim-utils-picker|. Keys: j/k (or ↓/↑) step between clickable rows, h/l (or ←/→) move
+between panes, <CR> runs the row, each item's shortcut runs it directly, q closes.
+
+==============================================================================
+21. HIGHLIGHT GROUPS                                  *lvim-utils-highlights*
 
 All groups are self-themed from the palette via |lvim-utils-highlight| `bind` and applied
 with `default = true` (overwritable). Prefixes:
 
   LvimUi*        Popup chrome: Normal, Border, Separator, Title, Subtitle, Info,
                  Tab*, Button*, Row*, Item*, Checkbox*, Input, Footer*, Spacer,
-                 CursorLine, the cmdline pager groups (LvimUiMsg*), and the message
-                 zone groups (LvimUiMsgArea*: Normal/Title/Row*/Sel*/Match/Item*).
+                 CursorLine, the Peek* navigator groups, the cmdline pager groups
+                 (LvimUiMsg*), and the message zone groups (LvimUiMsgArea*).
+  LvimUiChrome*  Editor chrome: accent fg segments (Blue/Green/Orange/Cyan/Red/Purple/
+                 Yellow), Fill, mode pills (Mode{N,I,V,C,R,T}), Git{Add,Change,Delete},
+                 Diag{Error,Warn,Info,Hint}, Tab{Logo,Active,Inactive,Workspace,Project},
+                 and Mark (the statuscolumn mark letter).
   LvimNotify*    Notification panels: Normal, Title, Info/Warn/Error/Debug and their
                  Title*/Header*/Sep* variants.
+  LvimUtilsHiddenCursor   The transparent cursor (|lvim-utils-cursor|).
 
 Override any group explicitly with `setup({ highlights = { GroupName = {...} } })`.
 
 ==============================================================================
-16. HEALTH                                                *lvim-utils-health*
+22. HEALTH                                                *lvim-utils-health*
 
 >
     :checkhealth lvim-utils
 <
-Reports Neovim version, 'termguicolors', whether lvim-colorscheme is driving the palette
-(vs the bundled one), whether the UI groups are themed, and ext_cmdline conflicts when the
-self-rendered cmdline is enabled.
+Reports:
+  - Neovim version and 'termguicolors'.
+  - whether lvim-colorscheme is driving the palette (vs the bundled one) and whether the
+    UI groups are themed.
+  - ext_cmdline conflicts (e.g. noice.nvim) when the self-rendered cmdline is enabled.
+  - the |lvim-utils-msgarea| zone: enabled / unified state, active integrations, segments.
+  - the |lvim-utils-picker| backends: the file-listing engine (fd / fdfind / rg / find),
+    ripgrep for grep, and the fzf-TUI backend (fzf + mkfifo) for the heavy finders.
+  - delegates to the |lvim-utils-dashboard| health() when present.
 
 ==============================================================================
 vim:tw=78:ts=8:noet:ft=help:norl:

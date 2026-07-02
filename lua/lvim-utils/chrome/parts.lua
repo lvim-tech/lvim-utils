@@ -9,6 +9,7 @@
 ---@module "lvim-utils.chrome.parts"
 
 local api = vim.api
+local config = require("lvim-utils.config")
 
 local M = {}
 
@@ -104,7 +105,7 @@ end
 --- The live chrome config.
 ---@return table
 function M.cfg()
-    return require("lvim-utils.config").chrome
+    return config.chrome
 end
 
 --- The live chrome icon set.

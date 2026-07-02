@@ -1,4 +1,4 @@
--- lua/lvim-utils/picker/fzf.lua
+-- lvim-utils.picker.fzf: the fzf-TUI finder backend (the real fzf binary hosted in the surface chassis).
 -- The fzf-TUI finder backend — the SAME surface chassis as the tint picker (picker/init.lua), but the LIST is
 -- the real `fzf` binary running as a TUI inside a terminal panel, the way fzf-lua does it. This is the only
 -- way to match fzf-lua's productivity over huge candidate sets (e.g. ~/, 1.6M files): fzf (C) owns parsing,
@@ -19,6 +19,11 @@
 
 local api = vim.api
 local uv = vim.uv or vim.loop
+local config = require("lvim-utils.config")
+local colors = require("lvim-utils.colors")
+local highlight = require("lvim-utils.highlight")
+local cursor = require("lvim-utils.cursor")
+local surface = require("lvim-utils.ui.surface")
 local source = require("lvim-utils.picker.source")
 local status = require("lvim-utils.chrome.overlay")
 local preview = require("lvim-utils.ui.preview")
@@ -56,7 +61,7 @@ end
 --- The configured highlight-group NAMES for the input field (`config.picker.hl.input` / `.prompt`).
 ---@return string input_group, string prompt_group
 local function input_groups()
-    local phl = (require("lvim-utils.config").picker or {}).hl or {}
+    local phl = (config.picker or {}).hl or {}
     return phl.input or "LvimUiPickerInput", phl.prompt or "LvimUiPickerPrompt"
 end
 
@@ -64,8 +69,8 @@ end
 --- configurable + consistent with the tint finder; the rest tracks the live palette. Recomputed per open.
 ---@return string
 local function fzf_colors()
-    local c = require("lvim-utils.colors")
-    local blend = require("lvim-utils.highlight").blend
+    local c = colors
+    local blend = highlight.blend
     local sel_bg = blend(c.blue, c.bg, 0.20) -- the active (current) row: a blue tint 0.2, full-width (--highlight-line)
     -- The diagnostics finder's two-tone search, kept to ONE row: a STRONG-tint badge box (done in fzf_prompt
     -- via ANSI) + a LIGHT-tint typed FIELD (`input-bg`). fzf only paints `input-bg` on a BORDERED input
@@ -109,9 +114,9 @@ end
 --- runs on the light `input-bg` field (see fzf_colors). Ends with `input_gap` spaces on that field.
 ---@return string
 local function fzf_prompt()
-    local c = require("lvim-utils.colors")
-    local blend = require("lvim-utils.highlight").blend
-    local pcfg = (require("lvim-utils.config").picker or {}).prompt or {}
+    local c = colors
+    local blend = highlight.blend
+    local pcfg = (config.picker or {}).prompt or {}
     local sp = string.rep
     local icon, label = pcfg.icon or "", pcfg.label or ""
     local badge = sp(" ", pcfg.pad_left or 1)
@@ -263,16 +268,13 @@ end
 ---@param opts LvimFzfOpts
 function M.open(opts)
     opts = opts or {}
-    opts.layout = opts.layout or (require("lvim-utils.config").picker or {}).layout or "area"
+    opts.layout = opts.layout or (config.picker or {}).layout or "area"
     -- Close whatever finder is open (EITHER backend, via the shared registry) so this one replaces it in
     -- place — its docked area is released first, instead of a new finder stacking above the old one.
     source.close_active()
 
-    local surface = require("lvim-utils.ui.surface")
     local maxr = opts.max_rows or 15
-    local empty_preview = opts.empty_preview
-        or (require("lvim-utils.config").picker or {}).empty_preview
-        or "Nothing to preview"
+    local empty_preview = opts.empty_preview or (config.picker or {}).empty_preview or "Nothing to preview"
     local opener = api.nvim_get_current_win()
     local parse = opts.parse
         or function(line)
@@ -395,7 +397,7 @@ function M.open(opts)
     -- normal-mode map on the SAME key returns. RETURN: focus the fzf terminal → its WinEnter autocmd
     -- re-enters terminal-mode (back in fzf, exactly where you left it) and clears the parked state + map.
     -- ── keys (ALL configurable, config.picker.keys) ──
-    local kcfg = (require("lvim-utils.config").picker or {}).keys or {}
+    local kcfg = (config.picker or {}).keys or {}
     --- A config key value (a single key, a list, or ""/{}) → a flat list of vim-notation keys.
     ---@param v string|string[]|nil
     ---@return string[]
@@ -625,7 +627,7 @@ function M.open(opts)
             "--no-scrollbar", -- no scrollbar column (the thin `▌` bar down the left/right of the list)
             "--highlight-line", -- the active row's tint covers the WHOLE row, not just the text
             "--multi", -- Tab marks/unmarks rows (multi-select); the mark dot shows in the blank front column
-            "--marker=" .. ((require("lvim-utils.config").picker or {}).marker or "●"),
+            "--marker=" .. ((config.picker or {}).marker or "●"),
             "--prompt=" .. fzf_prompt(),
             "--pointer=", -- no active-row arrow (the row is shown by --highlight-line); also shifts the item
             -- text one column left so it starts directly UNDER the prompt's search glyph
@@ -796,7 +798,7 @@ function M.open(opts)
         vim.bo[tbuf].filetype = "lvim-picker-fzf"
         -- the fzf INPUT caret (config.picker.caret), through the cursor module so it coexists with
         -- cursor-hiding instead of being clobbered by it. The query text colour is the input group's fg.
-        pcall(require("lvim-utils.cursor").mark_cursor_buffer, tbuf, source.caret_fragment("t"))
+        pcall(cursor.mark_cursor_buffer, tbuf, source.caret_fragment("t"))
         strip_chrome() -- after termopen + filetype, so the TermOpen/FileType chrome is overwritten, not us
         vim.schedule(strip_chrome) -- and once more next tick, beating any deferred chrome the user applies
         -- Keep the terminal in TERMINAL-mode whenever its window is entered, so fzf always receives the
@@ -842,10 +844,9 @@ function M.open(opts)
                 pcall(vim.fn.chansend, state.term_chan, keys)
             end
         end
-        local curmod = require("lvim-utils.cursor")
         local function to_insert()
             state.normal = false
-            pcall(curmod.mark_hide_buffer, tbuf, false) -- restore the input caret (terminal mode shows it again)
+            pcall(cursor.mark_hide_buffer, tbuf, false) -- restore the input caret (terminal mode shows it again)
             vim.cmd("startinsert")
         end
         vim.keymap.set("t", "<Esc>", function()
@@ -853,7 +854,7 @@ function M.open(opts)
             -- NORMAL mode on the list: the REAL focus is fzf's own selection (down in the list), so HIDE the
             -- hardware cursor — otherwise it lingers on the (now-inactive) prompt row, visible and movable. The
             -- caret returns on `i`/`a` (to_insert). Horizontal motion is also disabled below so it can't wander.
-            pcall(curmod.mark_hide_buffer, tbuf, true)
+            pcall(cursor.mark_hide_buffer, tbuf, true)
             -- LEAVE terminal-mode (stopinsert does NOT exit it) → NORMAL on the terminal buffer; fzf keeps running
             vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-\\><C-n>", true, false, true), "n", false)
         end, kopts)
@@ -1121,9 +1122,7 @@ function M.open(opts)
         size = size,
         -- so the surface can rotate the preview (C-n/C-p) + switch the dock height per stack direction
         preview_side = preview_provider and (opts.preview_side or "right") or nil,
-        preview_heights = preview_provider
-                and (opts.preview_heights or (require("lvim-utils.config").picker or {}).preview_heights)
-            or nil,
+        preview_heights = preview_provider and (opts.preview_heights or (config.picker or {}).preview_heights) or nil,
         -- No CONTENT title row — the title + counter are the chassis border-title / border-counter now; the
         -- fzf terminal panel IS the prompt, so there are no header bands.
         content = { blocks = blocks },
@@ -1133,7 +1132,7 @@ function M.open(opts)
             state.closed = true
             clear_park_map() -- drop the transient return-map if the finder closed while parked
             if state.term_buf then -- drop the custom input caret registration (the cursor module restores normal)
-                pcall(require("lvim-utils.cursor").mark_cursor_buffer, state.term_buf, nil)
+                pcall(cursor.mark_cursor_buffer, state.term_buf, nil)
             end
             if state.term_augroup then
                 pcall(api.nvim_del_augroup_by_id, state.term_augroup)
