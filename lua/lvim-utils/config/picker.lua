@@ -156,7 +156,6 @@ return {
         prompt = "LvimUiPickerPrompt", -- the icon + label badge (default: blue tint 0.3, bold)
         input = "LvimUiPickerInput", -- the typed-text area (default: blue tint 0.1)
         marker = "LvimUiPickerMarker", -- the multi-select mark dot (default: red)
-        separator = "LvimUiPickerSeparator", -- the list↔preview divider (default: a muted grey)
         -- list rows (tint canon — odd blue / even yellow stripes, the selected row a STRONG tint)
         row_odd = "LvimUiMsgAreaRowOdd",
         row_even = "LvimUiMsgAreaRowEven",
