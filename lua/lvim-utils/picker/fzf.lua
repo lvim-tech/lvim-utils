@@ -818,6 +818,31 @@ function M.open(opts)
                 end
             end,
         })
+        -- Leaving the fzf terminal for a window OUTSIDE the picker (a raw window switch to the editor — e.g. the
+        -- user's own <C-w>k, which bypasses the picker's park) ENDS the normal-mode-on-list state: the user has
+        -- left the finder, so returning (<C-w>j / any refocus) should resume the INPUT with its caret, not drop
+        -- back into the cursor-hidden normal overlay. An INTERNAL hop to the preview panel is not a leave.
+        api.nvim_create_autocmd("WinLeave", {
+            group = state.term_augroup,
+            buffer = tbuf,
+            callback = function()
+                if not state.normal then
+                    return
+                end
+                vim.schedule(function()
+                    if state.closed then
+                        return
+                    end
+                    local cur = api.nvim_get_current_win()
+                    local inside = (state.list_pan and state.list_pan.win == cur)
+                        or (state.preview_pan and state.preview_pan.win == cur)
+                    if not inside then
+                        state.normal = false
+                        pcall(cursor.mark_hide_buffer, tbuf, false) -- re-arm the input caret for the return
+                    end
+                end)
+            end,
+        })
         local kopts = { buffer = tbuf, nowait = true, silent = true }
         -- park: leave fzf's input for the editor, keeping the finder open (terminal-mode, not passed to fzf)
         if park_key ~= "" then
@@ -939,6 +964,9 @@ function M.open(opts)
             "<C-y>",
             "<PageDown>",
             "<PageUp>",
+            -- the JUMPLIST would load a previous location's buffer INTO the fzf list window (emptying the panel /
+            -- showing a stray file), so block it in normal mode. (<C-i>/<Tab> is left alone — it is the fzf mark key.)
+            "<C-o>",
             "gg",
             "G",
             "H",
