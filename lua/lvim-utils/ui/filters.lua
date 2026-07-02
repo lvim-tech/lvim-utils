@@ -3,8 +3,11 @@
 -- plugins is identical: one button per option, a `●` separator between GROUPS, a live count, the bracketed
 -- hotkey, the active highlight, and the canonical 4-state button styling (normal/active/hover/hover_active).
 --
--- The consumer owns the SEMANTICS (what a filter does, how its count is computed) and passes them in; this
--- module owns only the LOOK + the spec construction. See `.claude/how-build-panels.md` §5.
+-- The BUTTON STYLE (bracketed accelerator, not a key badge) comes from the shared `surface.STYLES.hotkey`, so the
+-- style FLAGS are defined in ONE place for every bar (action `surface.bar` + these filters); only the COLOURS
+-- (the LvimUiPeekFilter* accents + per-button `hl`) live here. The consumer owns the SEMANTICS (what a filter
+-- does, how its count is computed) and passes them in; this module owns the LOOK + the spec construction. See
+-- `.claude/how-build-panels.md` §5.
 --
 ---@module "lvim-utils.ui.filters"
 
@@ -24,9 +27,19 @@ local M = {}
 ---@field active  string                -- the active button id in this group
 ---@field buttons LvimUiFilterButton[]
 
+---@class LvimUiFilterAccents
+---@field active?   string   -- default active colour (LvimUiPeekFilterActive)
+---@field inactive? string   -- default inactive colour (LvimUiPeekFilterInactive)
+---@field sep?      string   -- the `●` divider colour (LvimUiPeekFilterSep)
+
+---@class LvimUiFilterOpts
+---@field count?     fun(group: LvimUiFilterGroup, btn: LvimUiFilterButton): integer?
+---@field on_select? fun(gi: integer, id: string)
+---@field accents?   LvimUiFilterAccents
+
 --- Build the filter band from the groups.
 ---@param filters LvimUiFilterGroup[]
----@param opts { count?: fun(group: LvimUiFilterGroup, btn: LvimUiFilterButton): integer?, on_select?: fun(gi: integer, id: string), accents?: { active?: string, inactive?: string, sep?: string } }
+---@param opts LvimUiFilterOpts
 ---@return { band: table, sync: fun() }  -- band = { items, align="center" }; sync() re-evaluates the active flags
 function M.bar(filters, opts)
     opts = opts or {}
@@ -34,6 +47,10 @@ function M.bar(filters, opts)
     local def_active = A.active or "LvimUiPeekFilterActive"
     local def_inactive = A.inactive or "LvimUiPeekFilterInactive"
     local sep_hl = A.sep or "LvimUiPeekFilterSep"
+    -- The bracketed-accelerator STYLE FLAGS come from the shared `surface.STYLES.hotkey` (one source of styles for
+    -- every bar); the COLOURS below stay consumer-owned (per-button `hl`/`hl_active`, defaults as fallback).
+    local ok_s, surface = pcall(require, "lvim-utils.ui.surface")
+    local hotkey = (ok_s and surface.STYLES and surface.STYLES.hotkey) or { key_badge = false, key_brackets = true }
 
     local specs = {}
     for gi, g in ipairs(filters or {}) do
@@ -49,6 +66,8 @@ function M.bar(filters, opts)
                 type = "button",
                 text = b.label,
                 key = b.key, -- brackets the hotkey letter in the accent colour
+                key_badge = hotkey.key_badge, -- shared style flag (false → bracket the letter, not a badge)
+                key_brackets = hotkey.key_brackets, -- shared style flag (true → the `[ ]` brackets)
                 _gi = gi, -- so sync() can re-evaluate `active` after a toggle
                 _id = b.id,
                 count = opts.count and function()

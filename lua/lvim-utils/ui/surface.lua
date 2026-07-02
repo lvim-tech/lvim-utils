@@ -160,7 +160,7 @@ end
 
 -- ─── config normalisation ─────────────────────────────────────────────────────
 
---- Default style for a footer action button: a blue key BADGE + a yellow name, padded 1 each side.
+--- Default box style for a key-BADGE footer button: a blue key badge + a yellow name, padded 1 each side.
 local FOOTER_STYLE = {
     icon = {
         padding = { 1, 1 },
@@ -175,6 +175,131 @@ local FOOTER_STYLE = {
         hover = "LvimUiFooterLabelHover",
     },
 }
+
+--- Predefined BUTTON KINDS (extensible) — each a structural button TYPE: its ui.button render FLAGS
+--- (`key_badge` / `key_brackets` / `icon`) PLUS its DEFAULT box `hl` (per-state colours). A bar record picks a
+--- kind by name (its `style` field, the 4th element); the record's own `hl` (a partial box style, the 5th
+--- element) OVERRIDES the kind's default colours per-button, falling back to the kind default when absent. The
+--- KIND is the SHAPE; `hl` is the COLOUR — kept separate. Add an entry to introduce a new button TYPE.
+---   action — the whole key as a lead BADGE (`<CR> open`; footer action bars)
+---   hotkey — the accelerator letter bracketed WITHIN the name (`W[o]rkspace`; scope / severity filters)
+---   tab    — an icon + label TAB button (ui.tabs / project tabs)
+---   plain  — name only, no key
+M.STYLES = {
+    action = { key_badge = true, hl = FOOTER_STYLE },
+    hotkey = {
+        key_badge = false,
+        key_brackets = true,
+        hl = {
+            icon = {
+                padding = { 0, 0 },
+                normal = "LvimUiPeekFilterActive",
+                active = "LvimUiPeekFilterActive",
+                hover = "LvimUiPeekFilterActive",
+            },
+            text = {
+                padding = { 1, 1 },
+                normal = "LvimUiPeekFilterInactive",
+                active = "LvimUiPeekFilterActive",
+                hover = "LvimUiPeekFilterActive",
+            },
+        },
+    },
+    tab = {
+        key_badge = false,
+        icon = true,
+        hl = {
+            icon = {
+                padding = { 1, 1 },
+                normal = "LvimUiTabIconInactive",
+                active = "LvimUiTabIconActive",
+                hover = "LvimUiTabIconHover",
+            },
+            text = {
+                padding = { 1, 1 },
+                normal = "LvimUiTabTextInactive",
+                active = "LvimUiTabTextActive",
+                hover = "LvimUiTabTextHover",
+            },
+        },
+    },
+    plain = {
+        key_badge = false,
+        hl = {
+            text = {
+                padding = { 1, 1 },
+                normal = "LvimUiFooterLabel",
+                active = "LvimUiFooterLabel",
+                hover = "LvimUiFooterLabelHover",
+            },
+        },
+    },
+}
+
+--- Build ONE bar band from a DECLARATIVE spec — a list of GROUPS, each a list of action IDs — for `opts.mode`.
+--- Each id resolves to a RECORD: first from `registry` (the consumer's OWN actions), else the chassis CORE
+--- (`M.core_footer_item`). A record is `{ name, key?|n?|i?, action?, style?, run?, active?, key_pos?, hl?,
+--- no_hotkey? }`: `key` = one label for both modes, `n`/`i` = per-mode; `style` names an `M.STYLES` entry
+--- (default `opts.style` or "action"); `hl` overrides the box colours; `key_pos` = which name char to bracket
+--- (hotkey style); `active` marks the live toggle. Records with no usable key/name in the mode are dropped; a
+--- `opts.separator` item (hl `LvimUiFooterSep`) divides non-empty groups. Returns a ui.bar band `{ items, align }`
+--- — PLACE it in a frame's `header`/`footer` (`{ bars = { surface.bar(...), … } }`). The button LIST lives in the
+--- CONSUMER's config; only the {key,name,action,style} records + the STYLES are shared. One bar concept, any
+--- position, any buttons/style.
+---@param groups string[][]
+---@param registry table<string, table>
+---@param opts { mode?: string, separator?: string, align?: string, style?: string }
+---@return table  a ui.bar band { items, align }
+function M.bar(groups, registry, opts)
+    opts = opts or {}
+    local n = opts.mode == "n"
+    local sep = opts.separator or "●"
+    local default_style = opts.style or "action"
+    registry = registry or {}
+    local items = {}
+    for _, group in ipairs(groups or {}) do
+        local resolved = {}
+        for _, id in ipairs(group) do
+            local rec = registry[id] or M.core_footer_item(id) -- consumer-own else chassis CORE
+            if rec then
+                local key = rec.key or (n and rec.n or rec.i)
+                if (type(key) == "string" and key ~= "") or (rec.name and rec.name ~= "") then
+                    local s = M.STYLES[rec.style or default_style] or M.STYLES.action
+                    -- KIND default colours (s.hl), overridden per-button by the record's own partial box `hl`.
+                    -- DEEP-COPY always: every produced spec owns its style, so calling M.bar twice (two bars in one
+                    -- place) yields fully INDEPENDENT instances — no shared mutable table across bars/buttons.
+                    local box = vim.deepcopy(s.hl or FOOTER_STYLE)
+                    if rec.hl then
+                        box = vim.tbl_deep_extend("force", box, rec.hl)
+                    end
+                    resolved[#resolved + 1] = {
+                        type = "button",
+                        key = key,
+                        key_badge = s.key_badge,
+                        key_brackets = s.key_brackets,
+                        key_pos = rec.key_pos,
+                        icon = rec.icon, -- lead glyph for the `tab` kind (icon + label)
+                        text = rec.name,
+                        run = rec.run,
+                        active = rec.active,
+                        no_hotkey = rec.no_hotkey,
+                        style = box,
+                    }
+                end
+            end
+        end
+        if #resolved > 0 then
+            if #items > 0 then
+                items[#items + 1] =
+                    { type = "separator", text = sep, style = { padding = { 1, 1 }, hl = "LvimUiFooterSep" } }
+            end
+            for _, it in ipairs(resolved) do
+                items[#items + 1] = it
+            end
+        end
+    end
+    return { items = items, align = opts.align }
+end
 
 --- Normalise a bar's `items` into button/separator specs. A FOOTER action shorthand `{ key, name|text,
 --- run }` (no `type`) becomes a footer-styled key-badge button; everything else (full button / separator

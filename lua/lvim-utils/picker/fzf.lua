@@ -1249,37 +1249,9 @@ function M.open(opts)
     ---@param mode string  "n" (normal-on-list) | "i" (insert/terminal query)
     ---@return table  a `{ bars = { { items } } }` footer resolved from `config.picker.footer[normal|insert]`
     footer_bands = function(mode)
-        local n = mode == "n"
         local spec = (config.picker or {}).footer or {}
-        local groups = (n and spec.normal or spec.insert) or {}
-        local items = {}
-        for _, group in ipairs(groups) do
-            local resolved = {}
-            for _, id in ipairs(group) do
-                local e, key = REG[id], nil
-                if e then
-                    key = e.key or (n and e.n or e.i) -- picker-own id (per-mode)
-                else
-                    local ci = surface.core_footer_item(id) -- CORE id (from the chassis)
-                    if ci then
-                        e, key = ci, ci.key
-                    end
-                end
-                if e and type(key) == "string" and key ~= "" then
-                    resolved[#resolved + 1] = { key = key, name = e.name }
-                end
-            end
-            if #resolved > 0 then
-                if #items > 0 then -- `●` divider between non-empty groups
-                    items[#items + 1] =
-                        { type = "separator", text = sep_glyph, style = { padding = { 1, 1 }, hl = "LvimUiFooterSep" } }
-                end
-                for _, it in ipairs(resolved) do
-                    items[#items + 1] = it
-                end
-            end
-        end
-        return { bars = { { items = items } } }
+        local groups = (mode == "n" and spec.normal or spec.insert) or {}
+        return { bars = { surface.bar(groups, REG, { mode = mode, separator = sep_glyph }) } }
     end
 
     local host = msgarea
