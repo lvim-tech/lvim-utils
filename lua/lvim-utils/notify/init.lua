@@ -259,7 +259,20 @@ local function _rebuild_panel(level, win_w)
 
     api.nvim_buf_clear_namespace(buf, NS, 0, -1)
 
-    api.nvim_buf_set_extmark(buf, NS, 0, 0, {
+    -- Set an extmark, CLAMPING its byte columns to the target line's actual length. `nvim_buf_set_extmark`
+    -- errors ("col_end out of range") if `end_col` (or `col`) runs past the line — which can happen when a
+    -- mark's byte column was computed against pre-padding / multibyte text or a shorter-than-expected line. The
+    -- clamp is the root-cause guard so a progress-channel redraw never throws.
+    ---@param row integer  0-based line
+    ---@param col integer  0-based start byte column
+    ---@param o table      extmark opts (with `end_col`)
+    local function set_col_mark(row, col, o)
+        local len = #(all_lines[row + 1] or "")
+        o.end_col = math.min(o.end_col or len, len)
+        api.nvim_buf_set_extmark(buf, NS, row, math.min(col, len), o)
+    end
+
+    set_col_mark(0, 0, {
         end_col = #hdr,
         hl_group = header_hl,
         hl_eol = true,
@@ -280,7 +293,7 @@ local function _rebuild_panel(level, win_w)
     end
 
     for _, r in ipairs(sep_rows) do
-        api.nvim_buf_set_extmark(buf, NS, r, 0, {
+        set_col_mark(r, 0, {
             end_col = #sep,
             hl_group = sep_hl,
             hl_eol = true,
@@ -289,7 +302,7 @@ local function _rebuild_panel(level, win_w)
     end
 
     for _, m in ipairs(col_marks) do
-        api.nvim_buf_set_extmark(buf, NS, m[1], m[2], {
+        set_col_mark(m[1], m[2], {
             end_col = m[3],
             hl_group = m[4],
             priority = 150,

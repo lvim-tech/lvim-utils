@@ -1202,25 +1202,48 @@ end
 --- Create an independent UI instance with its own config overrides.
 --- Useful when multiple plugins share lvim-utils but need different colours/icons.
 ---
----@param instance_cfg table  Any subset of the ui config + highlights table.
----   highlights = { LvimUiTitle = { fg = "#..." }, ... }  -- per-instance hl overrides
----   icons      = { bool_on = "X", ... }                  -- per-instance icons
----   keys       = { ... }                                  -- per-instance keymaps
----   labels     = { ... }                                  -- per-instance labels
+---@param instance_cfg? table  Any subset of the per-open opts + a `highlights` table:
+---   highlights = { LvimUiTitle = { fg = "#..." }, ... }  -- per-instance hl overrides (named groups)
+---   border/title_pos/position/close_keys/filetype/markview/footer_hints/layout/…  -- per-open DEFAULTS
+--- The `highlights` are registered once here; everything ELSE is merged UNDER each presenter's per-call opts
+--- (the caller's opts win) so the instance's frames carry its overrides instead of the raw module defaults.
+--- NOTE: SIZE is NOT taken from here — it comes from the shared `config.ui.size` (via `ui.size`); pass an
+--- explicit per-call `width`/`height` on the individual opts if a frame must deviate.
 ---@return { select: fun(opts: table), multiselect: fun(opts: table),
----          input: fun(opts: table), tabs: fun(opts: table),
+---          input: fun(opts: table), confirm: fun(opts: table), tabs: fun(opts: table),
 ---          info: fun(content: any, opts: table): integer, integer }
 function M.new(instance_cfg)
-    local _ = instance_cfg -- reserved: per-instance colour/icon overrides are a follow-up
-    -- Every presenter is now the shared frame-based one, so an instance is a thin namespace over the
-    -- module functions (kept for API compatibility — e.g. lvim-lsp calls `ui.new(cfg).tabs(...)`).
+    instance_cfg = instance_cfg or {}
+    -- Per-instance highlight overrides apply immediately — lvim-utils highlights are named groups.
+    if type(instance_cfg.highlights) == "table" then
+        pcall(function()
+            require("lvim-utils.highlight").register(instance_cfg.highlights, true)
+        end)
+    end
+    -- The rest becomes per-open DEFAULTS merged under each opts (opts wins, via tbl_deep_extend "keep").
+    local defaults = {}
+    for k, v in pairs(instance_cfg) do
+        if k ~= "highlights" then
+            defaults[k] = v
+        end
+    end
+    --- Wrap a presenter so the instance defaults fill in any opts the caller left unset.
+    ---@param fn fun(opts: table): any
+    ---@return fun(opts?: table): any
+    local function bind(fn)
+        return function(opts)
+            return fn(vim.tbl_deep_extend("keep", opts or {}, defaults))
+        end
+    end
     return {
-        select = M.select,
-        multiselect = M.multiselect,
-        input = M.input,
-        confirm = M.confirm,
-        tabs = M.tabs,
-        info = M.info,
+        select = bind(M.select),
+        multiselect = bind(M.multiselect),
+        input = bind(M.input),
+        confirm = bind(M.confirm),
+        tabs = bind(M.tabs),
+        info = function(content, opts)
+            return M.info(content, vim.tbl_deep_extend("keep", opts or {}, defaults))
+        end,
     }
 end
 
