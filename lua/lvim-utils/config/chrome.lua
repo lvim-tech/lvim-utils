@@ -46,7 +46,6 @@ local function chrome_exclude(extra_ft)
         "git",
         "netrw",
         "dbee",
-        "org",
         "fzf",
         "qf",
         "replacer",
