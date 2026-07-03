@@ -80,6 +80,21 @@ function M.load(name)
     return read_file()[name]
 end
 
+--- Delete a persisted value under `name` from BOTH backends, so a superseded key (e.g. a migrated legacy
+--- setting) cannot linger and be re-read on the next start.
+---@param name string
+function M.clear(name)
+    local data = cc_data()
+    if data and data.clear then
+        pcall(data.clear, name)
+    end
+    local tbl = read_file()
+    if tbl[name] ~= nil then
+        tbl[name] = nil
+        write_file(tbl)
+    end
+end
+
 --- Seed the control-center DB from the standalone JSON file the first time the two cohabit: for each `name`
 --- present in the JSON but absent from the DB, copy it over. A no-op without the control-center (JSON stays the
 --- store) or when the JSON is empty. Called once by `settings.restore()`.

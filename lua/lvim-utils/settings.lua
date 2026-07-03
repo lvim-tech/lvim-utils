@@ -32,21 +32,30 @@ local function decode(v)
     return tonumber(v) or v
 end
 
---- Numeric value → the option string the panel / store use. A FRACTION prints trimmed (0.8 → "0.8"); an INTEGER
---- (a winblend like 55) prints as-is ("55") — never "55.0", so it matches its select option.
+--- Numeric value → the option string the panel / store use. A number has two candidate forms — trimmed FRACTION
+--- ("0.8", "1.0") and bare INTEGER ("55", "1") — which collide at whole numbers (a size `1.0` vs a blend `1`).
+--- When `options` is given, return whichever candidate IS a real option (so a select always round-trips); with no
+--- options, integers print bare and fractions trimmed.
 ---@param v any
+---@param options? string[]  the spec's select choices, to disambiguate the format
 ---@return any
-local function encode(v)
+local function encode(v, options)
     if v == nil then
         return v
     end
-    if type(v) == "number" then
-        if v == math.floor(v) then
-            return tostring(math.floor(v)) -- integer (blend) → "55"
-        end
-        return (("%.2f"):format(v):gsub("0$", ""):gsub("%.$", "")) -- fraction → "0.8"
+    if type(v) ~= "number" then
+        return tostring(v)
     end
-    return tostring(v)
+    local frac = (("%.2f"):format(v):gsub("0$", ""):gsub("%.$", "")) -- "0.85", "1.0", "55.0"
+    local int = (v == math.floor(v)) and tostring(math.floor(v)) or nil -- "1", "55" (nil for non-integers)
+    if options then
+        for _, o in ipairs(options) do
+            if o == int or o == frac then
+                return o
+            end
+        end
+    end
+    return int or frac
 end
 
 ---@class LvimUtilsSpec
@@ -292,7 +301,7 @@ function M.get(spec)
     if spec.type == "bool" then
         return v == true
     end
-    return encode(v)
+    return encode(v, spec.options)
 end
 
 --- Apply a new value LIVE into `config.ui.size` and persist it. `value` is a boolean for `bool` specs (accepts
@@ -361,17 +370,23 @@ function M.restore()
     for _, spec in ipairs(M.specs) do
         if spec.type == "select" and store.load(spec.name) == "auto" then
             store.save("ui_size_" .. spec.path[1] .. "_" .. spec.path[2] .. "_auto", true)
-            store.save(spec.name, encode(spec.default))
+            store.save(spec.name, encode(spec.default, spec.options))
         end
     end
     for _, layout in ipairs({ "float", "area", "bottom" }) do
         local legacy = store.load("ui_size_" .. layout .. "_auto")
         if legacy ~= nil then
             local on = legacy == true or legacy == "true" or legacy == 1
-            store.save("ui_size_" .. layout .. "_height_auto", on)
-            if layout == "float" then
+            -- Migrate ONCE, and ONLY onto an axis with no explicit per-axis value yet — never clobber a choice the
+            -- user has since made in the panel. Then DROP the legacy key so it can't re-seed on EVERY start: that
+            -- was the bug that made unchecking a `*_auto` toggle revert to checked after a restart.
+            if store.load("ui_size_" .. layout .. "_height_auto") == nil then
+                store.save("ui_size_" .. layout .. "_height_auto", on)
+            end
+            if layout == "float" and store.load("ui_size_float_width_auto") == nil then
                 store.save("ui_size_float_width_auto", on)
             end
+            store.clear("ui_size_" .. layout .. "_auto")
         end
     end
     for _, spec in ipairs(M.specs) do
