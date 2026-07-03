@@ -832,7 +832,18 @@ function M.tabs(opts)
         end
         -- `_follow` + `_sel` keep the ACTIVE tab scrolled into view on an overflowing tab bar, even when the
         -- bar isn't the focused sector (tabs are usually switched with h/l from the body).
-        tab_bar = { items = tab_btns, align = "center", _sel = active, _follow = true }
+        -- Overflow chevrons: the ui.bar DEFAULT chevron glyph is empty (a consumer supplies it), so an overflowing
+        -- tab bar needs its own ❮ ❯ (the tab accent, LvimUiTabChevron) or nothing marks the hidden tabs.
+        tab_bar = {
+            items = tab_btns,
+            align = "center",
+            _sel = active,
+            _follow = true,
+            chevrons = {
+                left = { text = "❮", style = { hl = "LvimUiTabChevron" } },
+                right = { text = "❯", style = { hl = "LvimUiTabChevron" } },
+            },
+        }
         set_active_tab = function(st, i)
             i = math.max(1, math.min(i, #tabset))
             if i == active then
