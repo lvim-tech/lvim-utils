@@ -20,9 +20,12 @@ local M = {}
 -- when auto is on).
 local SIZE_OPTIONS = { "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0" }
 
--- Backdrop winblend choices (integers, ASCENDING): 0 = fully opaque veil (strongest darken), 100 = invisible.
--- <CR> raises the value (more see-through / softer dim).
-local BLEND_OPTIONS = { "0", "15", "30", "45", "55", "65", "80", "100" }
+-- Backdrop winblend choices (integers, ASCENDING) in STEPS of 5: 0 = fully opaque veil (strongest darken),
+-- 100 = invisible. <CR> raises the value (more see-through / softer dim).
+local BLEND_OPTIONS = {}
+for i = 0, 20 do
+    BLEND_OPTIONS[i + 1] = tostring(i * 5)
+end
 
 --- Option string → the numeric fraction the config holds ("0.8" → 0.8). Booleans (the `auto` rows) round-trip
 --- as-is via the `bool` specs, which skip encode/decode.
