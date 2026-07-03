@@ -80,8 +80,11 @@ return {
         enabled = true,
         ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
         segments = nil,
-        -- this component's OWN buftype/filetype blacklist (no statusline on these buffers).
-        exclude = chrome_exclude(),
+        -- The statusline is GLOBAL (laststatus=3): a SINGLE line for the whole editor. A per-buffer blacklist
+        -- would only BLANK that one line whenever the focused window is a special buffer (dashboard, qf,
+        -- neo-tree, terminal, help …) — never wanted — so it is EMPTY: the statusline ALWAYS renders for the
+        -- current window. (The PER-WINDOW winbar / statuscolumn below keep their own blacklists.)
+        exclude = { buftype = {}, filetype = {} },
     },
 
     -- ── winbar ────────────────────────────────────────────────────────────────
