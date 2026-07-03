@@ -598,6 +598,9 @@ function M.open(opts)
         if state.closed then
             return
         end
+        -- Remember the MODE the file was opened FROM (normal-on-list vs insert query), so a keep-open dock returns
+        -- to the SAME mode after the restart instead of always dropping into insert.
+        local was_normal = state.normal
         -- Parse the selection FIRST (no zone ops). `--expect` prints the pressed key as line 1 whenever ANY expect
         -- key is registered (the quickfix key OR an open-method key); a plain accept prints "".
         local has_expect = qf_key ~= nil or #expect_methods > 0
@@ -664,9 +667,17 @@ function M.open(opts)
                 if old_buf and old_buf ~= state.term_buf and api.nvim_buf_is_valid(old_buf) then
                     pcall(api.nvim_buf_delete, old_buf, { force = true })
                 end
+                -- Restore the pre-open MODE so the fresh fzf's WinEnter honours it (normal → no startinsert).
+                state.normal = was_normal
                 if lcfg.keep_focus ~= false and api.nvim_win_is_valid(pan.win) then
                     api.nvim_set_current_win(pan.win)
-                    vim.cmd("startinsert")
+                    if was_normal then
+                        -- opened FROM normal-on-list → stay there: cursor hidden (fzf selection is the focus), j/k
+                        -- drive the list. WinEnter skipped startinsert (state.normal), so we are already in normal.
+                        pcall(cursor.mark_hide_buffer, state.term_buf, true)
+                    else
+                        vim.cmd("startinsert")
+                    end
                 end
             end
             return
@@ -730,13 +741,16 @@ function M.open(opts)
             args[#args + 1] = "--bind=focus:execute-silent(" .. w .. ")"
         end
         -- the match/total → title-bar stats: fzf sets $FZF_MATCH_COUNT / $FZF_TOTAL_COUNT for bind children;
-        -- `result` fires after every filter (incl. each streamed batch), `load` at the final count.
+        -- `result` fires after every filter (incl. each streamed batch), `load` at the final count. `zero` fires
+        -- when a query/reload leaves NO matches — without it an empty grep reload never re-emits the count, so the
+        -- title/border count FREEZES at the last non-zero value; the `zero` bind writes the fresh (0) count.
         if state.count_fifo then
             local cw = ('printf "%%s %%s\\n" "$FZF_MATCH_COUNT" "$FZF_TOTAL_COUNT" > %s'):format(
                 shellesc(state.count_fifo.path)
             )
             args[#args + 1] = "--bind=result:execute-silent(" .. cw .. ")"
             args[#args + 1] = "--bind=load:execute-silent(" .. cw .. ")"
+            args[#args + 1] = "--bind=zero:execute-silent(" .. cw .. ")"
         end
         -- LIVE mode (grep): fzf does NO fuzzy filtering of its own (`--disabled`); each query RELOADS the
         -- producer (`{q}` = the shell-quoted query fzf substitutes), so fzf re-renders the new results

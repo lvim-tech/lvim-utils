@@ -2044,10 +2044,13 @@ local function open_panel_win(state, pan, i, pl, has_input, docked)
     -- a stray and close it mid-open → "Window was closed immediately". Mark first, focus second, so by the time
     -- WinEnter fires those hooks already see it's a managed frame.
     local want_focus = i == 1 and state.cfg.enter ~= false and not has_input
+    -- Floor the dimensions at 1: a TIGHT layout (a tall preview in a nearly-full editor / dashboard) can compute
+    -- a 0-or-negative panel height/width, which `nvim_open_win` rejects with `E36: Not enough room`. A 1-cell
+    -- floor keeps the panel openable (squished, not crashed) in that pathological case; a no-op when it fits.
     pan.win = api.nvim_open_win(pan.buf, false, {
         relative = "editor",
-        width = pl.width,
-        height = pl.height,
+        width = math.max(1, pl.width or 1),
+        height = math.max(1, pl.height or 1),
         row = pl.row,
         col = pl.col,
         border = pl.border,
