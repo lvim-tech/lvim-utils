@@ -1006,6 +1006,7 @@ local _bar_btns = {
 ---@return string text, table spans
 local function _history_bar(filter, opts, sel, hover)
     local uibar = require("lvim-utils.ui.bar")
+    local surface = require("lvim-utils.ui.surface")
     local labels = ((_cfg.history or {}).bar or {}).labels or {}
     local items = {}
     for bi, b in ipairs(_bar_btns) do
@@ -1013,15 +1014,15 @@ local function _history_bar(filter, opts, sel, hover)
             items[#items + 1] = { type = "separator", text = (" "):rep(opts.gap) }
         end
         local cap = _btn_cap[b.k]
-        items[#items + 1] = {
-            type = "button",
-            text = labels[b.id] or b.l, -- a config label override, else the default name
-            key = b.k, -- the lowercase hotkey (a/e/w/…) as its OWN badge box ahead of the name — no brackets
-            key_badge = true,
+        -- Built by the SHARED `surface.button` mapper with the `action` KIND (the letter as its OWN badge box); the
+        -- per-LEVEL msg tints (config-driven, history.bar.tints — Badge for the letter, Name for the label; the "A"
+        -- variant when ACTIVE or HOVERED) are this consumer's own colours, passed as the `hl` box override.
+        items[#items + 1] = surface.button({
+            name = labels[b.id] or b.l, -- a config label override, else the default name
+            key = b.k, -- the lowercase hotkey (a/e/w/…)
+            style = "action",
             active = b.filt and (b.lvl == filter),
-            style = {
-                -- TWO parts (each tint config-driven, history.bar.tints): the hotkey LETTER badge (Badge), the
-                -- NAME (Name). When HOVERED or the ACTIVE filter, each brightens to its "A" (active) tint.
+            hl = {
                 icon = {
                     padding = opts.key_pad,
                     normal = "LvimUiMsg" .. cap .. "BadgeN",
@@ -1035,7 +1036,7 @@ local function _history_bar(filter, opts, sel, hover)
                     hover = "LvimUiMsg" .. cap .. "NameA",
                 },
             },
-        }
+        }, "action")
     end
     -- ui.bar draws the whole row: a left "Messages" TITLE (shown only when NOT on the statusline) with the
     -- buttons stacked to the RIGHT in the remaining width; without a title they sit at the left.

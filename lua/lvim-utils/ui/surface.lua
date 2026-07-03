@@ -236,6 +236,41 @@ M.STYLES = {
     },
 }
 
+--- Turn ONE bar RECORD into a `ui.button` spec — the SINGLE place the shared button style is applied, so EVERY
+--- bar builder (`M.bar`, `bar_items`, `ui.filters`, `ui.tabs`, notify, lvim-space, lvim-installer, …) produces a
+--- byte-identical button and a change to the styling lands everywhere. A record:
+---   `{ name, key?, style?, hl?, active?, count?, icon?, key_pos?, run?, no_hotkey?, meta? }`
+--- `style` names an `M.STYLES` KIND (default `default_style` or "action") — its render FLAGS + default box colours;
+--- `hl` is a PARTIAL box style (`{ icon = {...}, text = {...} }`) merged OVER the kind default, so a consumer
+--- supplies its OWN colours per-button (severity tints, msg-level tints, installer accents); `meta` passes through
+--- UNTOUCHED for consumer state (e.g. ui.filters' `sync`). The style box is DEEP-COPIED, so every spec owns it —
+--- two bars in one place stay fully INDEPENDENT.
+---@param rec table
+---@param default_style? string
+---@return table  a ui.button spec
+function M.button(rec, default_style)
+    local s = M.STYLES[rec.style or default_style or "action"] or M.STYLES.action
+    local box = vim.deepcopy(s.hl or FOOTER_STYLE)
+    if rec.hl then
+        box = vim.tbl_deep_extend("force", box, rec.hl)
+    end
+    return {
+        type = "button",
+        key = rec.key,
+        key_badge = s.key_badge,
+        key_brackets = s.key_brackets,
+        key_pos = rec.key_pos,
+        icon = rec.icon, -- lead glyph for the `tab` kind (icon + label)
+        text = rec.name,
+        run = rec.run,
+        active = rec.active,
+        count = rec.count,
+        no_hotkey = rec.no_hotkey,
+        style = box,
+        _meta = rec.meta, -- opaque passthrough for consumer state (filters sync, tab index, …)
+    }
+end
+
 --- Build ONE bar band from a DECLARATIVE spec — a list of GROUPS, each a list of action IDs — for `opts.mode`.
 --- Each id resolves to a RECORD: first from `registry` (the consumer's OWN actions), else the chassis CORE
 --- (`M.core_footer_item`). A record is `{ name, key?|n?|i?, action?, style?, run?, active?, key_pos?, hl?,
@@ -262,29 +297,21 @@ function M.bar(groups, registry, opts)
         for _, id in ipairs(group) do
             local rec = registry[id] or M.core_footer_item(id) -- consumer-own else chassis CORE
             if rec then
-                local key = rec.key or (n and rec.n or rec.i)
+                local key = rec.key or (n and rec.n or rec.i) -- resolve the per-mode key, then delegate the spec
                 if (type(key) == "string" and key ~= "") or (rec.name and rec.name ~= "") then
-                    local s = M.STYLES[rec.style or default_style] or M.STYLES.action
-                    -- KIND default colours (s.hl), overridden per-button by the record's own partial box `hl`.
-                    -- DEEP-COPY always: every produced spec owns its style, so calling M.bar twice (two bars in one
-                    -- place) yields fully INDEPENDENT instances — no shared mutable table across bars/buttons.
-                    local box = vim.deepcopy(s.hl or FOOTER_STYLE)
-                    if rec.hl then
-                        box = vim.tbl_deep_extend("force", box, rec.hl)
-                    end
-                    resolved[#resolved + 1] = {
-                        type = "button",
+                    resolved[#resolved + 1] = M.button({
+                        name = rec.name,
                         key = key,
-                        key_badge = s.key_badge,
-                        key_brackets = s.key_brackets,
-                        key_pos = rec.key_pos,
-                        icon = rec.icon, -- lead glyph for the `tab` kind (icon + label)
-                        text = rec.name,
-                        run = rec.run,
+                        style = rec.style,
+                        hl = rec.hl,
                         active = rec.active,
+                        count = rec.count,
+                        icon = rec.icon,
+                        key_pos = rec.key_pos,
+                        run = rec.run,
                         no_hotkey = rec.no_hotkey,
-                        style = box,
-                    }
+                        meta = rec.meta,
+                    }, default_style)
                 end
             end
         end
@@ -311,18 +338,18 @@ local function bar_items(items, footer)
     local out = {}
     for i, it in ipairs(items or {}) do
         if it.type or not footer then
-            out[i] = it
+            out[i] = it -- full button / separator spec (or a non-footer bar) — passes through
         else
-            out[i] = {
-                type = "button",
+            -- footer action shorthand `{ key, name|text, run }` → the shared `action` KIND (via `M.button`); a
+            -- caller-supplied `it.style` is a full BOX colour override, passed through as the button's `hl`.
+            out[i] = M.button({
+                name = it.name or it.text or "",
                 key = it.key,
-                key_badge = true,
-                text = it.name or it.text or "",
                 run = it.run,
                 active = it.active,
-                no_hotkey = it.no_hotkey, -- carry the display-only flag so map_hotkeys skips it (no keymap)
-                style = it.style or FOOTER_STYLE,
-            }
+                no_hotkey = it.no_hotkey,
+                hl = it.style,
+            }, "action")
         end
     end
     return out

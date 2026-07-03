@@ -47,10 +47,10 @@ function M.bar(filters, opts)
     local def_active = A.active or "LvimUiPeekFilterActive"
     local def_inactive = A.inactive or "LvimUiPeekFilterInactive"
     local sep_hl = A.sep or "LvimUiPeekFilterSep"
-    -- The bracketed-accelerator STYLE FLAGS come from the shared `surface.STYLES.hotkey` (one source of styles for
-    -- every bar); the COLOURS below stay consumer-owned (per-button `hl`/`hl_active`, defaults as fallback).
-    local ok_s, surface = pcall(require, "lvim-utils.ui.surface")
-    local hotkey = (ok_s and surface.STYLES and surface.STYLES.hotkey) or { key_badge = false, key_brackets = true }
+    -- Every button is built by the SHARED `surface.button` mapper with the `hotkey` KIND — the filter bar uses the
+    -- EXACT same styling path as every other bar. Only the COLOURS stay consumer-owned (per-button `hl`/`hl_active`,
+    -- defaults as fallback), passed as the record's `hl` box override; `meta` carries the group/id for `sync`.
+    local surface = require("lvim-utils.ui.surface")
 
     local specs = {}
     for gi, g in ipairs(filters or {}) do
@@ -62,36 +62,35 @@ function M.bar(filters, opts)
             local accent = b.hl_active or def_active
             local dim = b.hl or def_inactive
             local ha = b.hl_hover_active -- nil → ui.button degrades hover_active to plain hover
-            specs[#specs + 1] = {
-                type = "button",
-                text = b.label,
-                key = b.key, -- brackets the hotkey letter in the accent colour
-                key_badge = hotkey.key_badge, -- shared style flag (false → bracket the letter, not a badge)
-                key_brackets = hotkey.key_brackets, -- shared style flag (true → the `[ ]` brackets)
-                _gi = gi, -- so sync() can re-evaluate `active` after a toggle
-                _id = b.id,
+            specs[#specs + 1] = surface.button({
+                name = b.label,
+                key = b.key, -- the hotkey KIND brackets this letter in the accent colour
+                style = "hotkey",
+                active = b.id == g.active,
                 count = opts.count and function()
                     return opts.count(g, b)
                 end or nil,
-                active = b.id == g.active,
                 run = function()
                     if opts.on_select then
                         opts.on_select(gi, b.id)
                     end
                 end,
-                style = {
+                meta = { gi = gi, id = b.id }, -- so sync() can re-evaluate `active` after a toggle
+                hl = { -- consumer colours override the hotkey KIND default
                     icon = { padding = { 0, 0 }, normal = accent, active = accent, hover = accent, hover_active = ha },
                     text = { padding = { 1, 1 }, normal = dim, active = accent, hover = accent, hover_active = ha },
                 },
-            }
+            }, "hotkey")
         end
     end
 
-    --- Re-sync each spec's `active` flag with its group (call after a filter toggles, before a re-render).
+    --- Re-sync each spec's `active` flag with its group (call after a filter toggles, before a re-render). The
+    --- group/id ride in the shared button's `_meta` passthrough (set above).
     local function sync()
         for _, s in ipairs(specs) do
-            if s._gi and filters and filters[s._gi] then
-                s.active = filters[s._gi].active == s._id
+            local m = s._meta
+            if m and filters and filters[m.gi] then
+                s.active = filters[m.gi].active == m.id
             end
         end
     end

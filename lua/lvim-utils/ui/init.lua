@@ -819,16 +819,16 @@ function M.tabs(opts)
     if #tabset > 1 then
         tab_btns = {}
         for i, t in ipairs(tabset) do
-            -- The tab button KIND comes from the shared `surface.STYLES.tab` (one style source across every bar);
-            -- deep-copied so each tab owns its style (independent instances). Colours stay the LvimUiTab* groups.
-            tab_btns[i] = {
-                type = "button",
+            -- Built by the SHARED `surface.button` mapper with the `tab` KIND (icon + label, LvimUiTab* colours) —
+            -- the tab bar uses the same styling path as every other bar; the tab index rides in `_meta` for the
+            -- active-tab re-sync below.
+            tab_btns[i] = frame.button({
+                name = t.label or ("Tab " .. i),
                 icon = t.icon,
-                text = t.label or ("Tab " .. i),
-                _tab = i,
+                style = "tab",
                 active = (i == active),
-                style = vim.deepcopy(frame.STYLES.tab.hl),
-            }
+                meta = { tab = i },
+            }, "tab")
         end
         -- `_follow` + `_sel` keep the ACTIVE tab scrolled into view on an overflowing tab bar, even when the
         -- bar isn't the focused sector (tabs are usually switched with h/l from the body).
@@ -844,7 +844,7 @@ function M.tabs(opts)
             -- when it's switched from the body, not only when the bar itself is focused.
             tab_bar._sel = active
             for _, b in ipairs(tab_btns) do
-                b.active = (b._tab == active)
+                b.active = (b._meta and b._meta.tab == active)
             end
             form_p.set_rows((split(active)))
             -- Rebuild the header with the NEW tab's toolbar bars (+ re-fit). set_header relayouts.
@@ -858,7 +858,7 @@ function M.tabs(opts)
             end
         end
         tab_bar.on_change = function(spec, st)
-            set_active_tab(st, spec._tab)
+            set_active_tab(st, spec._meta and spec._meta.tab)
         end
         static_bars[#static_bars + 1] = tab_bar
         static_bars[#static_bars + 1] = { text = "" } -- 1 blank "air" row between the tab bar and the toolbars
