@@ -43,8 +43,8 @@ local M = {}
 ---@field default? any               -- input: initial value
 ---@field value? any                 -- input: alias for default
 ---@field prompt? string             -- input: prompt → title fallback
----@field width? number              -- info / select: FIXED width (fraction ≤1 or count); tabs too
----@field height? number             -- info: FIXED height (fraction ≤1 or count)
+---@field width? number|table        -- FIXED width (number: fraction ≤1 or count). tabs ALSO accept a size SPEC — `{ auto = true, max = n }` (fit content, capped) or `{ fixed = n }` — to FORCE auto-fit at the call site over the shared fixed width
+---@field height? number|table        -- FIXED height (number). tabs also accept a size SPEC (as `width`)
 ---@field max_width? number          -- auto-fit cap (fraction ≤1 or count)
 ---@field max_height? number         -- auto-fit cap (fraction ≤1 or count)
 ---@field position? string           -- "cursor" (anchor at the cursor) | "win" | "bottom" | "top" | nil (centred)
@@ -949,15 +949,18 @@ function M.tabs(opts)
                 return { height = shared.height or { auto = true, max = opts.area_height or AREA_CAP } }
             end
             return {
-                -- `type == number` (not truthy): a stray non-number `width`/`height` (e.g. an old `"auto"` string
-                -- from a consumer's popup config) would become `{ fixed = "auto" }` and crash `axis_size`; ignore it
-                -- and auto-fit instead. Caps fall back to the shared `config.ui.max_*`.
-                width = type(opts.width) == "number" and { fixed = opts.width }
-                    or shared.width
-                    or { auto = true, max = config.ui.max_width or 0.7 },
-                height = type(opts.height) == "number" and { fixed = opts.height }
-                    or shared.height
-                    or { auto = true, max = config.ui.max_height or 0.9 },
+                -- A caller may FORCE the axis at the call site by passing a size SPEC table — `{ auto = true,
+                -- max = 0.9 }` to override the shared FIXED width and auto-fit content (e.g. the install / quit
+                -- prompts), or `{ fixed = n }`. A plain NUMBER is shorthand for `{ fixed = n }`. `type == number`
+                -- (not truthy) also means a stray non-number (an old `"auto"` string) is ignored — it would become
+                -- `{ fixed = "auto" }` and crash `axis_size` — and auto-fits instead. Else the SHARED size, then a
+                -- final auto cap.
+                width = (type(opts.width) == "table" and opts.width) or (type(opts.width) == "number" and {
+                    fixed = opts.width,
+                }) or shared.width or { auto = true, max = config.ui.max_width or 0.7 },
+                height = (type(opts.height) == "table" and opts.height) or (type(opts.height) == "number" and {
+                    fixed = opts.height,
+                }) or shared.height or { auto = true, max = config.ui.max_height or 0.9 },
             }
         end)(),
         header = (#header_spec().bars > 0) and header_spec() or nil,

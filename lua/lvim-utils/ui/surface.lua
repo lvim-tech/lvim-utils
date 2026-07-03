@@ -96,6 +96,29 @@ local function register_frame_ft()
     end
 end
 
+-- A frame spans zindex [base, base+2] (container, panels, bands). A float opened FROM another surface (e.g. the
+-- installer browser's Delete menu, or any modal over an open panel) must clear the opener's WHOLE span, else its
+-- title/footer bands hide BEHIND the opener's higher panels (which sit at base+1) even though its content shows.
+local FRAME_Z_SPAN = 3
+--- Base zindex for a NON-DOCKED float that declares no explicit `zindex`: sit ABOVE every frame currently on
+--- screen so a modal is never covered by its opener. Stateless — a scan of the LIVE frame windows, so CLOSED
+--- popups never inflate it (a lone float over the editor stays at the 50 baseline). Docked surfaces pass an
+--- explicit `cfg.zindex` (200/210) and never reach here.
+---@return integer
+local function auto_float_base()
+    local base = 50
+    for _, w in ipairs(api.nvim_list_wins()) do
+        local ok, c = pcall(api.nvim_win_get_config, w)
+        if ok and c.relative and c.relative ~= "" and c.zindex then
+            local buf = api.nvim_win_get_buf(w)
+            if api.nvim_buf_is_valid(buf) and vim.bo[buf].filetype == FRAME_FT and c.zindex + FRAME_Z_SPAN > base then
+                base = c.zindex + FRAME_Z_SPAN
+            end
+        end
+    end
+    return base
+end
+
 -- Default keymaps for the chassis; the consumer may override via `cfg.keys`.
 local DEFAULT_KEYS = {
     sector_next = "<C-j>", -- header · center · footer (down), from anywhere (the PREVIEW is skipped)
@@ -2184,6 +2207,12 @@ end
 --- veil applies. `area`/`bottom` docks (higher-z panels) still paint bright on top of it.
 ---@param state table
 local function open_backdrop(state)
+    -- A float auto-stacked ABOVE another frame (a modal opened FROM the browser etc.) must NOT lay its own
+    -- full-editor veil — it would black out the very panel it sits on ("панела отдолу не се вижда"). We float
+    -- above the opener; the opener's own backdrop (if any) already dims the editor behind the whole stack.
+    if state.skip_backdrop then
+        return
+    end
     local bd = resolve_backdrop(state.cfg)
     if not bd then
         return
@@ -2234,7 +2263,14 @@ end
 ---@param state table
 local function open_windows(state)
     register_frame_ft() -- ensure lvim-utils.cursor knows FRAME_FT (current-only) for cursor hiding
-    state.zindex = state.cfg.zindex or 50
+    if state.cfg.zindex then
+        state.zindex = state.cfg.zindex
+    else
+        state.zindex = auto_float_base()
+        -- >50 ⇒ we stacked above an existing frame → skip our own backdrop (see open_backdrop) so the panel below
+        -- stays visible; a lone float over the editor stays at 50 and keeps its veil.
+        state.skip_backdrop = state.zindex > 50
+    end
     open_backdrop(state) -- the dim/darken veil BEHIND everything (no-op when this layout's backdrop is off)
     state.container_buf = api.nvim_create_buf(false, true)
     -- The chrome container hides the hardware cursor while a bar sector is focused (it becomes current).

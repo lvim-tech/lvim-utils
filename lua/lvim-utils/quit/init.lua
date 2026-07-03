@@ -269,6 +269,10 @@ function M.open(opts)
 
     ui.tabs({
         title = "Quit",
+        title_pos = "center", -- centre the title over the dialog (not the flush-left panel default)
+        -- Auto-FIT the width to the content (the action bar / file rows), never wider than 80% of the screen —
+        -- a compact quit dialog, not a full-width panel. A size SPEC forces auto over the shared FIXED width.
+        width = { auto = true, max = 0.8 },
         footer_fill = false, -- the action bar floats on the bare panel bg (no tinted strip under the buttons)
         -- A bg-only hover (just the row bg tints) so the file name's blue + the dimmed path survive the cursor
         -- row instead of being recoloured by the default yellow "list hover".
