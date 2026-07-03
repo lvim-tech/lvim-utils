@@ -95,11 +95,8 @@ return {
         -- chrome.parts (devicon / unique_name / seg / icons) + chrome.utils. Unset ⇒ a blank winbar.
         ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
         segments = nil,
-        -- this component's OWN buftype/filetype blacklist (no winbar on these buffers). `org` is excluded from the
-        -- PER-WINDOW / PER-LINE chrome (winbar breadcrumb, gutter folds) — it recomputes on cursor moves / redraws
-        -- and interacts badly with orgmode's own concealment + fold + highlighter decoration providers; the global
-        -- statusline (cheap, single line) still renders for org.
-        exclude = chrome_exclude({ "org" }),
+        -- this component's OWN buftype/filetype blacklist (no winbar on these buffers).
+        exclude = chrome_exclude(),
     },
 
     -- ── tabline ───────────────────────────────────────────────────────────────
@@ -127,9 +124,8 @@ return {
         -- chrome.gutter (signs / diag_icon / mark_letter / sign_at_mouse) + chrome.parts. Unset ⇒ blank gutter.
         ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
         segments = nil,
-        -- no statuscolumn gutter on these buffers. `org` excluded (see winbar): its per-line fold/sign gutter
-        -- recompute fights orgmode's own fold + conceal decoration providers on every redraw.
-        exclude = chrome_exclude({ "org" }),
+        -- this component's OWN buftype/filetype blacklist (no statuscolumn gutter on these buffers).
+        exclude = chrome_exclude(),
     },
 
     -- ── transient finder / echo overlay (ex config.status) ──────────────────────
