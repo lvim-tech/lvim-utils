@@ -205,7 +205,7 @@ end
 ---@field counter? string  match-count placement: "footer" (default — the bottom-right border) | "title" (folded into the border-title)
 ---@field prompt? string  the query prompt prefix (default "➤ ")
 ---@field keys? { key: string, name?: string, run: fun(item: any, close: fun()) }[]  extra row actions (split, code action…); `name` adds a footer hint
----@field filters? table[]  header filter button GROUPS — each `{ active = id, buttons = { { id, label, key?, predicate?(src), hl?, hl_active?, hl_hover_active? }, … } }`; activate a filter by its key in NORMAL mode
+---@field filters? LvimUiFilterGroup[]  header filter button GROUPS — each `{ active = id, buttons = { { id, label, key?, predicate?(src), hl?, hl_active?, hl_hover_active? }, … } }`; activate a filter by its key in NORMAL mode
 ---@field refresh? fun(): any[]  re-fetch the static items live (e.g. on DiagnosticChanged) — see refresh_events
 ---@field refresh_events? string[]  autocmd events that trigger a refresh
 ---@field close_on_empty? boolean  dismiss the finder when a refresh leaves no items (e.g. all diagnostics fixed)

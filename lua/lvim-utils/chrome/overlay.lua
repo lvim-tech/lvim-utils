@@ -119,9 +119,12 @@ function M.set(s)
     s = s or {}
     ensure_hl()
     state.active = true
+    -- Copy the present fields by key. `s` and `state` share the same field shape, but a DYNAMIC key defeats the
+    -- per-field type check, so read through an `any`-typed view (the access is genuinely dynamic, not a suppress).
+    local src = s --[[@as table<string, any>]]
     for _, k in ipairs({ "title", "title_hl", "icon", "icon_hl", "current", "total", "action", "subtitle" }) do
-        if s[k] ~= nil then
-            state[k] = s[k]
+        if src[k] ~= nil then
+            state[k] = src[k]
         end
     end
     repaint()

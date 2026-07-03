@@ -38,7 +38,7 @@ local M = {}
 ---@field accents?   LvimUiFilterAccents
 
 --- Build the filter band from the groups.
----@param filters LvimUiFilterGroup[]
+---@param filters LvimUiFilterGroup[]?  nil / empty → an empty band (iterated via `filters or {}`)
 ---@param opts LvimUiFilterOpts
 ---@return { band: table, sync: fun() }  -- band = { items, align="center" }; sync() re-evaluates the active flags
 function M.bar(filters, opts)
