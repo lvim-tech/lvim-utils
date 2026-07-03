@@ -82,6 +82,11 @@ local cursor_registered = false
 --- one upvalue — not a stray global.
 ---@type table?
 local area_current = nil
+--- A just-CLOSED backdrop veil awaiting its deferred teardown — kept here so a surface reopening in the SAME tick
+--- (a screen switch: close then reopen) can ADOPT it instead of the veil blinking off + a new one fading in.
+--- `{ win, buf, hl, blend, adopted }`; the scheduled teardown closes it unless a reopen set `adopted`.
+---@type table?
+local pending_backdrop = nil
 --- Register the frame filetype as a CURRENT-ONLY cursor-hide panel ft with the lvim-utils cursor module,
 --- once per session (idempotent via `cursor_registered`).
 local function register_frame_ft()
@@ -2175,14 +2180,37 @@ local function open_backdrop(state)
     if not bd then
         return
     end
+    local ew, eh = math.max(1, vim.o.columns), math.max(1, vim.o.lines)
+    -- HANDOFF: a screen switch closes then reopens; if the just-closed veil has the SAME look and is still alive,
+    -- ADOPT its window (mark it adopted so its deferred teardown skips it) instead of a blink-off + fade-in.
+    if
+        pending_backdrop
+        and pending_backdrop.hl == bd.hl
+        and pending_backdrop.blend == bd.blend
+        and api.nvim_win_is_valid(pending_backdrop.win)
+    then
+        pending_backdrop.adopted = true
+        state.backdrop_win, state.backdrop_buf = pending_backdrop.win, pending_backdrop.buf
+        state.backdrop_hl, state.backdrop_blend = bd.hl, bd.blend
+        pcall(api.nvim_win_set_config, state.backdrop_win, {
+            relative = "editor",
+            row = 0,
+            col = 0,
+            width = ew,
+            height = eh,
+            zindex = state.zindex - 1,
+        })
+        pending_backdrop = nil
+        return
+    end
     state.backdrop_buf = api.nvim_create_buf(false, true)
     vim.bo[state.backdrop_buf].filetype = FRAME_FT -- managed UI (the cursor-hide list treats it as a frame)
     state.backdrop_win = api.nvim_open_win(state.backdrop_buf, false, {
         relative = "editor",
         row = 0,
         col = 0,
-        width = math.max(1, vim.o.columns),
-        height = math.max(1, vim.o.lines),
+        width = ew,
+        height = eh,
         focusable = false,
         style = "minimal",
         zindex = state.zindex - 1, -- behind the container (z) and its panels (z+1)
@@ -2191,6 +2219,7 @@ local function open_backdrop(state)
     -- EndOfBuffer too, so the blank rows below the (empty) buffer also paint the veil, not a hole.
     vim.wo[state.backdrop_win].winhighlight = ("Normal:%s,NormalNC:%s,EndOfBuffer:%s"):format(bd.hl, bd.hl, bd.hl)
     vim.wo[state.backdrop_win].winblend = bd.blend
+    state.backdrop_hl, state.backdrop_blend = bd.hl, bd.blend -- remembered for the handoff match on the next open
 end
 
 --- Build the container + the N panel windows from a computed layout.
@@ -3144,11 +3173,32 @@ local function close(state)
     if state.container_win and api.nvim_win_is_valid(state.container_win) then
         pcall(api.nvim_win_close, state.container_win, true)
     end
-    if state.backdrop_win and api.nvim_win_is_valid(state.backdrop_win) then -- tear down the dim/darken veil
-        pcall(api.nvim_win_close, state.backdrop_win, true)
-    end
-    if state.backdrop_buf and api.nvim_buf_is_valid(state.backdrop_buf) then
-        pcall(api.nvim_buf_delete, state.backdrop_buf, { force = true })
+    if state.backdrop_win and api.nvim_win_is_valid(state.backdrop_win) then
+        -- Defer the veil teardown one tick and expose it for ADOPTION, so a surface reopening in the SAME tick
+        -- (a screen switch) reuses THIS window — the veil never blinks off and no second one ever overlaps it
+        -- (no darken, no brighten). If nothing adopts it, the scheduled teardown closes it.
+        local rec = {
+            win = state.backdrop_win,
+            buf = state.backdrop_buf,
+            hl = state.backdrop_hl,
+            blend = state.backdrop_blend,
+            adopted = false,
+        }
+        pending_backdrop = rec
+        state.backdrop_win, state.backdrop_buf = nil, nil
+        vim.schedule(function()
+            if pending_backdrop == rec then
+                pending_backdrop = nil
+            end
+            if not rec.adopted then -- a reopen didn't take it → close it now
+                if rec.win and api.nvim_win_is_valid(rec.win) then
+                    pcall(api.nvim_win_close, rec.win, true)
+                end
+                if rec.buf and api.nvim_buf_is_valid(rec.buf) then
+                    pcall(api.nvim_buf_delete, rec.buf, { force = true })
+                end
+            end
+        end)
     end
     if state.base_cmdheight ~= nil then -- a `cmdline` surface grew cmdheight; restore the user's value
         vim.o.cmdheight = state.base_cmdheight

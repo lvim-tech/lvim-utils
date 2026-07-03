@@ -459,6 +459,9 @@ local function open_surface()
         -- opt out explicitly. `false` is falsy, so the surface's `host == nil` auto-host gate skips it and
         -- `host_geom` grows cmdheight for the zone itself (its intended behaviour).
         host = false,
+        -- The persistent minibuffer (messages / cmdline / completion) is NOT a modal — it must never dim the
+        -- editor. Opt out of the area-layout backdrop (an area-docked PICKER opens its OWN surface and keeps it).
+        backdrop = false,
         border = "none",
         header_air = false, -- no title here, so drop the header "air" row (it would cover the statusline row)
         zindex = 200, -- sit in the cmdline layer; a low-zindex editor float gets re-anchored BELOW the
