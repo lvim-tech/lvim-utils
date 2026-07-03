@@ -776,12 +776,9 @@ function M.tabs(opts)
                 {
                     items = items,
                     align = "center",
-                    -- the overflow chevrons borrow the separator's accent (same box as the ● divider) and use
-                    -- the HEAVY angle glyphs ❮ ❯ — a bolder version of the default ‹ ›.
-                    chevrons = {
-                        left = { text = "❮", style = { hl = "LvimUiFooterSep" } },
-                        right = { text = "❯", style = { hl = "LvimUiFooterSep" } },
-                    },
+                    -- the overflow chevrons borrow the separator's accent (same box as the ● divider), using the
+                    -- SHARED glyphs (config.ui.chevrons) in that colour.
+                    chevrons = frame.chevrons("LvimUiFooterSep"),
                 },
             },
         }
@@ -833,16 +830,14 @@ function M.tabs(opts)
         -- `_follow` + `_sel` keep the ACTIVE tab scrolled into view on an overflowing tab bar, even when the
         -- bar isn't the focused sector (tabs are usually switched with h/l from the body).
         -- Overflow chevrons: the ui.bar DEFAULT chevron glyph is empty (a consumer supplies it), so an overflowing
-        -- tab bar needs its own ❮ ❯ (the tab accent, LvimUiTabChevron) or nothing marks the hidden tabs.
+        -- tab bar needs its own — the SHARED glyphs (config.ui.chevrons) in the tab accent (LvimUiTabChevron), or
+        -- nothing marks the hidden tabs.
         tab_bar = {
             items = tab_btns,
             align = "center",
             _sel = active,
             _follow = true,
-            chevrons = {
-                left = { text = "❮", style = { hl = "LvimUiTabChevron" } },
-                right = { text = "❯", style = { hl = "LvimUiTabChevron" } },
-            },
+            chevrons = frame.chevrons("LvimUiTabChevron"),
         }
         set_active_tab = function(st, i)
             i = math.max(1, math.min(i, #tabset))

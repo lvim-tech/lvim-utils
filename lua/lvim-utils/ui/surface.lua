@@ -271,6 +271,19 @@ function M.button(rec, default_style)
     }
 end
 
+--- Build a `ui.bar` `chevrons` config from the SHARED glyphs (`config.ui.chevrons`) paired with a consumer's own
+--- colour — so every overflowing bar (tab bar, action footer, tabs legend) marks its hidden items with the SAME
+--- ❮ ❯, each in its own accent. Pass the highlight group the chevrons should paint with.
+---@param hl string  highlight group for both chevrons
+---@return table  { left = { text, style = { hl } }, right = { text, style = { hl } } }
+function M.chevrons(hl)
+    local g = require("lvim-utils.config").ui.chevrons or { left = "❮", right = "❯" }
+    return {
+        left = { text = g.left or "❮", style = { hl = hl } },
+        right = { text = g.right or "❯", style = { hl = hl } },
+    }
+end
+
 --- Build ONE bar band from a DECLARATIVE spec — a list of GROUPS, each a list of action IDs — for `opts.mode`.
 --- Each id resolves to a RECORD: first from `registry` (the consumer's OWN actions), else the chassis CORE
 --- (`M.core_footer_item`). A record is `{ name, key?|n?|i?, action?, style?, run?, active?, key_pos?, hl?,
@@ -283,12 +296,14 @@ end
 --- position, any buttons/style.
 ---@param groups string[][]
 ---@param registry table<string, table>
----@param opts { mode?: string, separator?: string, align?: string, style?: string }
----@return table  a ui.bar band { items, align }
+---@param opts { mode?: string, separator?: string, separator_hl?: string, separator_padding?: integer[], align?: string, style?: string, hl?: table, chevrons?: table }
+---@return table  a ui.bar band { items, align, chevrons }
 function M.bar(groups, registry, opts)
     opts = opts or {}
     local n = opts.mode == "n"
     local sep = opts.separator or "●"
+    local sep_hl = opts.separator_hl or "LvimUiFooterSep" -- consumer overridable (e.g. lvim-space's own accent)
+    local sep_pad = opts.separator_padding or { 1, 1 }
     local default_style = opts.style or "action"
     registry = registry or {}
     local items = {}
@@ -303,7 +318,7 @@ function M.bar(groups, registry, opts)
                         name = rec.name,
                         key = key,
                         style = rec.style,
-                        hl = rec.hl,
+                        hl = rec.hl or opts.hl, -- per-record colours, else the bar-level default (opts.hl)
                         active = rec.active,
                         count = rec.count,
                         icon = rec.icon,
@@ -317,15 +332,14 @@ function M.bar(groups, registry, opts)
         end
         if #resolved > 0 then
             if #items > 0 then
-                items[#items + 1] =
-                    { type = "separator", text = sep, style = { padding = { 1, 1 }, hl = "LvimUiFooterSep" } }
+                items[#items + 1] = { type = "separator", text = sep, style = { padding = sep_pad, hl = sep_hl } }
             end
             for _, it in ipairs(resolved) do
                 items[#items + 1] = it
             end
         end
     end
-    return { items = items, align = opts.align }
+    return { items = items, align = opts.align, chevrons = opts.chevrons }
 end
 
 --- Normalise a bar's `items` into button/separator specs. A FOOTER action shorthand `{ key, name|text,

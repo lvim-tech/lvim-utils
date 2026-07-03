@@ -12,6 +12,7 @@
 ---@field separator          boolean|string|table Inter-panel divider between adjacent content panels ({ h, v, hl }; false to disable)
 ---@field group_border       string[]             Common ring around the data panels as a group (8-element; false to disable)
 ---@field separator_hl       string               Highlight group for the inter-panel divider
+---@field chevrons           table                Overflow-chevron glyphs ({ left, right }) a bar shows when its buttons don't all fit
 ---@field size               table                Shared surface geometry per layout (float / area / bottom + auto_max)
 ---@field disable_completion boolean              Disable all completion sources (native, nvim-cmp, blink.cmp) for input popups
 ---@field position           string               Popup anchor ("editor")
@@ -30,7 +31,6 @@
 ---@field icons              table                Glyphs for the popup (booleans, select, kinds, markers, current pointer)
 ---@field labels             table                Footer-legend action labels (navigate / confirm / cancel / …)
 ---@field keys               table                Popup + chassis navigation keys (vim notation; strings or lists)
----@field peek               table                Two-pane location navigator (mode, geometry, borders, icons, keys)
 
 ---@type LvimUtilsUiConfig
 return {
@@ -70,6 +70,11 @@ return {
     -- The highlight group for that divider — default the blue-tinted peek border, so the rule matches the
     -- container / content rings. Override to restyle the divider everywhere.
     separator_hl = "LvimUiPeekBorder",
+    -- THE shared OVERFLOW-CHEVRON glyphs — the ❮ ❯ a bar shows at its edges when its buttons don't all fit (tab
+    -- bars, action footers, the tabs legend). ONE source, so every overflowing bar marks its hidden items with the
+    -- SAME glyphs; each consumer keeps its own chevron COLOUR (its own highlight group). Consumers pair the glyphs
+    -- with their colour via `surface.chevrons(hl)`. Set e.g. `{ left = "‹", right = "›" }` to restyle them all.
+    chevrons = { left = "❮", right = "❯" },
     -- Shared surface GEOMETRY per LAYOUT — the SINGLE source read by every consumer (pickers, ui.tabs,
     -- lvim-shell, lvim-space) via `require("lvim-utils.ui").size(layout)`, and edited live by lvim-utils' own
     -- config panel + lvim-control-center (persisted through the shared store, so both stay in sync).
