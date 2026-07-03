@@ -39,7 +39,7 @@ local M = {}
 ---@field menu? boolean              -- tabs: render the rows as a navigable MENU (action rows stay a selectable BODY list, not footer buttons); per-tab via `tab.menu`
 ---@field callback? fun(...): any    -- result callback (signature varies per presenter)
 ---@field on_change? fun(row: table) -- tabs: fired on every typed-row edit
----@field subtitle? string|table|table[]  -- tabs: message line(s) under the title. A string, ONE line `{ text, type?, hl?, icon?, blank_below? }`, or a LIST of such lines. `type` ∈ "info"|"warn"|"error" (predefined fg colour); `hl` overrides; `icon` is fronted when given.
+---@field subtitle? string|table|table[]  -- tabs / select: message line(s) under the title. A string, ONE line `{ text, type?, hl?, icon?, blank_below? }`, or a LIST of such lines. `type` ∈ "info"|"warn"|"error" (predefined fg colour); `hl` overrides; `icon` is fronted when given.
 ---@field default? any               -- input: initial value
 ---@field value? any                 -- input: alias for default
 ---@field prompt? string             -- input: prompt → title fallback
@@ -136,6 +136,46 @@ local function list_rows(n, opts)
         return math.min(n, cap)
     end
     return n
+end
+
+--- Semantic subtitle `type` → its (fg-only) highlight group. A line may instead carry an explicit `hl`.
+---@type table<string, string>
+local SUBTITLE_TYPES = {
+    info = "LvimUiSubtitleInfo", -- blue
+    warn = "LvimUiSubtitleWarn", -- orange
+    error = "LvimUiSubtitleError", -- red
+}
+
+--- Normalise `opts.subtitle` into header meta bars. Accepts a plain string, a single line table
+--- `{ text, type?, hl?, icon?, blank_below? }`, or a LIST of such lines (a multi-line subtitle). Each line's
+--- colour is its explicit `hl`, else its `type`'s predefined group, else the default `LvimUiSubtitle`; an
+--- `icon` (optional, never implied by a type) is fronted; `blank_below` adds an empty row beneath the line.
+---@param subtitle string|table|nil
+---@return table[]
+local function subtitle_bars(subtitle)
+    if not subtitle then
+        return {}
+    end
+    ---@type table
+    local list
+    if type(subtitle) ~= "table" or subtitle.text then
+        list = { subtitle } -- a single line (string or `{ text = … }`) → a one-element list
+    else
+        list = subtitle -- already a LIST of line specs
+    end
+    local out = {}
+    for _, ln in ipairs(list) do
+        if type(ln) == "string" then
+            out[#out + 1] = { text = ln, hl = "LvimUiSubtitle" }
+        else
+            local hl = ln.hl or (ln.type and SUBTITLE_TYPES[ln.type]) or "LvimUiSubtitle"
+            out[#out + 1] = { text = (ln.icon and (ln.icon .. "  ") or "") .. (ln.text or ""), hl = hl }
+            if ln.blank_below then
+                out[#out + 1] = { text = "" } -- one empty meta band = a blank row under this line
+            end
+        end
+    end
+    return out
 end
 
 --- Pick one item from a list — a 1-panel `frame` (the list) + a confirm/cancel footer. `<C-j>`
@@ -241,6 +281,12 @@ function M.select(opts)
                 or { auto = true, max = opts.max_width or config.ui.max_width or 0.6 },
             height = { auto = true, max = opts.max_height or config.ui.max_height or 0.6 },
         },
+        -- An optional `subtitle` (description / warning line) under the title — the SAME meta-band model as
+        -- M.tabs, so a select can carry a one-liner like "Deletes it from disk." above its list.
+        header = (function()
+            local bars = subtitle_bars(opts.subtitle)
+            return #bars > 0 and { bars = bars } or nil
+        end)(),
         -- The list IS the data-content panel → the single-source content ring (CONTENT_BORDER →
         -- config.ui.content_border, resolved live). The footer button bar is a nav bar, not a block, so it
         -- stays borderless (panel_border "none" only governs any block that doesn't set its own border).
@@ -492,46 +538,6 @@ function M.confirm(opts)
             cb(confirmed == true and items[index] == yes_label)
         end,
     })
-end
-
---- Semantic subtitle `type` → its (fg-only) highlight group. A line may instead carry an explicit `hl`.
----@type table<string, string>
-local SUBTITLE_TYPES = {
-    info = "LvimUiSubtitleInfo", -- blue
-    warn = "LvimUiSubtitleWarn", -- orange
-    error = "LvimUiSubtitleError", -- red
-}
-
---- Normalise `opts.subtitle` into header meta bars. Accepts a plain string, a single line table
---- `{ text, type?, hl?, icon?, blank_below? }`, or a LIST of such lines (a multi-line subtitle). Each line's
---- colour is its explicit `hl`, else its `type`'s predefined group, else the default `LvimUiSubtitle`; an
---- `icon` (optional, never implied by a type) is fronted; `blank_below` adds an empty row beneath the line.
----@param subtitle string|table|nil
----@return table[]
-local function subtitle_bars(subtitle)
-    if not subtitle then
-        return {}
-    end
-    ---@type table
-    local list
-    if type(subtitle) ~= "table" or subtitle.text then
-        list = { subtitle } -- a single line (string or `{ text = … }`) → a one-element list
-    else
-        list = subtitle -- already a LIST of line specs
-    end
-    local out = {}
-    for _, ln in ipairs(list) do
-        if type(ln) == "string" then
-            out[#out + 1] = { text = ln, hl = "LvimUiSubtitle" }
-        else
-            local hl = ln.hl or (ln.type and SUBTITLE_TYPES[ln.type]) or "LvimUiSubtitle"
-            out[#out + 1] = { text = (ln.icon and (ln.icon .. "  ") or "") .. (ln.text or ""), hl = hl }
-            if ln.blank_below then
-                out[#out + 1] = { text = "" } -- one empty meta band = a blank row under this line
-            end
-        end
-    end
-    return out
 end
 
 --- Tabbed / form view on a `frame`: the center is a `form` provider of the active tab's typed rows;
