@@ -47,7 +47,6 @@ local function chrome_exclude(extra_ft)
         "netrw",
         "dbee",
         "fzf",
-        "qf",
         "replacer",
     }
     for _, ft in ipairs(extra_ft or {}) do
@@ -95,8 +94,10 @@ return {
         -- chrome.parts (devicon / unique_name / seg / icons) + chrome.utils. Unset ⇒ a blank winbar.
         ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
         segments = nil,
-        -- this component's OWN buftype/filetype blacklist (no winbar on these buffers).
-        exclude = chrome_exclude(),
+        -- this component's OWN buftype/filetype blacklist (no winbar on these buffers). `qf` is here (but NOT in
+        -- the statusline list) because lvim-qf-loc draws the quickfix window's OWN winbar (the keymap bar) — the
+        -- chrome winbar would fight it — while the quickfix still gets a normal chrome STATUSLINE.
+        exclude = chrome_exclude({ "qf" }),
     },
 
     -- ── tabline ───────────────────────────────────────────────────────────────
@@ -110,8 +111,9 @@ return {
         -- clickable window / tab CELLS (tabby's functionality). Unset ⇒ a blank tabline.
         ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
         segments = nil,
-        -- this component's OWN buftype/filetype blacklist (tabline hidden when the tab holds only these).
-        exclude = chrome_exclude(),
+        -- this component's OWN buftype/filetype blacklist (tabline hidden when the tab holds only these). `qf` is
+        -- excluded here too (a lone quickfix tab keeps the tabline hidden), but NOT from the statusline.
+        exclude = chrome_exclude({ "qf" }),
     },
 
     -- ── statuscolumn ──────────────────────────────────────────────────────────
@@ -124,8 +126,9 @@ return {
         -- chrome.gutter (signs / diag_icon / mark_letter / sign_at_mouse) + chrome.parts. Unset ⇒ blank gutter.
         ---@type LvimChromeSegment[]|fun(): LvimChromeSegment[]|nil
         segments = nil,
-        -- this component's OWN buftype/filetype blacklist (no statuscolumn gutter on these buffers).
-        exclude = chrome_exclude(),
+        -- this component's OWN buftype/filetype blacklist (no statuscolumn gutter on these buffers). `qf` is
+        -- excluded here too (the quickfix shows file:line in its content, so no gutter), but NOT the statusline.
+        exclude = chrome_exclude({ "qf" }),
     },
 
     -- ── transient finder / echo overlay (ex config.status) ──────────────────────
