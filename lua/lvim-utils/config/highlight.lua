@@ -163,6 +163,9 @@ return function(c)
         -- A continuous full-width bg STRIP under a bar's buttons, so the whole row reads as one tinted bar (the
         -- buttons + the blue 0.05 hover sit on top). A FAINT blue tint, below the hover so the selection pops.
         LvimUiBarFill = { bg = mtint(c.blue, 0.02) },
+        -- The BACKDROP veil behind an open surface — pure black; `config.ui.backdrop.<layout>.blend` (winblend) sets
+        -- how much the editor shows through, so the same group reads as a strong darken or a soft dim per config.
+        LvimUiBackdrop = { bg = c.black },
         LvimUiBarSep = { fg = c.blue, bg = mtint(c.blue, 0.12) }, -- visible bar separator box (➤ / ● between groups)
         LvimUiFrameSel = { bg = mtint(c.blue, 0.2) }, -- focused bar-button selection bg (no-accent fallback)
 

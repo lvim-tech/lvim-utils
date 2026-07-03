@@ -2137,11 +2137,68 @@ local function open_panel_win(state, pan, i, pl, has_input, docked)
     render_panel(state, i)
 end
 
+--- Which size layout a surface is — derived from its anchor `position` (the same signal the sizing uses):
+--- "cmdline" → the area dock, "bottom" → the bottom dock, anything else (centred) → a float.
+---@param cfg table
+---@return "float"|"area"|"bottom"
+local function backdrop_layout(cfg)
+    if cfg.position == "cmdline" then
+        return "area"
+    elseif cfg.position == "bottom" then
+        return "bottom"
+    end
+    return "float"
+end
+
+--- The effective backdrop veil for this surface: the consumer's per-open `cfg.backdrop` (a `{ enabled?, blend, hl }`
+--- table, or `false` to force off) OVERRIDES the layout default in `config.ui.backdrop`; absent → that default.
+--- Returns nil when no veil applies (disabled / off).
+---@param cfg table
+---@return { blend: integer, hl: string }?
+local function resolve_backdrop(cfg)
+    local bd = cfg.backdrop
+    if bd == nil then
+        bd = (config.ui.backdrop or {})[backdrop_layout(cfg)]
+    end
+    if not bd or bd.enabled == false then
+        return nil
+    end
+    return { blend = bd.blend or 55, hl = bd.hl or "LvimUiBackdrop" }
+end
+
+--- Open the BACKDROP veil — a full-editor float BEHIND the surface (zindex below the container), unfocusable, its
+--- Normal set to the veil colour + `winblend`, so the rest of the editor dims/darkens through it. No-op when no
+--- veil applies. `area`/`bottom` docks (higher-z panels) still paint bright on top of it.
+---@param state table
+local function open_backdrop(state)
+    local bd = resolve_backdrop(state.cfg)
+    if not bd then
+        return
+    end
+    state.backdrop_buf = api.nvim_create_buf(false, true)
+    vim.bo[state.backdrop_buf].filetype = FRAME_FT -- managed UI (the cursor-hide list treats it as a frame)
+    state.backdrop_win = api.nvim_open_win(state.backdrop_buf, false, {
+        relative = "editor",
+        row = 0,
+        col = 0,
+        width = math.max(1, vim.o.columns),
+        height = math.max(1, vim.o.lines),
+        focusable = false,
+        style = "minimal",
+        zindex = state.zindex - 1, -- behind the container (z) and its panels (z+1)
+    })
+    vim.w[state.backdrop_win].lvim_frame = true -- managed UI — "close every float" helpers skip it
+    -- EndOfBuffer too, so the blank rows below the (empty) buffer also paint the veil, not a hole.
+    vim.wo[state.backdrop_win].winhighlight = ("Normal:%s,NormalNC:%s,EndOfBuffer:%s"):format(bd.hl, bd.hl, bd.hl)
+    vim.wo[state.backdrop_win].winblend = bd.blend
+end
+
 --- Build the container + the N panel windows from a computed layout.
 ---@param state table
 local function open_windows(state)
     register_frame_ft() -- ensure lvim-utils.cursor knows FRAME_FT (current-only) for cursor hiding
     state.zindex = state.cfg.zindex or 50
+    open_backdrop(state) -- the dim/darken veil BEHIND everything (no-op when this layout's backdrop is off)
     state.container_buf = api.nvim_create_buf(false, true)
     -- The chrome container hides the hardware cursor while a bar sector is focused (it becomes current).
     vim.bo[state.container_buf].filetype = FRAME_FT
@@ -3086,6 +3143,12 @@ local function close(state)
     end
     if state.container_win and api.nvim_win_is_valid(state.container_win) then
         pcall(api.nvim_win_close, state.container_win, true)
+    end
+    if state.backdrop_win and api.nvim_win_is_valid(state.backdrop_win) then -- tear down the dim/darken veil
+        pcall(api.nvim_win_close, state.backdrop_win, true)
+    end
+    if state.backdrop_buf and api.nvim_buf_is_valid(state.backdrop_buf) then
+        pcall(api.nvim_buf_delete, state.backdrop_buf, { force = true })
     end
     if state.base_cmdheight ~= nil then -- a `cmdline` surface grew cmdheight; restore the user's value
         vim.o.cmdheight = state.base_cmdheight

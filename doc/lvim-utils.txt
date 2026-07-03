@@ -306,6 +306,26 @@ Each layout has its own fraction of the available space (or "auto", fit-to-conte
 Every consumer (pickers, ui.tabs, lvim-shell, lvim-space) reads this live via
 `require("lvim-utils.ui").size(layout)`, so a change re-sizes them all on the next open.
 
+BACKDROP (dim / darken) ~
+
+`config.ui.backdrop` draws a full-editor veil BEHIND an open surface, so the rest of the
+editor dims. PER LAYOUT (three independent settings); `hl` is the colour (darken), `blend`
+the winblend (how much shows through = dim). The veil never takes focus and is torn down
+with the surface; area/bottom docks dim the editor ABOVE the dock.
+>lua
+  require("lvim-utils").setup({
+      ui = {
+          backdrop = {
+              float  = { enabled = true, blend = 55, hl = "LvimUiBackdrop" },
+              area   = { enabled = true, blend = 55, hl = "LvimUiBackdrop" },
+              bottom = { enabled = false }, -- no veil for the bottom dock
+          },
+      },
+  })
+<
+A consumer may override its layout's veil per-open — `surface.open({ backdrop = { blend =
+30 } })` or `backdrop = false` to disable; absent → the config default.
+
                                                         *:LvimUtils*
 `:LvimUtils` opens a floating settings panel (an |lvim-utils-ui| `tabs`) that edits these
 values LIVE — a select row per dimension; changing one applies it into `config.ui.size`

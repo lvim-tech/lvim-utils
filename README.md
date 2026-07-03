@@ -680,6 +680,29 @@ require("lvim-utils").setup({
 Every consumer (pickers, `ui.tabs`, lvim-shell, lvim-space) reads this live via
 `require("lvim-utils.ui").size(layout)`, so a change re-sizes them all on the next open.
 
+##### Backdrop (dim / darken)
+
+`config.ui.backdrop` draws a **full-editor veil BEHIND an open surface**, so the rest of the editor dims and
+the surface reads as the focus. It is **per layout** (three independent settings), and `hl` + `blend` together
+dial the look — `hl` is the colour (darken), `blend` is the winblend (how much shows through = dim/haze):
+
+```lua
+require("lvim-utils").setup({
+    ui = {
+        backdrop = {
+            -- enabled=false → no veil; hl = a dark group (darken); blend 0–100 (low = opaque, high = soft haze)
+            float = { enabled = true, blend = 55, hl = "LvimUiBackdrop" },
+            area = { enabled = true, blend = 55, hl = "LvimUiBackdrop" },
+            bottom = { enabled = false }, -- e.g. no veil for the bottom dock
+        },
+    },
+})
+```
+
+The veil never takes focus and is torn down with the surface; `area`/`bottom` docks dim the editor **above** the
+dock (the dock stays bright on top). A consumer may override its layout's veil per-open with
+`surface.open({ backdrop = { blend = 30 } })` or turn it off with `backdrop = false`; absent → the config default.
+
 `:LvimUtils` opens a floating settings panel (an `ui.tabs`) that edits these values **live** — a select
 row per dimension; changing one applies it into `config.ui.size` immediately and persists it. Persistence
 is handled by `lvim-utils.store`:
