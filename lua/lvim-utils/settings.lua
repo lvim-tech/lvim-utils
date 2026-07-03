@@ -22,7 +22,7 @@ local SIZE_OPTIONS = { "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "
 
 -- Backdrop winblend choices (integers, ASCENDING): 0 = fully opaque veil (strongest darken), 100 = invisible.
 -- <CR> raises the value (more see-through / softer dim).
-local BLEND_OPTIONS = { "0", "15", "30", "40", "55", "70", "85", "100" }
+local BLEND_OPTIONS = { "0", "15", "30", "45", "55", "65", "80", "100" }
 
 --- Option string → the numeric fraction the config holds ("0.8" → 0.8). Booleans (the `auto` rows) round-trip
 --- as-is via the `bool` specs, which skip encode/decode.
@@ -193,7 +193,7 @@ M.specs = {
         label = "Float backdrop blend",
         type = "select",
         options = BLEND_OPTIONS,
-        default = 55,
+        default = 65,
     },
     {
         name = "ui_backdrop_area_enabled",
@@ -212,7 +212,7 @@ M.specs = {
         label = "Area backdrop blend",
         type = "select",
         options = BLEND_OPTIONS,
-        default = 55,
+        default = 65,
     },
     {
         name = "ui_backdrop_bottom_enabled",
@@ -231,7 +231,7 @@ M.specs = {
         label = "Bottom backdrop blend",
         type = "select",
         options = BLEND_OPTIONS,
-        default = 55,
+        default = 65,
     },
 }
 

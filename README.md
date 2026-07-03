@@ -691,8 +691,8 @@ require("lvim-utils").setup({
     ui = {
         backdrop = {
             -- enabled=false → no veil; hl = a dark group (darken); blend 0–100 (low = opaque, high = soft haze)
-            float = { enabled = true, blend = 55, hl = "LvimUiBackdrop" },
-            area = { enabled = true, blend = 55, hl = "LvimUiBackdrop" },
+            float = { enabled = true, blend = 65, hl = "LvimUiBackdrop" },
+            area = { enabled = true, blend = 65, hl = "LvimUiBackdrop" },
             bottom = { enabled = false }, -- e.g. no veil for the bottom dock
         },
     },

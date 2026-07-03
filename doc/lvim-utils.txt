@@ -316,8 +316,8 @@ with the surface; area/bottom docks dim the editor ABOVE the dock.
   require("lvim-utils").setup({
       ui = {
           backdrop = {
-              float  = { enabled = true, blend = 55, hl = "LvimUiBackdrop" },
-              area   = { enabled = true, blend = 55, hl = "LvimUiBackdrop" },
+              float  = { enabled = true, blend = 65, hl = "LvimUiBackdrop" },
+              area   = { enabled = true, blend = 65, hl = "LvimUiBackdrop" },
               bottom = { enabled = false }, -- no veil for the bottom dock
           },
       },

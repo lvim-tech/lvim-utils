@@ -2168,7 +2168,7 @@ local function resolve_backdrop(cfg)
     if not bd or bd.enabled == false then
         return nil
     end
-    return { blend = bd.blend or 55, hl = bd.hl or "LvimUiBackdrop" }
+    return { blend = bd.blend or 65, hl = bd.hl or "LvimUiBackdrop" }
 end
 
 --- Open the BACKDROP veil — a full-editor float BEHIND the surface (zindex below the container), unfocusable, its
