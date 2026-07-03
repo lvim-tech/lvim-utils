@@ -15,6 +15,7 @@ local M = {}
 -- Per-tab (group) icons, like the control-center tabs.
 local GROUP_ICONS = {
     Size = "󰒓",
+    Backdrop = "󰖔", -- weather-night moon → the dim/darken veil
 }
 
 --- The ordered list of group names as they first appear in the spec list.

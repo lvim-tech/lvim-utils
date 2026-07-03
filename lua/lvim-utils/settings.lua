@@ -20,6 +20,10 @@ local M = {}
 -- when auto is on).
 local SIZE_OPTIONS = { "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0" }
 
+-- Backdrop winblend choices (integers, ASCENDING): 0 = fully opaque veil (strongest darken), 100 = invisible.
+-- <CR> raises the value (more see-through / softer dim).
+local BLEND_OPTIONS = { "0", "15", "30", "40", "55", "70", "85", "100" }
+
 --- Option string → the numeric fraction the config holds ("0.8" → 0.8). Booleans (the `auto` rows) round-trip
 --- as-is via the `bool` specs, which skip encode/decode.
 ---@param v any
@@ -28,22 +32,30 @@ local function decode(v)
     return tonumber(v) or v
 end
 
---- Numeric fraction → the option string the panel / store use (0.8 → "0.8").
+--- Numeric value → the option string the panel / store use. A FRACTION prints trimmed (0.8 → "0.8"); an INTEGER
+--- (a winblend like 55) prints as-is ("55") — never "55.0", so it matches its select option.
 ---@param v any
 ---@return any
 local function encode(v)
     if v == nil then
         return v
     end
-    return type(v) == "number" and ("%.2f"):format(v):gsub("0$", ""):gsub("%.$", "") or tostring(v)
+    if type(v) == "number" then
+        if v == math.floor(v) then
+            return tostring(math.floor(v)) -- integer (blend) → "55"
+        end
+        return (("%.2f"):format(v):gsub("0$", ""):gsub("%.$", "")) -- fraction → "0.8"
+    end
+    return tostring(v)
 end
 
 ---@class LvimUtilsSpec
 ---@field name    string     persistence key (matches the control-center setting name)
----@field path    string[]   nested location under `config.ui.size`
+---@field path    string[]   nested location under `config.ui[root]`
+---@field root?   string     which `config.ui` sub-table the path is in: "size" (default) | "backdrop"
 ---@field group   string     panel tab / control-center group
 ---@field label   string     display label
----@field type    string     "select" (a size fraction) | "bool" (an auto toggle)
+---@field type    string     "select" (a size fraction / blend) | "bool" (a toggle)
 ---@field options? string[]  choices (select only)
 ---@field default any        fallback config value when nothing is persisted
 
@@ -162,14 +174,75 @@ M.specs = {
         type = "bool",
         default = true,
     },
+    -- Backdrop dim/darken veil PER LAYOUT (`config.ui.backdrop`) — a toggle + a winblend for each. The `hl` colour
+    -- stays config-only (a highlight-group name isn't a panel choice).
+    {
+        name = "ui_backdrop_float_enabled",
+        path = { "float", "enabled" },
+        root = "backdrop",
+        group = "Backdrop",
+        label = "Float backdrop",
+        type = "bool",
+        default = true,
+    },
+    {
+        name = "ui_backdrop_float_blend",
+        path = { "float", "blend" },
+        root = "backdrop",
+        group = "Backdrop",
+        label = "Float backdrop blend",
+        type = "select",
+        options = BLEND_OPTIONS,
+        default = 55,
+    },
+    {
+        name = "ui_backdrop_area_enabled",
+        path = { "area", "enabled" },
+        root = "backdrop",
+        group = "Backdrop",
+        label = "Area backdrop",
+        type = "bool",
+        default = true,
+    },
+    {
+        name = "ui_backdrop_area_blend",
+        path = { "area", "blend" },
+        root = "backdrop",
+        group = "Backdrop",
+        label = "Area backdrop blend",
+        type = "select",
+        options = BLEND_OPTIONS,
+        default = 55,
+    },
+    {
+        name = "ui_backdrop_bottom_enabled",
+        path = { "bottom", "enabled" },
+        root = "backdrop",
+        group = "Backdrop",
+        label = "Bottom backdrop",
+        type = "bool",
+        default = true,
+    },
+    {
+        name = "ui_backdrop_bottom_blend",
+        path = { "bottom", "blend" },
+        root = "backdrop",
+        group = "Backdrop",
+        label = "Bottom backdrop blend",
+        type = "select",
+        options = BLEND_OPTIONS,
+        default = 55,
+    },
 }
 
---- The live `config.ui.size` table (created if missing).
+--- The live `config.ui[root]` table (created if missing) — a spec's `root` ("size" default, or "backdrop").
+---@param root? string
 ---@return table
-local function size_tbl()
+local function root_tbl(root)
+    root = root or "size"
     local ui = require("lvim-utils.config").ui
-    ui.size = ui.size or {}
-    return ui.size
+    ui[root] = ui[root] or {}
+    return ui[root]
 end
 
 --- Read a nested value by path.
@@ -197,7 +270,7 @@ end
 --- msgarea is fine.
 ---@param spec LvimUtilsSpec
 local function apply(spec)
-    if spec.path[1] == "area" then
+    if (spec.root or "size") == "size" and spec.path[1] == "area" then
         pcall(function()
             local ma = require("lvim-utils.msgarea")
             if ma.refresh then
@@ -212,7 +285,7 @@ end
 ---@param spec LvimUtilsSpec
 ---@return any
 function M.get(spec)
-    local v = read_path(size_tbl(), spec.path)
+    local v = read_path(root_tbl(spec.root), spec.path)
     if v == nil then
         v = spec.default
     end
@@ -234,7 +307,7 @@ function M.set(spec, value, persist)
     else
         resolved = decode(value)
     end
-    write_path(size_tbl(), spec.path, resolved)
+    write_path(root_tbl(spec.root), spec.path, resolved)
     if persist ~= false then
         store.save(spec.name, resolved)
     end
