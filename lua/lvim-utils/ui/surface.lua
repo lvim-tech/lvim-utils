@@ -2168,6 +2168,14 @@ local function resolve_backdrop(cfg)
     if not bd or bd.enabled == false then
         return nil
     end
+    -- Skip the veil on a TRANSPARENT editor: a `winblend` float has no solid bg to dim — nvim composites the
+    -- underlying `NONE` cells to hard BLACK, so the veil paints black blocks over the code instead of a smooth dim
+    -- (and transparency's whole point is to show the wallpaper, which a chrome veil can't cleanly darken anyway).
+    -- Detected from the LIVE `Normal` highlight (no bg = transparent) — the palette's own `transparent` flag lags.
+    local nb = vim.api.nvim_get_hl(0, { name = "Normal" })
+    if not (nb and nb.bg) then
+        return nil
+    end
     return { blend = bd.blend or 65, hl = bd.hl or "LvimUiBackdrop" }
 end
 
