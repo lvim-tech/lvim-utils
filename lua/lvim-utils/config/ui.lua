@@ -113,9 +113,9 @@ return {
     -- these defaults. The veil never takes focus and is torn down with the surface. `area`/`bottom` docks dim the
     -- editor ABOVE the dock (the dock stays bright on top).
     backdrop = {
-        float = { enabled = true, blend = 65, hl = "LvimUiBackdrop" },
-        area = { enabled = true, blend = 65, hl = "LvimUiBackdrop" },
-        bottom = { enabled = true, blend = 65, hl = "LvimUiBackdrop" },
+        float = { enabled = true, blend = 85, hl = "LvimUiBackdrop" },
+        area = { enabled = true, blend = 85, hl = "LvimUiBackdrop" },
+        bottom = { enabled = true, blend = 85, hl = "LvimUiBackdrop" },
     },
     -- Disable all completion sources (native, nvim-cmp, blink.cmp) for input popups
     disable_completion = true,

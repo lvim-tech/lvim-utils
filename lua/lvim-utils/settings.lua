@@ -329,7 +329,11 @@ function M.lcc_group()
             type = spec.type,
             label = spec.label,
             options = spec.options,
-            default = (spec.type == "bool") and spec.default or encode(spec.default),
+            -- The default the control-center applies when NOTHING is persisted MUST be the LIVE config value (which
+            -- `M.get` reads from `config.ui[root]`), NOT a hardcoded `spec.default`: config.lua is the source of
+            -- truth, so a user editing e.g. `config.ui.backdrop.float.blend` must win. A stale literal here would
+            -- let control-center overwrite the edited config with the old default on load (they can diverge).
+            default = M.get(spec),
             get = function()
                 return M.get(spec)
             end,
