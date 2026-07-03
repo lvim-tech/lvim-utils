@@ -54,7 +54,7 @@ local M = {}
 ---@field title_line? string         -- tabs (area): "border" (title in the top border, default) | "statusline" (publish to the chrome overlay)
 ---@field title_pos? string           -- title alignment: "left" (default) | "center" | "right"
 ---@field counter? string            -- tabs: "footer" (count in the bottom-right border, default) | "title" (count folded into the border-title)
----@field max_items? integer         -- tabs (docked): cap the content rows (it scrolls past the cap)
+---@field max_items? integer         -- select/multiselect: cap the VISIBLE list rows (a longer list scrolls past N); default config.ui.max_items
 ---@field area_height? integer       -- tabs (docked): the docked content row budget (default AREA_CAP); scrolls past it
 ---@field enter? boolean             -- false → open without focusing (cursor stays in the editor, e.g. hover)
 ---@field border? any                -- frame border override
@@ -122,6 +122,22 @@ end
 -- float's `max_items` scroll cap is irrelevant to a dock). A compact minibuffer height, like the area finder.
 local AREA_CAP = 16
 
+--- The NATURAL row count for a scrollable list panel: the item count, capped at `max_items` (per-call
+--- `opts.max_items`, else the shared `config.ui.max_items`) so a longer list settles at N VISIBLE rows and
+--- SCROLLS past them — the documented "maximum list rows shown before scrolling". Capping the panel's own
+--- natural height (not the container) means the frame adds its chrome on top, so exactly N list rows show
+--- (the picker does the same via its `max_rows`). `max_items` unset/≤0 ⇒ no cap (fit every item).
+---@param n integer
+---@param opts UiOpts
+---@return integer
+local function list_rows(n, opts)
+    local cap = opts.max_items or config.ui.max_items
+    if cap and cap > 0 then
+        return math.min(n, cap)
+    end
+    return n
+end
+
 --- Pick one item from a list — a 1-panel `frame` (the list) + a confirm/cancel footer. `<C-j>`
 --- descends into the footer (which scrolls to follow the selection on a narrow popup); the list shows
 --- its selection via cursorline. callback(confirmed, index, item).
@@ -181,7 +197,7 @@ function M.select(opts)
                 local suffix = (mark_current and i == current_idx) and CURRENT_SUFFIX or ""
                 w = math.max(w, util.dw((icon and icon .. " " or "") .. rows.item_label(it) .. suffix) + 4)
             end
-            return w, #items
+            return w, list_rows(#items, opts)
         end,
         render = function(width)
             local lines, hls = {}, {}
@@ -214,15 +230,16 @@ function M.select(opts)
 
     return frame.open({
         mode = "float",
-        position = opts.position, -- nil = centred; "cursor" anchors at the cursor (e.g. the code-action picker)
+        position = opts.position or config.ui.position, -- nil/"editor" = centred; "cursor" anchors at the cursor
         border = FRAME_BORDER,
         title = opts.title or "Select", -- a plain string → a single blue-tinted border-title text box
         title_pos = opts.title_pos or "center", -- the select title is CENTRED (matches the hover); override per-call
         panel_border = "none",
         size = {
             -- a given `width` is FIXED (e.g. a 0.9-wide prompt); else auto-fit to the items, capped at max_width
-            width = opts.width and { fixed = opts.width } or { auto = true, max = opts.max_width or 0.6 },
-            height = { auto = true, max = opts.max_height or 0.6 },
+            width = type(opts.width) == "number" and { fixed = opts.width }
+                or { auto = true, max = opts.max_width or config.ui.max_width or 0.6 },
+            height = { auto = true, max = opts.max_height or config.ui.max_height or 0.6 },
         },
         -- The list IS the data-content panel → the single-source content ring (CONTENT_BORDER →
         -- config.ui.content_border, resolved live). The footer button bar is a nav bar, not a block, so it
@@ -308,7 +325,7 @@ function M.multiselect(opts)
                 local icon = rows.item_icon(it)
                 w = math.max(w, util.dw((icon and icon .. " " or "") .. rows.item_label(it)) + 6)
             end
-            return w, #items
+            return w, list_rows(#items, opts)
         end,
         render = function(width)
             local lines, hls = {}, {}
@@ -909,7 +926,7 @@ function M.tabs(opts)
         title_pos = opts.title_pos, -- "left" (default) | "center" | "right" — title alignment
         counter = opts.counter,
         count = opts.title_count,
-        close_keys = opts.close_keys,
+        close_keys = opts.close_keys or config.ui.close_keys,
         keymaps = opts.keymaps,
         panel_border = "none",
         -- Docked: <C-k> off the top sector returns to the opener window; <C-j> off the bottom descends into
@@ -932,8 +949,15 @@ function M.tabs(opts)
                 return { height = shared.height or { auto = true, max = opts.area_height or AREA_CAP } }
             end
             return {
-                width = opts.width and { fixed = opts.width } or shared.width or { auto = true, max = 0.7 },
-                height = opts.height and { fixed = opts.height } or shared.height or { auto = true, max = 0.9 },
+                -- `type == number` (not truthy): a stray non-number `width`/`height` (e.g. an old `"auto"` string
+                -- from a consumer's popup config) would become `{ fixed = "auto" }` and crash `axis_size`; ignore it
+                -- and auto-fit instead. Caps fall back to the shared `config.ui.max_*`.
+                width = type(opts.width) == "number" and { fixed = opts.width }
+                    or shared.width
+                    or { auto = true, max = config.ui.max_width or 0.7 },
+                height = type(opts.height) == "number" and { fixed = opts.height }
+                    or shared.height
+                    or { auto = true, max = config.ui.max_height or 0.9 },
             }
         end)(),
         header = (#header_spec().bars > 0) and header_spec() or nil,
@@ -1169,15 +1193,17 @@ function M.info(content, opts)
         position = opts.position, -- nil = centred; "cursor" anchors at the cursor (e.g. hover), "win", …
         border = opts.border or FRAME_BORDER,
         title = opts.title ~= false and (opts.title or "Info") or nil, -- border-title, blue-tinted
-        close_keys = opts.close_keys,
+        close_keys = opts.close_keys or config.ui.close_keys,
         keymaps = opts.keymaps,
         panel_border = "none",
         -- A given `width` / `height` is FIXED (a clean rectangle — e.g. the LSP info viewer, whose folded
         -- height the consumer computes); else auto-fit to content, capped by `max_width` / `max_height`
         -- (fraction ≤ 1 or absolute count; default 0.7 / 0.85). A cursor-anchored hover passes a tight cap.
         size = {
-            width = opts.width and { fixed = opts.width } or { auto = true, max = opts.max_width or 0.7 },
-            height = opts.height and { fixed = opts.height } or { auto = true, max = opts.max_height or 0.85 },
+            width = type(opts.width) == "number" and { fixed = opts.width }
+                or { auto = true, max = opts.max_width or config.ui.max_width or 0.7 },
+            height = type(opts.height) == "number" and { fixed = opts.height }
+                or { auto = true, max = opts.max_height or config.ui.max_height or 0.85 },
         },
         -- The info viewer IS the data-content panel → the single-source content ring (CONTENT_BORDER →
         -- config.ui.content_border, resolved live). The `q close` footer is a nav bar, so it stays borderless.
