@@ -140,16 +140,24 @@ end
 --- with `a=p` does NOT render the placeholder image; the combined `a=T,U=1` command is required.) A local PNG
 --- is a single `a=T,U=1,t=f` command; in-memory pixels/bytes fold `a=T,U=1,c,r` into the first chunk. The
 --- image then renders wherever the placeholder cells (built by placement.lua) appear.
+---
+--- No placement id (`p=`) is sent: it defaults to 0. The placeholder cells carry the placement id in their
+--- UNDERLINE colour, but Neovim only emits that colour when the cell is actually underlined — so both the
+--- created placement AND the cells settle on 0, and they match. Pinning a non-zero `p` here would create a
+--- placement the cells (which still report 0) never reference — the image would not render (real bug seen
+--- with inline document images). Both the float viewer and inline rely on this default-0 match.
 ---@param img { id: integer, kind: string, path?: string, bytes?: string, rgba?: string, w: integer, h: integer }
 ---@param cols integer
 ---@param rows integer
 function M.show_virtual(img, cols, rows)
+    local place = { a = "T", U = 1, i = img.id, c = cols, r = rows }
     if img.kind == "png_file" and img.path then
-        cmd({ a = "T", U = 1, i = img.id, c = cols, r = rows, f = 100, t = "f" }, b64(img.path))
+        place.f, place.t = 100, "f"
+        cmd(place, b64(img.path))
     elseif img.kind == "rgba" and img.rgba then
-        transmit_data(img.id, img.rgba, 32, img.w, img.h, { a = "T", U = 1, c = cols, r = rows })
+        transmit_data(img.id, img.rgba, 32, img.w, img.h, place)
     elseif img.kind == "png_bytes" and img.bytes then
-        transmit_data(img.id, img.bytes, 100, 0, 0, { a = "T", U = 1, c = cols, r = rows })
+        transmit_data(img.id, img.bytes, 100, 0, 0, place)
     end
 end
 

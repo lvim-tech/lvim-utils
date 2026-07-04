@@ -22,9 +22,10 @@ M.msgarea = require("lvim-utils.msgarea")
 M.chrome = require("lvim-utils.chrome")
 M.picker = require("lvim-utils.picker")
 M.dashboard = require("lvim-utils.dashboard")
+M.image = require("lvim-utils.image")
 
 ---Setup lvim-utils.
----@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, colorcolumn?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table, dashboard?: table }
+---@param opts? { highlights?: table<string, table>, colors?: table, ui?: table, cursor?: table, colorcolumn?: table, gx?: table, notify?: table, cmdline?: table, input?: table, msgarea?: table, chrome?: table, fuzzy?: table, picker?: table, dashboard?: table, image?: table|false }
 function M.setup(opts)
     opts = opts or {}
 
@@ -109,6 +110,13 @@ function M.setup(opts)
 
     -- the start dashboard: `:LvimDashboard` + the empty-startup auto-open (no-op unless dashboard.enable).
     M.dashboard.setup()
+
+    -- image: terminal graphics (kitty/iTerm2/sixel/ueberzug) — the float VIEWER (`:LvimImage`), opening image
+    -- FILES as buffers (`nvim picture.png`), inline document images (`:LvimImageInline`), and terminal
+    -- detection. Its own config table (image/config) is merged in image.setup. `image = false` disables it.
+    if opts.image ~= false then
+        M.image.setup(opts.image)
+    end
 
     -- runtime UI-geometry settings (config.ui.size): restore persisted values from the shared store
     -- (control-center DB when present, else a JSON file) and register lvim-utils' own :LvimUtils config panel.

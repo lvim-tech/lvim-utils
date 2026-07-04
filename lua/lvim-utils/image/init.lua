@@ -35,10 +35,40 @@ function M.setup(opts)
         did_setup = true
         terminal.setup()
         require("lvim-utils.image.buf").setup() -- `nvim picture.png` shows the picture
+        require("lvim-utils.image.inline").setup() -- auto-enable inline document images (config.inline.enabled)
         api.nvim_create_user_command("LvimImage", function(a)
             M.show(a.args ~= "" and a.args or vim.fn.expand("%:p"))
         end, { nargs = "?", complete = "file", desc = "Show an image in a floating viewer" })
+        -- Toggle INLINE document-image rendering for the current buffer (markdown / html / latex).
+        api.nvim_create_user_command("LvimImageInline", function(a)
+            local inline = require("lvim-utils.image.inline")
+            local buf = api.nvim_get_current_buf()
+            local action = ({ on = inline.enable, off = inline.disable, toggle = inline.toggle })[a.args]
+                or inline.toggle
+            action(buf)
+        end, {
+            nargs = "?",
+            complete = function()
+                return { "toggle", "on", "off" }
+            end,
+            desc = "Toggle inline image rendering in the current document",
+        })
     end
+end
+
+--- Toggle inline document-image rendering for a buffer (default: current). Also `:LvimImageInline`.
+---@param buf? integer
+function M.inline_toggle(buf)
+    ensure()
+    require("lvim-utils.image.inline").toggle(buf)
+end
+
+--- Open the float viewer for the inline image on the cursor's line (default buffer: current). Bound to
+--- `config.inline.open_key` inside a buffer while inline rendering is on.
+---@param buf? integer
+function M.open_under_cursor(buf)
+    ensure()
+    require("lvim-utils.image.inline").open_under_cursor(buf)
 end
 
 --- Render `src` into an EXISTING buffer + window (centred, fit) — the shared entry point for the file-buffer

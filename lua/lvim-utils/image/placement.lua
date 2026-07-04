@@ -5,8 +5,9 @@
 -- the image whenever Neovim repaints those cells — scroll/resize tracking is free. Terminals without
 -- placeholder support (wezterm) fall back to a CURSOR-POSITIONED placement re-issued on redraw.
 --
--- This first increment targets the standalone float VIEWER (a dedicated scratch buffer we own); inline
--- document placement (extmarks over someone else's buffer) is layered on later.
+-- Two placement targets share the grid: the standalone float VIEWER (a scratch buffer we own, whose lines
+-- become the grid — `M.new`) and INLINE document images (extmark `virt_lines` over the user's own buffer,
+-- never touching its text — `M.inline`).
 --
 ---@module "lvim-utils.image.placement"
 
@@ -172,6 +173,72 @@ end
 function Placement:refresh()
     if self.mode == "fallback" then
         self:render_fallback()
+    end
+end
+
+-- ── inline document placement (virtual lines over someone else's buffer) ──────
+-- Unlike the viewer path above (which OWNS a scratch buffer and fills its lines), inline images live inside
+-- the user's markdown/latex/html buffer. We must not touch its text — so the placeholder grid is anchored as
+-- an extmark's `virt_lines` BELOW the image's source line. The grid tracks edits (extmarks move) and the
+-- terminal repaints the image wherever those virtual cells render, so scrolling needs no re-issue.
+
+---@class lvim-utils.image.InlinePlacement
+---@field img lvim-utils.image.Image
+---@field buf integer
+---@field ns integer
+---@field extmark integer
+---@field pid integer
+---@field cols integer
+---@field rows integer
+local Inline = {}
+Inline.__index = Inline
+
+--- Place `img` inline as virtual lines under source line `row` (0-based) of `buf`, in namespace `ns`. The
+--- image is transmitted + given its virtual placement only once (gated on `img.sent`); on a reconcile the
+--- SAME `pid` re-anchors the still-alive placement, so no re-transmit. `max_w`/`max_h` bound the cell box;
+--- `pid` must be STABLE per image across reconciles (the inline manager keeps it). Returns nil if the image
+--- has no pixel size yet.
+---@param img lvim-utils.image.Image
+---@param opts { buf: integer, ns: integer, row: integer, pid: integer, max_w: integer, max_h: integer }
+---@return lvim-utils.image.InlinePlacement|nil
+function M.inline(img, opts)
+    if not (img.w and img.h and img.w > 0 and img.h > 0) then
+        return nil
+    end
+    local cols, rows = img:cells(opts.max_w, opts.max_h)
+    if not img.sent then
+        kitty.show_virtual(img, cols, rows)
+        img.sent = true
+    end
+
+    -- Image id in the foreground RGB (matches the float viewer). The `sp` carries the placement id, but with
+    -- no underline it is not emitted — so the cells reference placement 0, exactly the placement show_virtual
+    -- created. `nocombine` keeps the diacritics from inheriting other highlights.
+    local hl = "LvimImage_" .. img.id
+    api.nvim_set_hl(0, hl, { fg = img.id, sp = opts.pid, nocombine = true })
+    local vlines = {}
+    for r = 0, rows - 1 do
+        local parts = {}
+        for c = 0, cols - 1 do
+            parts[#parts + 1] = cell(r, c)
+        end
+        vlines[#vlines + 1] = { { table.concat(parts), hl } }
+    end
+    local extmark = api.nvim_buf_set_extmark(opts.buf, opts.ns, opts.row, 0, {
+        virt_lines = vlines,
+        virt_lines_above = false,
+    })
+    return setmetatable(
+        { img = img, buf = opts.buf, ns = opts.ns, extmark = extmark, pid = opts.pid, cols = cols, rows = rows },
+        Inline
+    )
+end
+
+--- Remove just this placement's virtual lines (the extmark). Does NOT delete the kitty image — the inline
+--- manager owns image lifetime and re-places the same (still-transmitted) image on the next reconcile.
+function Inline:clear()
+    if api.nvim_buf_is_valid(self.buf) then
+        pcall(api.nvim_buf_del_extmark, self.buf, self.ns, self.extmark)
     end
 end
 

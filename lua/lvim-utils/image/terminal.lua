@@ -260,15 +260,15 @@ function M.setup()
     state.term = term_from_env()
 
     if state.in_tmux then
-        -- Wrap every sequence as `DCS tmux; <ESC doubled> ST` and allow it through the multiplexer.
-        pcall(vim.fn.system, { "tmux", "set", "-p", "allow-passthrough", "all" })
+        -- Wrap every sequence as `DCS tmux; <ESC doubled> ST` and allow it through the multiplexer. Set the
+        -- transform NOW (so the deferred queries are wrapped); the `allow-passthrough` toggle is applied async
+        -- below — it costs a process spawn and is only needed by the time an image actually renders.
         state.transform = function(s)
             return "\27Ptmux;" .. s:gsub("\27", "\27\27") .. "\27\\"
         end
     end
 
     recompute_caps()
-    M.cell_size() -- prime from ioctl
 
     api.nvim_create_autocmd("TermResponse", {
         group = api.nvim_create_augroup("LvimImageTerm", { clear = true }),
@@ -276,10 +276,23 @@ function M.setup()
             on_term_response(type(ev.data) == "table" and (ev.data.sequence or ev.data) or ev.data)
         end,
     })
-    -- Fire the queries; replies arrive on TermResponse. XTVERSION (name), text-area pixels, DA1 (sixel).
-    query("\27[>q")
-    query("\27[14t")
-    query("\27[c")
+
+    -- DEFER the blocking terminal I/O off the startup path: enabling tmux passthrough shells out, and priming
+    -- the cell size + firing the capability queries resolve the controlling tty (a process spawn) and write to
+    -- it. None is needed until the first image renders, so a `vim.schedule` keeps `setup()` (and the plugin's
+    -- measured load time) cheap — env-based caps are already set above, and the queries only refine them.
+    vim.schedule(function()
+        if state.in_tmux then
+            pcall(function()
+                vim.system({ "tmux", "set", "-p", "allow-passthrough", "all" }) -- async: fire and forget
+            end)
+        end
+        M.cell_size() -- prime from ioctl (refined by the CSI-14t reply on TermResponse)
+        -- Fire the queries; replies arrive on TermResponse. XTVERSION (name), text-area pixels, DA1 (sixel).
+        query("\27[>q")
+        query("\27[14t")
+        query("\27[c")
+    end)
 end
 
 --- The detected capabilities (best current estimate).

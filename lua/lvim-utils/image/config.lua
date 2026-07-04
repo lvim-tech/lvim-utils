@@ -15,8 +15,17 @@
 ---@field detail_label string                  palette accent NAME for detail-row labels (e.g. "blue")
 ---@field detail_value string                  palette accent NAME for detail-row values (e.g. "yellow")
 ---@field decode lvim-utils.image.Config.Decode
+---@field inline lvim-utils.image.Config.Inline
 ---@field icons { image: string, math: string, chart: string, error: string }  Nerd-font anchor glyphs
 ---@field debug { request: boolean, decode: boolean, placement: boolean }
+
+---@class lvim-utils.image.Config.Inline
+---@field enabled boolean     auto-render inline images when a document buffer of a `filetypes` type opens
+---@field filetypes string[]  document filetypes that auto-enable inline rendering (when `enabled`)
+---@field max_width number    inline image cell width: fraction of the window (≤ 1) or absolute cells
+---@field max_height number   inline image cell-height CAP: fraction of the window (≤ 1) or absolute cells
+---@field debounce integer    ms after an edit before the placements are reconciled
+---@field open_key string     buffer-local key (while inline is on) that opens the viewer for the image under the cursor
 
 ---@class lvim-utils.image.Config.Decode
 ---@field libvips string|nil   explicit path to libvips.so (nil = auto-discover common soname)
@@ -67,6 +76,25 @@ return {
         -- If libvips cannot be loaded, fall back to piping `magick`/`vips` stdout into memory (still no disk
         -- cache file). Off keeps the module strictly libvips-only + PNG-passthrough.
         fallback = true,
+    },
+    -- Inline DOCUMENT images (markdown / html / latex): images are drawn as virtual lines under their source
+    -- line. Rendering never edits the buffer text. Toggle per buffer with `:LvimImageInline`.
+    inline = {
+        -- Auto-render inline images when a document buffer of a `filetypes` type opens. `false` = purely
+        -- on-demand (nothing renders until you run `:LvimImageInline on` in a buffer).
+        enabled = true,
+        -- Document filetypes that auto-enable inline rendering (when `enabled`). Markdown/HTML/LaTeX have
+        -- shipped treesitter queries; other filetypes only match if a query exists for their language.
+        filetypes = { "markdown", "html", "tex", "latex", "rmd", "quarto", "vimwiki", "org" },
+        -- Cell box for an inline image: width as a FRACTION of the window (≤ 1) or absolute cells; height
+        -- CAPPED (fraction of the window ≤ 1, or absolute cells) so a tall image can't push the whole document.
+        max_width = 0.8,
+        max_height = 30,
+        -- Debounce (ms) after an edit before placements are reconciled — a burst of typing rebuilds once.
+        debounce = 150,
+        -- Buffer-local key (active only while inline is ON) that opens the full float viewer for the image on
+        -- the cursor's line; off an image line it replays the key's native action, so it stays usable.
+        open_key = "<CR>",
     },
     -- Single-width Nerd-font glyphs used as inline anchors when an image is rendered below its source line,
     -- or to mark a decode error.
