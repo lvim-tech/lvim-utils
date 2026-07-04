@@ -201,7 +201,7 @@ end
 ---@field empty_preview? string  the "nothing to preview" placeholder bar text (default "Nothing to preview")
 ---@field title? string  the finder title — the chassis native centered border-title
 ---@field icon? string  an optional leading glyph fronting the title
----@field title_line? string  (area) title placement: "border" (default — the top border) | "statusline" (the centralized chrome overlay)
+---@field title_line? string  title placement: "row" (a top content row, default) | "statusline" (the centralized chrome overlay) | "border" (opt-in native border-title)
 ---@field counter? string  match-count placement: "footer" (default — the bottom-right border) | "title" (folded into the border-title)
 ---@field prompt? string  the query prompt prefix (default "➤ ")
 ---@field keys? { key: string, name?: string, run: fun(item: any, close: fun()) }[]  extra row actions (split, code action…); `name` adds a footer hint
@@ -1081,7 +1081,7 @@ function M.open(opts)
         preview_heights = preview_provider and (opts.preview_heights or pkcfg.preview_heights) or nil, -- { horizontal, vertical }
         lock_keys = true, -- modal list: only the bound keys act; every other key is a no-op (the editable preview is exempt)
         title = title_box, -- the chassis native centered border-title
-        title_line = opts.title_line, -- area title placement: "border" (default) | "statusline" (chassis overlay)
+        title_line = opts.title_line, -- title placement: "row" (default) | "statusline" (chassis overlay) | "border" (opt-in)
         count = count_fn, -- the live match / pool count → the chassis border counter (default bottom-right footer)
         counter = opts.counter, -- count placement: "footer" (default) | "title"
         -- The container border is CONFIG-DRIVEN on EVERY layout (float + docked) — `surface.FRAME_BORDER`

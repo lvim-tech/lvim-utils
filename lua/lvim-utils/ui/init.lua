@@ -51,7 +51,7 @@ local M = {}
 ---@field layout? string             -- tabs: "float" (default centred) | "area" (cmdline/minibuffer dock) | "bottom"
 ---@field tab_selector? integer|string -- tabs: initial active tab — an index or a tab `name`
 ---@field title_count? fun(): integer|table  -- tabs: a live count for the chassis border counter — a total `number` or `{ current, total }` (placed per `counter`; default the bottom-right border-footer)
----@field title_line? string         -- tabs (area): "border" (title in the top border, default) | "statusline" (publish to the chrome overlay)
+---@field title_line? string         -- title placement: "row" (a top content row, default) | "statusline" (publish to the chrome overlay) | "border" (opt-in native border-title)
 ---@field title_pos? string           -- title alignment: "left" (default) | "center" | "right"
 ---@field counter? string            -- tabs: "footer" (count in the bottom-right border, default) | "title" (count folded into the border-title)
 ---@field max_items? integer         -- select/multiselect: cap the VISIBLE list rows (a longer list scrolls past N); default config.ui.max_items

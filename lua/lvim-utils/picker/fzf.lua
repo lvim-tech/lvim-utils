@@ -245,7 +245,7 @@ end
 ---@class LvimFzfOpts
 ---@field title? string  the finder title — the chassis native centered border-title
 ---@field icon? string  an optional leading glyph fronting the title
----@field title_line? string  (area) title placement: "border" (default — the top border) | "statusline" (the centralized chrome overlay)
+---@field title_line? string  title placement: "row" (a top content row, default) | "statusline" (the centralized chrome overlay) | "border" (opt-in native border-title)
 ---@field counter? string  match-count placement: "footer" (default — the bottom-right border) | "title" (folded into the border-title)
 ---@field preview_side? string  where the preview panel sits: "right" (default) | "left" | "above" | "below"
 ---@field preview_heights? table  managed dock heights `{ horizontal, vertical }`
@@ -277,7 +277,23 @@ function M.open(opts)
     -- place — its docked area is released first, instead of a new finder stacking above the old one.
     source.close_active()
 
-    local maxr = opts.max_rows or 15
+    -- List/preview row cap. DOCKED (area/bottom) stays compact (15). FLOAT sizes the cap to the CONFIGURED
+    -- float height so a full result set fills it up to `config.ui.size.float.height` — a fixed 15 left an
+    -- auto-fit (height_auto) float capped at ~20 rows, never reaching the 0.9 the user asked for. The cap is
+    -- `target - 5`: content_h = title+air (2) + footer air+bar (2) + the fzf prompt row (1) + match rows, and
+    -- the side-only content border adds no vertical rows — so at `maxr = target - 5` a full list makes
+    -- content_h reach exactly `target`. Auto-fit still shrinks for few results; the surface clamps any
+    -- overshoot at the height cap (fzf scrolls the remainder). `opts.max_rows` overrides either way.
+    local maxr
+    if opts.max_rows then
+        maxr = opts.max_rows
+    elseif opts.layout == "float" then
+        local fh = ((config.ui.size or {}).float or {}).height or 0.8
+        local target = fh <= 1 and math.floor(vim.o.lines * fh) or math.floor(fh)
+        maxr = math.max(5, target - 5)
+    else
+        maxr = 15
+    end
     local empty_preview = opts.empty_preview or (config.picker or {}).empty_preview or "Nothing to preview"
     local parse = opts.parse
         or function(line)
@@ -1313,7 +1329,7 @@ function M.open(opts)
         zindex = (host and 210) or (area and 200) or nil,
         header_air = false,
         title = title_box, -- the chassis native centered border-title
-        title_line = opts.title_line, -- area title placement: "border" (default) | "statusline" (chassis overlay)
+        title_line = opts.title_line, -- title placement: "row" (default) | "statusline" (chassis overlay) | "border" (opt-in)
         count = count_fn, -- the live fzf match / total count → the chassis border counter (default footer)
         counter = opts.counter, -- count placement: "footer" (default) | "title"
         -- The container border is CONFIG-DRIVEN on EVERY layout (float + docked) — `surface.FRAME_BORDER`

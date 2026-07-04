@@ -480,8 +480,8 @@ end
 --- Build a band stack from `cfg.header` / `cfg.footer`. Each `bar` is a ui.bar `{ items, align, chevrons,
 --- on_change, on_select }` OR a meta line `{ text = "...", hl }`. Internally a bar band keeps its element
 --- list in `band.buttons` (the field name the machinery uses — it already holds buttons + separators).
---- The header leads with 1 blank "air" row (under the border-title); the footer is wrapped in 1 blank row
---- ABOVE and 1 BELOW its content (so the action bar breathes off the bottom border too) — per the UI canon.
+--- The header leads with 1 blank "air" row (under the border-title); the footer gets 1 blank "air" row
+--- ABOVE its content (so the action bar breathes off the center) — per the UI canon.
 ---@param spec table|nil
 ---@param footer boolean
 ---@return table[]
@@ -583,7 +583,7 @@ end
 
 -- ─── title / counter placement (the single title path) ────────────────────────
 -- The chassis owns WHERE a frame's title and item-count render, driven by two shared cfg keys (resolved in
--- M.open from the surface opts → `config.ui` default): `title_line` ("border" | "statusline") and `counter`
+-- M.open from the surface opts → `config.ui` default): `title_line` ("row" | "statusline" | "border") and `counter`
 -- ("title" | "footer"). These helpers are the ONE place the native border-title, the native border-FOOTER
 -- counter, and the chrome-overlay title are built — consumers only supply `title` + an optional `count`.
 
