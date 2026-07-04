@@ -269,13 +269,16 @@ end
 function M.open(opts)
     opts = opts or {}
     opts.layout = opts.layout or (config.picker or {}).layout or "area"
+    -- The editor window the finder opened FROM — captured BEFORE `close_active()` below, which tears down any
+    -- docked finder still open and hands focus to some OTHER window (e.g. the first one). Capturing it after that
+    -- made "open in split" split the wrong window (the reported bug); the invoking window is the current one now.
+    local opener = api.nvim_get_current_win()
     -- Close whatever finder is open (EITHER backend, via the shared registry) so this one replaces it in
     -- place — its docked area is released first, instead of a new finder stacking above the old one.
     source.close_active()
 
     local maxr = opts.max_rows or 15
     local empty_preview = opts.empty_preview or (config.picker or {}).empty_preview or "Nothing to preview"
-    local opener = api.nvim_get_current_win()
     local parse = opts.parse
         or function(line)
             return { path = line } -- a plain file line: the path IS the location, no separate message text
