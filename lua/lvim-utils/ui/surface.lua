@@ -137,7 +137,12 @@ local function apply_backdrop_focus()
     end
     local st = ab.state
     local cur = api.nvim_get_current_win()
-    local on_surface = api.nvim_win_is_valid(cur) and vim.bo[api.nvim_win_get_buf(cur)].filetype == FRAME_FT
+    -- A window belongs to the surface if it carries the `lvim_frame` WINDOW marker (set on the container AND
+    -- every panel) — test THAT, not the buffer filetype, because a consumer may REPLACE a panel buffer's
+    -- filetype: the fzf picker swaps a `lvim-picker-fzf` terminal into its panel, which read as "not a surface
+    -- window" under the old filetype check and wrongly dropped the veil (no backdrop behind any picker).
+    local on_surface = api.nvim_win_is_valid(cur)
+        and (vim.w[cur].lvim_frame == true or vim.bo[api.nvim_win_get_buf(cur)].filetype == FRAME_FT)
     if on_surface then
         if not (st.backdrop_win and api.nvim_win_is_valid(st.backdrop_win)) then
             open_veil_win(st, ab.hl, ab.blend, ab.zindex)
