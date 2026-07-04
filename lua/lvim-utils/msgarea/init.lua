@@ -1424,7 +1424,7 @@ function M.setup(user_cfg)
         local release_fn = function()
             M.segment(seg_name):release()
         end
-        return { host = host_fn, release = release_fn }
+        return { host = host_fn, release = release_fn, on_escape_below = M.focus_messages }
     end)
 end
 

@@ -3492,10 +3492,12 @@ local function open_native_split(state)
     })
 end
 
---- What a host provider binds a cmdline surface to: a reserve `host` function + a `release` teardown closure.
+--- What a host provider binds a cmdline surface to: a reserve `host` function, a `release` teardown closure,
+--- and (optional) the `on_escape_below` action (descend from the dock into the zone's content below it).
 ---@class lvim-utils.ui.HostBinding
 ---@field host fun(h: integer): table  reserve `h` rows in the host zone; returns the placement rect
 ---@field release fun()                release the reserved rows (the zone shrinks back / closes)
+---@field on_escape_below? fun()       descend from the dock into the zone below (the C-j-off-bottom action)
 
 --- A host provider: given a surface `state` + its `cfg`, returns a HostBinding — or `nil` to skip hosting
 --- (the dock then grows cmdheight itself).
@@ -3670,6 +3672,10 @@ function M.open(cfg)
             cfg.zindex = 210
             cfg.host = bind.host
             state._host_release = bind.release
+            -- Descend into the zone below the dock (a consumer's explicit on_escape_below still wins).
+            if cfg.on_escape_below == nil then
+                cfg.on_escape_below = bind.on_escape_below
+            end
         end
     end
     -- A `native` split is a REAL window (not a float over a container) — for a navigable persistent side

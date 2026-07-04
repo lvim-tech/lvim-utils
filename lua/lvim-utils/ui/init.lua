@@ -613,15 +613,6 @@ function M.tabs(opts)
             end
         end
     end
-    -- (HOSTED area) When the msgarea zone is on, an `area` panel HOSTS in it (reserves rows above the messages
-    -- instead of growing cmdheight itself) — the same wiring the area finder uses.
-    local msgarea = nil
-    if area then
-        local ok_ma, m = pcall(require, "lvim-utils.msgarea")
-        if ok_ma and m.is_enabled and m.is_enabled() then
-            msgarea = m
-        end
-    end
 
     -- Split a tab's rows into content (form center) and action rows (footer buttons). An `action` row that
     -- owns `children` is an expandable accordion SECTION, not a leaf button — it stays in the content body
@@ -892,35 +883,16 @@ function M.tabs(opts)
         static_bars[#static_bars + 1] = { text = "" } -- 1 blank "air" row between the tab bar and the toolbars
     end
 
-    -- (HOSTED area) reserve our rows ABOVE the messages in the msgarea zone (priority 5) — the host grows ITS
-    -- cmdheight and hands us the rect; we follow it via `reposition`. Else the surface grows cmdheight itself.
-    -- (`st` is forward-declared near the top so the host's + footer's deferred callbacks reach the frame state.)
-    local host = msgarea
-            and function(h)
-                local seg = msgarea.segment("lvim-utils-tabs-host", { priority = 5 })
-                seg:configure({
-                    on_descend = function()
-                        if st and st.focus_sector then
-                            st.focus_sector(1)
-                        end
-                        return true
-                    end,
-                })
-                return seg:reserve(h, function(rect)
-                    if st and st.reposition then
-                        st.reposition(rect)
-                    end
-                end)
-            end
-        or nil
-
+    -- (HOSTED area) An `area` panel homes itself in the msgarea zone via the surface engine's auto-host
+    -- provider (position="cmdline" + no explicit host): the zone reserves our rows above the messages and the
+    -- surface follows the rect. The engine also wires the descend (`on_escape_below`) + release — ui never
+    -- references msgarea. `area` alone drives the zindex hint below; the surface bumps it to 210 when hosted.
     st = frame.open({
         mode = "float",
         -- Docked: "area" sits IN the cmdline region (grows cmdheight, chrome above), "bottom" floats over the
         -- bottom rows; `host` re-homes an area panel INSIDE the msgarea zone (above the messages). Float = nil.
         position = area and "cmdline" or (bottom and "bottom") or nil,
-        host = host,
-        zindex = (host and 210) or (area and 200) or nil,
+        zindex = (area and 200) or nil, -- the surface bumps a hosted area dock to 210 in its auto-host block
         header_air = docked and false or nil,
         -- The canonical full " " ring on EVERY mode; the chassis owns the title placement: a native centered
         -- border-title in the top border by default, or (area + `title_line="statusline"`) the chrome overlay.
@@ -941,9 +913,8 @@ function M.tabs(opts)
                 vim.api.nvim_set_current_win(opener)
             end
         end or nil,
-        on_escape_below = (area and msgarea) and function()
-            return msgarea.focus_messages()
-        end or nil,
+        -- on_escape_below (descend into the messages) is wired by the surface auto-host provider for a hosted
+        -- area dock — ui no longer references msgarea.
         -- Size DEFAULTS from the SHARED `config.ui.size` (ui.size(layout)), so a change in :LvimUtils / the
         -- control-center's Utils tab resizes every ui.tabs consumer (the control center, the :LvimUtils panel,
         -- …). An explicit per-call `opts.width` / `opts.height` / `opts.area_height` still overrides. Docked: the
@@ -999,14 +970,8 @@ function M.tabs(opts)
                     require("lvim-utils.chrome.overlay").clear()
                 end)
             end
-            -- (HOSTED area) release our reserved rows so the msgarea zone shrinks back / closes — else the
-            -- area stays open after the content is gone (the surface only restores cmdheight for the UNHOSTED
-            -- case; a hosted reserve must be released by us, like the picker does).
-            if msgarea then
-                pcall(function()
-                    msgarea.segment("lvim-utils-tabs-host"):release()
-                end)
-            end
+            -- (HOSTED area) the reserved zone rows are released by the surface engine (its `state._host_release`,
+            -- set by the auto-host provider) — ui no longer releases them itself.
             if not done then
                 vim.schedule(function()
                     cb(false)
