@@ -31,6 +31,10 @@ end
 
 local M = {}
 
+-- Monotonic counter for auto-host reserve segments — one per hostless `position="cmdline"` surface this zone
+-- homes for the surface engine (see the host provider registered in `M.setup`).
+local host_seq = 0
+
 ---@class LvimMsgAreaMsg
 ---@field text string
 ---@field level integer
@@ -1386,6 +1390,42 @@ function M.setup(user_cfg)
     end
     -- Turn on the opt-in source integrations (blink.cmp, …) per `cfg.integrations`.
     require("lvim-utils.msgarea.integrations").setup(cfg)
+
+    -- Register THIS zone as the surface engine's auto-host provider: a hostless `position="cmdline"` dock
+    -- homes itself in the zone. The dependency is INVERTED — the surface never requires msgarea; it just calls
+    -- the provider we register here. The provider returns the reserve `host` fn + a release closure, or nil
+    -- when the zone is off (the dock then grows cmdheight itself). One reserve segment per hostless surface.
+    require("lvim-utils.ui.surface").set_host_provider(function(state, scfg)
+        if not M.is_enabled() then
+            return nil
+        end
+        host_seq = host_seq + 1
+        local seg_name = "lvim-surface-host-" .. host_seq
+        local host_fn = function(h)
+            local seg = M.segment(seg_name, { priority = 5 })
+            seg:configure({
+                on_descend = function()
+                    if state.focus_sector then
+                        state.focus_sector(1)
+                    end
+                    return true
+                end,
+            })
+            -- stacked preview (above/below) lays out two panel ROWS → reserve up to max_height*2; a single
+            -- panel / side-by-side is one row → the plain max_height cap.
+            local side = state.preview_side or scfg.preview_side
+            local rows = (side == "above" or side == "below") and 2 or 1
+            return seg:reserve(h, function(rect)
+                if state.reposition then
+                    state.reposition(rect)
+                end
+            end, rows)
+        end
+        local release_fn = function()
+            M.segment(seg_name):release()
+        end
+        return { host = host_fn, release = release_fn }
+    end)
 end
 
 return M

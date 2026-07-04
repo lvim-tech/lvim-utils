@@ -3334,10 +3334,8 @@ local function close(state)
         pcall(api.nvim_set_current_win, state.origin)
     end
     cursor.update() -- the frame's hide-cursor buffers are gone → show the cursor in the editor again
-    if state._host_seg then -- release our auto-hosted msgarea rows so the zone shrinks back (or closes)
-        pcall(function()
-            require("lvim-utils.msgarea").segment(state._host_seg):release()
-        end)
+    if state._host_release then -- release our auto-hosted zone rows so it shrinks back (or closes)
+        pcall(state._host_release)
     end
     if area_current == state then -- this area dock is gone; the zone is free for the next
         area_current = nil
@@ -3494,9 +3492,20 @@ local function open_native_split(state)
     })
 end
 
---- Monotonic counter for auto-host segment names (one msgarea reserve per hostless cmdline surface).
----@type integer
-local host_seq = 0
+--- What a host provider binds a cmdline surface to: a reserve `host` function + a `release` teardown closure.
+---@class lvim-utils.ui.HostBinding
+---@field host fun(h: integer): table  reserve `h` rows in the host zone; returns the placement rect
+---@field release fun()                release the reserved rows (the zone shrinks back / closes)
+
+--- A host provider: given a surface `state` + its `cfg`, returns a HostBinding — or `nil` to skip hosting
+--- (the dock then grows cmdheight itself).
+---@alias lvim-utils.ui.HostProvider fun(state: table, cfg: table): lvim-utils.ui.HostBinding?
+
+-- The auto-host provider for a `position="cmdline"` surface. Registered by the msgarea zone (via
+-- M.set_host_provider) so the surface ENGINE never references the zone — the dependency is inverted, so
+-- ui has no coupling to msgarea. nil ⇒ no zone registered ⇒ a hostless cmdline dock grows cmdheight itself.
+---@type lvim-utils.ui.HostProvider?
+local host_provider = nil
 
 --- Open a frame.
 ---@param cfg table  the frame config (see the module header)
@@ -3652,33 +3661,15 @@ function M.open(cfg)
     -- hostless `cmdline` dock left at a lower zindex renders BEHIND the zone (mis-placed, half-height). The
     -- closures read state.reposition / state.focus_sector / state.preview_side LAZILY (assigned in open_windows,
     -- below), so at the initial reserve they may be nil — the guarded calls simply no-op until they exist.
-    if cfg.position == "cmdline" and cfg.host == nil then
-        local ok_ma, ma = pcall(require, "lvim-utils.msgarea")
-        if ok_ma and type(ma.is_enabled) == "function" and ma.is_enabled() then
-            host_seq = host_seq + 1
-            local seg_name = "lvim-surface-host-" .. host_seq
-            state._host_seg = seg_name
+    -- Ask the registered host provider (the msgarea zone) to home this cmdline dock in its zone. The provider
+    -- returns a `host` fn + a `release` closure (or nil to skip); the surface engine stays zone-agnostic.
+    -- Hosting must sit ABOVE the zone's own panels, so force zindex 210 when a host is supplied.
+    if cfg.position == "cmdline" and cfg.host == nil and host_provider then
+        local bind = host_provider(state, cfg)
+        if bind and bind.host then
             cfg.zindex = 210
-            cfg.host = function(h)
-                local seg = ma.segment(seg_name, { priority = 5 })
-                seg:configure({
-                    on_descend = function()
-                        if state.focus_sector then
-                            state.focus_sector(1)
-                        end
-                        return true
-                    end,
-                })
-                -- stacked preview (above/below) lays out two panel ROWS → reserve up to max_height*2; a single
-                -- panel / side-by-side is one row → the plain max_height cap.
-                local side = state.preview_side or cfg.preview_side
-                local rows = (side == "above" or side == "below") and 2 or 1
-                return seg:reserve(h, function(rect)
-                    if state.reposition then
-                        state.reposition(rect)
-                    end
-                end, rows)
-            end
+            cfg.host = bind.host
+            state._host_release = bind.release
         end
     end
     -- A `native` split is a REAL window (not a float over a container) — for a navigable persistent side
@@ -3689,6 +3680,15 @@ function M.open(cfg)
         open_windows(state)
     end
     return state
+end
+
+--- Register the auto-host provider for `position="cmdline"` surfaces — called ONCE by the msgarea zone so
+--- the surface engine can home a cmdline dock in the zone without ever requiring it (inverted dependency).
+--- `fn(state, cfg)` returns `{ host, release }` — the `host` reserve function + a teardown closure — or nil
+--- to skip hosting (the dock then grows cmdheight on its own).
+---@param fn lvim-utils.ui.HostProvider
+function M.set_host_provider(fn)
+    host_provider = fn
 end
 
 return M

@@ -26,7 +26,6 @@ local form = require("lvim-utils.ui.form")
 local rows = require("lvim-utils.ui.rows")
 local util = require("lvim-utils.ui.util")
 local config = require("lvim-utils.config")
-local overlay = require("lvim-utils.chrome.overlay")
 
 local M = {}
 
@@ -994,8 +993,10 @@ function M.tabs(opts)
             ),
         on_close = function()
             if docked then
+                -- Clear the statusline title overlay if the chrome module is present. Loaded lazily + guarded
+                -- so ui does not hard-depend on chrome (post-split: chrome → lvim-hud; ui works without it).
                 pcall(function()
-                    overlay.clear()
+                    require("lvim-utils.chrome.overlay").clear()
                 end)
             end
             -- (HOSTED area) release our reserved rows so the msgarea zone shrinks back / closes — else the
