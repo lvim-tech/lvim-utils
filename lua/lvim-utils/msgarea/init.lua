@@ -1426,6 +1426,19 @@ function M.setup(user_cfg)
         end
         return { host = host_fn, release = release_fn, on_escape_below = M.focus_messages }
     end)
+
+    -- Zone hooks: a docked consumer (the area picker) coalesces its teardown+rebuild into one reflow via
+    -- `surface.zone_handoff` — which delegates here. Guarded by is_enabled so it no-ops (just runs fn) when the
+    -- zone is off. The surface never references msgarea; it just calls the hook we register.
+    require("lvim-utils.ui.surface").set_zone_hooks({
+        handoff = function(fn)
+            if M.is_enabled() then
+                M.handoff(fn)
+            else
+                fn()
+            end
+        end,
+    })
 end
 
 return M

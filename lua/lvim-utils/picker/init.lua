@@ -248,9 +248,6 @@ function M.open(opts)
         end,
     }
     local opener = api.nvim_get_current_win() -- the editor window the finder opened from (for the top-edge escape)
-    ---@type table?  the msgarea module when this finder HOSTS in its zone (area + zone enabled); else nil. Set
-    --- below at open; the NORMAL-mode list `<C-j>` uses it to descend into the messages composed below us.
-    local msgarea = nil
 
     -- Every highlight group is configurable + shared via `config.picker.hl` (fall back to the built-in
     -- tint-canon / peek groups).
@@ -906,15 +903,10 @@ function M.open(opts)
     local area = opts.layout == "area"
     local docked = bottom or area
 
-    -- (HOSTED area) Detect early (before the footer + list keys reference it): when the msgarea zone is on, an
-    -- `area` finder HOSTS in it (reserves rows above the messages, which compose below). Gates the footer
-    -- `C-j msgs` hint, the NORMAL-mode `<C-j>` descend, and the `host` reserve wiring at open.
-    if area then
-        local ok_ma, m = pcall(require, "lvim-utils.msgarea")
-        if ok_ma and m.is_enabled and m.is_enabled() then
-            msgarea = m
-        end
-    end
+    -- (HOSTED area) An `area` finder homes in the msgarea zone via the surface engine's auto-host provider
+    -- (position="cmdline" + no explicit host): the zone reserves rows above the messages, the surface follows
+    -- the rect, and the engine wires the descend (`on_escape_below`) + release. The picker never references
+    -- msgarea; `area` alone gates the `C-j msgs` footer hint below.
     -- preview side: where the preview panel sits relative to the list. right/left → side-by-side; below/
     -- above → stacked (the surface grows its height — see ui.surface `direction = "vertical"`).
     local side = opts.preview_side or "right"
@@ -1019,7 +1011,7 @@ function M.open(opts)
         end
     end
     footer_items[#footer_items + 1] = { key = "Esc", name = "normal" }
-    if msgarea then -- (HOSTED) NORMAL-mode <C-j> descends into the messages composed below the finder
+    if area then -- (HOSTED area) NORMAL-mode <C-j> descends into the messages composed below the finder
         footer_items[#footer_items + 1] = { key = "C-j", name = "msgs" }
     end
     footer_items[#footer_items + 1] = { key = "C-c", name = "close" }
@@ -1054,14 +1046,8 @@ function M.open(opts)
         -- "area" sits IN the cmdline region (grows cmdheight, heirline above) like the msgarea zone; "bottom"
         -- just floats over the bottom rows. When the msgarea zone is on, the engine re-homes us INSIDE it.
         position = area and "cmdline" or (bottom and "bottom") or nil,
-        -- (HOSTED) <C-j> off the bottom sector (the footer bar) descends INTO the messages composed below —
-        -- the bottom of the finder's vertical stack (list → footer → messages). Only when there ARE messages;
-        -- else the sector nav wraps as usual. The cursor lands on the first message; `<C-k>`/`q`/`<Esc>` return.
-        on_escape_below = msgarea and function()
-            -- descend PAST us into the messages BELOW (focus_messages skips reserves — using focus_content here
-            -- would re-enter US via our own host reserve's on_descend); false (no messages) ⇒ the nav wraps.
-            return msgarea.focus_messages()
-        end or nil,
+        -- (HOSTED) <C-j> off the bottom sector descends INTO the messages composed below — wired by the surface
+        -- auto-host provider (its `on_escape_below` = the zone's focus_messages); the picker no longer sets it.
         -- <C-k> off the TOP sector (the header/filter bar) leaves the finder UP to the editor it opened from,
         -- instead of wrapping down to the footer.
         on_escape_above = function()

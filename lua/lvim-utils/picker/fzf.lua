@@ -313,7 +313,6 @@ function M.open(opts)
         fifo = nil, ---@type { path: string, close: fun() }?
         count_fifo = nil, ---@type { path: string, close: fun() }?
         counts = { match = 0, total = 0, seen = false }, -- fed live from fzf ($FZF_MATCH_COUNT / $FZF_TOTAL_COUNT); seen = a count has arrived
-        msgarea = nil,
     }
     -- this finder's entry in the shared "open finder" registry (so the next open closes us first)
     local active_entry = {
@@ -596,14 +595,14 @@ function M.open(opts)
     local footer_bands
 
     local confirmed = false
-    --- Run `fn` as a single msgarea ZONE HANDOFF when this finder is area-docked: the picker's teardown (release
-    --- its zone segment) and whatever the consumer does in its callback (e.g. lvim-space re-opening a panel —
-    --- reserve a segment) then coalesce into ONE reflow, instead of the zone collapsing then growing (a flicker
-    --- on the way back). Off the area zone there is nothing to coalesce, so just run it.
+    --- Run `fn` as a single ZONE HANDOFF when this finder is area-docked: the picker's teardown (release its
+    --- zone reserve) and whatever the consumer does in its callback (e.g. lvim-space re-opening a panel —
+    --- reserve a segment) coalesce into ONE reflow, instead of the zone collapsing then growing (a flicker on
+    --- the way back). Routed through `surface.zone_handoff` (the zone registers the coalescer) so the picker
+    --- never requires msgarea. Off the area zone there is nothing to coalesce, so just run it.
     local function with_handoff(fn)
-        local ok_ma, ma = pcall(require, "lvim-utils.msgarea")
-        if ok_ma and ma.handoff and opts.layout == "area" and ma.is_enabled() then
-            ma.handoff(fn)
+        if opts.layout == "area" then
+            surface.zone_handoff(fn)
         else
             fn()
         end
@@ -1211,13 +1210,6 @@ function M.open(opts)
     local bottom = opts.layout == "bottom"
     local area = opts.layout == "area"
     local docked = bottom or area
-    if area then
-        local ok_ma, m = pcall(require, "lvim-utils.msgarea")
-        if ok_ma and m.is_enabled and m.is_enabled() then
-            state.msgarea = m
-        end
-    end
-    local msgarea = state.msgarea
 
     -- BOTH data panels — the LIST and the PREVIEW — carry the single-source content ring (`surface.CONTENT_BORDER`,
     -- resolved live to `config.ui.content_border`), matching the tint backend so the two look identical. The fzf
@@ -1294,39 +1286,19 @@ function M.open(opts)
         return { bars = { surface.bar(groups, REG, { mode = mode, separator = sep_glyph }) } }
     end
 
-    local host = msgarea
-        and function(h)
-            local seg = msgarea.segment("lvim-fzf-host", { priority = 5 })
-            seg:configure({
-                on_descend = function()
-                    if state.list_pan and state.list_pan.win and api.nvim_win_is_valid(state.list_pan.win) then
-                        api.nvim_set_current_win(state.list_pan.win)
-                        vim.cmd("startinsert")
-                    end
-                    return true
-                end,
-            })
-            -- STACKED preview (above/below) lays out two panel ROWS, so the dock may grow to `max_height * 2`
-            -- (each row keeps its height); side-by-side / list-only is one row → the plain `max_height` cap.
-            local side = (state.st and state.st.preview_side) or opts.preview_side or "right"
-            local rows = (side == "above" or side == "below") and 2 or 1
-            return seg:reserve(h, function(rect)
-                if state.st and state.st.reposition then
-                    state.st.reposition(rect)
-                end
-            end, rows)
-        end
-
+    -- (HOSTED area) A `position="cmdline"` finder homes in the msgarea zone via the surface engine's auto-host
+    -- provider (no explicit host): the zone reserves rows above the messages, the surface follows the rect via
+    -- its own state (preview_side → row count, reposition), the fzf list's WinEnter autocmd re-enters insert on
+    -- descend, and the engine releases the reserve on close. The picker never references msgarea.
     surface.open({
         mode = "float",
         position = area and "cmdline" or (bottom and "bottom") or nil,
-        host = host,
         on_escape_above = function()
             if opener and api.nvim_win_is_valid(opener) then
                 api.nvim_set_current_win(opener)
             end
         end,
-        zindex = (host and 210) or (area and 200) or nil,
+        zindex = (area and 200) or nil, -- the surface bumps a hosted area dock to 210 in its auto-host block
         header_air = false,
         title = title_box, -- the chassis native centered border-title
         title_line = opts.title_line, -- title placement: "row" (default) | "statusline" (chassis overlay) | "border" (opt-in)
@@ -1376,11 +1348,7 @@ function M.open(opts)
                 os.remove(state.contents_file)
             end
             status.clear() -- idempotent: drop the chrome-overlay title/counter if `title_line="statusline"` published it
-            if msgarea then
-                pcall(function()
-                    msgarea.segment("lvim-fzf-host"):release()
-                end)
-            end
+            -- (the surface engine releases its own auto-host msgarea reserve on close — nothing to do here)
             source.clear_active(active_entry)
         end,
     })
