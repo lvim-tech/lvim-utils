@@ -95,6 +95,28 @@ local _hist_filter = nil ---@type string?
 local _hist_saved = nil ---@type table?
 local _hist_sel = 1 ---@type integer  the focused filter-bar button (l/h move it; <CR> activates it)
 
+--- The message-zone sink (the msgarea zone) that `:Messages` browses the log in. The edge is INVERTED —
+--- notify never requires msgarea; msgarea registers itself here in its setup. The sink implements the zone
+--- contract notify drives; when nil, `:Messages` falls back to notify's own cmdline pager.
+---@class LvimNotifyHistorySink
+---@field is_enabled fun(): boolean  whether the zone is on
+---@field segment fun(name: string, opts?: table): table  get/create the named zone segment
+---@field is_focused fun(name: string): boolean  whether the named segment currently holds focus
+---@field bar_focused fun(): boolean  whether the zone's filter bar sub-sector holds focus
+---@field zone_width fun(): integer  the real panel width (not vim.o.columns)
+---@field blur fun()  leave/close the zone
+
+--- The registered message-zone sink, or nil when no zone is installed.
+---@type LvimNotifyHistorySink?
+local _history_sink = nil
+
+--- Register the message-zone sink for `:Messages` history browsing (the msgarea zone). Called by
+--- lvim-utils.msgarea in its setup; keeps notify free of any msgarea dependency.
+---@param sink LvimNotifyHistorySink
+function M.set_history_sink(sink)
+    _history_sink = sink
+end
+
 -- One panel per level: _panels[level] = { win, buf, width, height, entries }
 local _panels = {}
 
@@ -1067,8 +1089,8 @@ end
 ---@param focus boolean  also move focus into the zone (browse) vs just render it (passive live display)
 ---@return boolean shown
 local function _history_zone_render(focus)
-    local ok_ma, ma = pcall(require, "lvim-utils.msgarea")
-    if not (ok_ma and ma.is_enabled and ma.is_enabled()) then
+    local ma = _history_sink
+    if not (ma and ma.is_enabled and ma.is_enabled()) then
         return false
     end
     local hcfg = _cfg.history or {}

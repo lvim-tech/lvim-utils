@@ -1439,6 +1439,23 @@ function M.setup(user_cfg)
             end
         end,
     })
+
+    -- Register THIS zone as the cmdline's unified-minibuffer host: a `cfg.unified` cmdline docks its float at
+    -- the bottom of the zone instead of the editor bottom. The edge is INVERTED — the cmdline never requires
+    -- msgarea; it just calls the provider we register here (nil-guarded internally when the zone is off).
+    require("lvim-utils.cmdline").set_host_provider({ host = M.cmdline_host, done = M.cmdline_done })
+
+    -- Register THIS zone as notify's message-history sink: `:Messages` browses the log IN the zone (below a
+    -- hosted finder) rather than in notify's own cmdline pager. Same inversion — notify never requires msgarea;
+    -- it drives the zone contract (is_enabled/segment/is_focused/bar_focused/zone_width/blur) we register here.
+    require("lvim-utils.notify").set_history_sink({
+        is_enabled = M.is_enabled,
+        segment = M.segment,
+        is_focused = M.is_focused,
+        bar_focused = M.bar_focused,
+        zone_width = M.zone_width,
+        blur = M.blur,
+    })
 end
 
 return M

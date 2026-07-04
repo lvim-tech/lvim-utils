@@ -29,6 +29,24 @@ local _saved_status = nil
 ---@type { content: table[], pos: integer, firstc: string, prompt: string, level: integer, block: table[], special: string? }
 local state = { content = {}, pos = 0, firstc = ":", prompt = "", level = 1, block = {}, special = nil }
 
+--- The unified-minibuffer host provider (the msgarea zone). The edge is INVERTED — the cmdline never requires
+--- msgarea; msgarea registers this in its setup. `host(height)` reserves `height` rows at the bottom of the
+--- zone and returns a table carrying at least `width` (or nil when the zone is off); `done()` releases them.
+---@class LvimCmdlineHostProvider
+---@field host fun(height: integer): table|nil  reserve `height` rows in the zone; nil when the zone is off
+---@field done fun()  release the reserved rows and reflow the zone
+
+--- The registered host provider, or nil when no zone hosts the cmdline (it then anchors to the editor bottom).
+---@type LvimCmdlineHostProvider?
+local _host_provider = nil
+
+--- Register the cmdline's unified-minibuffer host provider (the msgarea zone). Called by lvim-utils.msgarea
+--- in its setup; keeps the cmdline free of any msgarea dependency.
+---@param provider LvimCmdlineHostProvider
+function M.set_host_provider(provider)
+    _host_provider = provider
+end
+
 --- Highlight groups: base = text area (light tint), <base>Icon = badge (stronger tint).
 ---@return table<string, table>
 local function build()
@@ -111,9 +129,8 @@ local function close()
     state.block, state.special = {}, nil
     vim.g.ui_cmdline_pos = nil -- drop the completion-menu anchor (blink falls back to its default)
     -- Release the unified msgarea reservation (no-op when not hosted there).
-    local ok, ma = pcall(require, "lvim-utils.msgarea")
-    if ok and ma.cmdline_done then
-        ma.cmdline_done()
+    if _host_provider and _host_provider.done then
+        _host_provider.done()
     end
 end
 
@@ -287,11 +304,8 @@ local function render()
     -- Unified minibuffer: when the msgarea zone hosts the cmdline, anchor the float to the BOTTOM of
     -- that panel (over its reserved rows) instead of the editor bottom — identical content, relocated.
     local host
-    do
-        local ok, ma = pcall(require, "lvim-utils.msgarea")
-        if ok and ma.cmdline_host then
-            host = ma.cmdline_host(height)
-        end
+    if _host_provider and _host_provider.host then
+        host = _host_provider.host(height)
     end
     -- Hosted: pin to the ABSOLUTE bottom of the screen, NOT to a bufpos inside the zone. The zone always
     -- sits flush with the screen bottom (its grid grows UPWARD), so the cmdline's bottom `height` rows are
