@@ -39,8 +39,8 @@ return {
     -- The title + counter live in a CONTENT row at the top (`title_line = "row"`), so no border-title is needed;
     -- the panels are framed by `group_border` and divided by `separator`. `ui.surface` binds its `FRAME_BORDER`
     -- marker to this value and resolves it LIVE at open time, so changing this ONE key re-frames every consumer
-    -- (pickers, ui.tabs, lvim-lsp peeks, …) on the next open — no per-consumer edits. Set an 8-element ring
-    -- (e.g. { "╭","─","╮","│","╯","─","╰","│" }) to box the whole container instead.
+    -- (pickers, ui.tabs, lvim-lsp peeks, …) on the next open — no per-consumer edits. Any consumer may still
+    -- pass its OWN `border` (an 8-element ring { tl,t,tr,r,br,b,bl,l }) — e.g. the image viewer's left/right " ".
     border = "none",
     -- THE single source of truth for the CONTENT-PANEL border — the per-panel ring drawn around EACH DATA block
     -- INSIDE the container (the picker's list + preview, lvim-space's list, the tabs content panel). The NAV

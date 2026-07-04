@@ -1225,7 +1225,14 @@ function M.open(opts)
         local cap = opts.height or (maxr + 4)
         size = { height = { auto = true, max = cap } }
     else
-        size = { width = { fixed = 0.85 }, height = { fixed = 0.7 } }
+        -- FLOAT: honour `config.ui.size.float` (width / height fractions + their `*_auto` "fit-to-content"
+        -- flags) — no hardcoded size, so the configured Float width/height/auto-resize are respected.
+        local f = (config.ui.size or {}).float or {}
+        local function axis(frac, auto)
+            frac = frac or 0.8
+            return auto and { auto = true, max = frac } or { fixed = frac }
+        end
+        size = { width = axis(f.width, f.width_auto), height = axis(f.height, f.height_auto) }
     end
 
     -- footer — MODE-AWARE + grouped, generated from the CONFIGURED keys (never hardcoded), so it always shows
@@ -1309,11 +1316,11 @@ function M.open(opts)
         title_line = opts.title_line, -- area title placement: "border" (default) | "statusline" (chassis overlay)
         count = count_fn, -- the live fzf match / total count → the chassis border counter (default footer)
         counter = opts.counter, -- count placement: "footer" (default) | "title"
-        -- The canonical full " " ring on EVERY layout (docked too), so the native border-title renders; a float
-        -- keeps the rounded ring. Each content block carries its own CONTENT_BORDER ring; the chassis draws the
-        -- configurable inter-panel divider (`config.ui.separator`) BETWEEN the list and preview — auto-oriented,
-        -- and only at the gap, so a SINGLE panel (preview hidden / no preview) shows none. No per-picker override.
-        border = docked and surface.FRAME_BORDER or "rounded",
+        -- The container border is CONFIG-DRIVEN on EVERY layout (float + docked) — `surface.FRAME_BORDER`
+        -- resolves LIVE to `config.ui.border`; NO hardcoded per-layout border. Each content block carries its
+        -- own CONTENT_BORDER ring; the chassis draws the configurable inter-panel divider (`config.ui.separator`)
+        -- BETWEEN the list and preview — auto-oriented, only at the gap, so a SINGLE panel shows none.
+        border = surface.FRAME_BORDER,
         size = size,
         -- so the surface can rotate the preview (C-n/C-p) + switch the dock height per stack direction
         preview_side = preview_provider and (opts.preview_side or "right") or nil,

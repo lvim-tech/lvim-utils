@@ -969,10 +969,15 @@ function M.open(opts)
         -- area's own cmdheight clamp keeps it within the room available between the splits.
         local cap = opts.height or (maxr + 4)
         size = vertical and { height = { auto = true, max = 0.85 } } or { height = { auto = true, max = cap } }
-    elseif vertical then
-        size = { width = { fixed = 0.7 }, height = { fixed = 0.8 } }
     else
-        size = { width = { fixed = 0.85 }, height = { fixed = 0.7 } }
+        -- FLOAT: honour `config.ui.size.float` (width / height fractions + their `*_auto` "fit-to-content"
+        -- flags) — no hardcoded per-orientation size, so the configured Float width/height are respected.
+        local f = (config.ui.size or {}).float or {}
+        local function axis(frac, auto)
+            frac = frac or 0.8
+            return auto and { auto = true, max = frac } or { fixed = frac }
+        end
+        size = { width = axis(f.width, f.width_auto), height = axis(f.height, f.height_auto) }
     end
     -- Prompt badge (shared `config.picker.prompt`): an icon and/or label on the STRONG tint, then a gap on
     -- the LIGHT input tint before the typed text. Two virt_text chunks so the badge and the gap carry their
@@ -1079,11 +1084,12 @@ function M.open(opts)
         title_line = opts.title_line, -- area title placement: "border" (default) | "statusline" (chassis overlay)
         count = count_fn, -- the live match / pool count → the chassis border counter (default bottom-right footer)
         counter = opts.counter, -- count placement: "footer" (default) | "title"
-        -- The canonical full " " ring on EVERY layout (docked too), so the native border-title renders; a float
-        -- keeps the rounded ring. Each content block carries its OWN ring (CONTENT_BORDER); the chassis draws the
-        -- configurable inter-panel divider (`config.ui.separator`) BETWEEN the list and preview — auto-oriented,
-        -- and only at the gap, so a SINGLE panel (preview hidden / no preview) shows none. No per-picker override.
-        border = docked and surface.FRAME_BORDER or "rounded",
+        -- The container border is CONFIG-DRIVEN on EVERY layout (float + docked) — `surface.FRAME_BORDER`
+        -- resolves LIVE to `config.ui.border`, so there is NO hardcoded per-layout border. Each content block
+        -- carries its OWN ring (CONTENT_BORDER); the chassis draws the configurable inter-panel divider
+        -- (`config.ui.separator`) BETWEEN the list and preview — auto-oriented, only at the gap, so a SINGLE
+        -- panel (preview hidden / no preview) shows none.
+        border = surface.FRAME_BORDER,
         size = size,
         header = {
             bars = (function()
