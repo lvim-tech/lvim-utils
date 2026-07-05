@@ -131,6 +131,10 @@ return function(c)
         LvimUiRowItemIconInactive = { fg = c.teal },
         LvimUiRowTextActive = { fg = c.yellow, bold = true },
         LvimUiRowTextInactive = { fg = c.fg },
+        -- A DISABLED row — a setting that exists but is INERT in the current context (e.g. relative line numbers
+        -- while "show line numbers" is off): the whole line is dimmed (fg muted toward the bg) + struck through,
+        -- so it reads as present-but-inactive without changing its value.
+        LvimUiRowDisabled = { fg = mtint(c.fg, 0.5), strikethrough = true },
         -- A file row's path: the file name is BLUE + bold; the leading project/dir path is the same blue
         -- tinted toward the bg (a dimmer blue), so the name clearly reads over the muted path.
         LvimUiPathDim = { fg = mtint(c.blue, 0.8) },
