@@ -144,7 +144,7 @@ end
 --- Resolve an icon for `name` using the requested provider (falling back per the module
 --- header). Never errors, never returns nil.
 ---@param name string   a path or bare filename
----@param opts { provider?: string, filetype?: string, kind?: string }?
+---@param opts { provider?: string, filetype?: string, kind?: string, color_mode?: string }?  `color_mode` ("theme"|"brand"|"theme_brand") is honoured ONLY by the lvim-icons provider (devicons/mini carry their own colours); it is forwarded verbatim.
 ---@return LvimUtilsIconResult
 function M.get(name, opts)
     opts = opts or {}
@@ -164,14 +164,14 @@ end
 --- A KEY→{icon,color,hl,name} map over the provider's whole table — for consumers building a
 --- static lookup (e.g. the fzf awk icon map). Empty when the provider offers no enumeration
 --- (the caller then falls back to per-item M.get or no icons).
----@param opts { provider?: string }?
+---@param opts { provider?: string, color_mode?: string }?
 ---@return table<string, { icon: string, color: string?, hl: string?, name: string }>
 function M.get_icons(opts)
     opts = opts or {}
     local prov, m = pick(opts.provider)
     local out = {}
     if prov == "lvim" and m then
-        return m.get_icons()
+        return m.get_icons({ color_mode = opts.color_mode })
     elseif prov == "devicons" and m then
         for k, def in pairs(m.get_icons() or {}) do
             if def.icon then
@@ -199,15 +199,20 @@ function M.active(requested)
     return (pick(requested))
 end
 
---- Bind a provider once and return a small resolver — for hot paths (a picker over thousands
---- of rows) that would otherwise pass `provider` on every call.
+--- Bind a provider (and optionally a colour mode) once and return a small resolver — for hot
+--- paths (a picker over thousands of rows) that would otherwise pass them on every call. A
+--- per-call `opts.color_mode` still overrides the bound one.
 ---@param provider string?
+---@param color_mode string?  default colour mode for lvim-icons ("theme"|"brand"|"theme_brand")
 ---@return { get: fun(name: string, opts?: table): LvimUtilsIconResult, get_icons: fun(): table }
-function M.bind(provider)
+function M.bind(provider, color_mode)
     return {
         get = function(name, opts)
             opts = opts or {}
             opts.provider = provider
+            if opts.color_mode == nil then
+                opts.color_mode = color_mode
+            end
             return M.get(name, opts)
         end,
         get_icons = function()

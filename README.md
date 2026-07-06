@@ -1234,6 +1234,8 @@ local r = icons.get("src/main.rs", { provider = "auto" })
 --   absent provider degrades through the same chain. Never errors, never returns nil.
 -- opts.filetype / opts.kind : hints (a filetype for a weak name; a filesystem kind like
 --   "directory" / "symlink" / "executable").
+-- opts.color_mode : "theme"|"brand"|"theme_brand" — forwarded to lvim-icons only (devicons/mini
+--   carry their own colours). Lets a consumer pick the colour mode per call.
 
 icons.get_icons({ provider = "auto" }) -- KEY->{icon,color,hl,name} map (for an fzf awk map)
 icons.active("auto") -- the concrete provider that would be used ("lvim"/"devicons"/"mini"/"fallback")
