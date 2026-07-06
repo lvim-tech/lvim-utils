@@ -200,4 +200,162 @@ function M.set(win, ns)
     pcall(api.nvim_win_set_hl_ns, win, ns or 0)
 end
 
+-- ─── focus-aware BACKDROP applier (the shared one — surface + terminal + any dock consumer) ──────────────
+-- The backdrop mutes every window BEHIND a consumer's surface/window (dim = fg toward the editor bg; darken =
+-- fg+bg toward black) THROUGH this module's namespaces — NO covering window, so a terminal-composited image
+-- (kitty) underneath stays visible. It is FOCUS-AWARE: while a PROTECTED (consumer-owned) window is current the
+-- editor is muted; the moment focus moves to a window OUTSIDE the consumer the mute LIFTS off it (so the editor
+-- you moved into is crisp), and re-applies when a protected window is focused again. Multiple consumers may own
+-- a backdrop at once (keyed by `id`); ONE session WinEnter drives them all. Extracted from lvim-ui.surface so
+-- the terminal (and any non-surface dock consumer) gets the SAME backdrop via `config.dock.geometry.<layout>`.
+
+---@class LvimDimBackdrop
+---@field enabled? boolean  false → no backdrop (a call with this is a `clear_backdrop`).
+---@field mode?    "dim"|"darken"  dim = mute fg toward `bg`; darken = mute fg+bg toward black. Default "dim".
+---@field amount?  number   mute fraction 0..1 (default 0.5).
+---@field bg?      string   (dim mode) the bg foregrounds blend toward (default the live Normal bg).
+---@field protect  fun(win: integer): boolean  true → `win` belongs to the consumer and is NEVER muted.
+
+---@type table<string|integer, { cfg: LvimDimBackdrop, dimmed: table<integer, integer> }>  id → live backdrop
+local backdrops = {}
+---@type integer? the SHARED backdrop dim / darken namespaces (separate from the focus-follow M.ns/M.darken_ns,
+--- so the backdrop amount never clobbers lvim-colorscheme's dim_inactive amount)
+local bd_dim_ns, bd_darken_ns
+---@type boolean the one session-wide WinEnter is bound (idempotent)
+local bd_focus_registered = false
+
+--- (Re)build the backdrop namespace for `cfg` from the LIVE palette; returns the ns behind-windows go onto.
+---@param cfg LvimDimBackdrop
+---@return integer
+local function bd_ns(cfg)
+    if cfg.mode == "darken" then
+        bd_darken_ns = bd_darken_ns or api.nvim_create_namespace("lvim_utils_backdrop_darken")
+        return M.darken("#000000", cfg.amount or 0.5, bd_darken_ns)
+    end
+    bd_dim_ns = bd_dim_ns or api.nvim_create_namespace("lvim_utils_backdrop_dim")
+    local bg = cfg.bg
+    if not bg then
+        local nb = api.nvim_get_hl(0, { name = "Normal" })
+        bg = (nb and nb.bg) and string.format("#%06x", nb.bg) or "#000000"
+    end
+    return M.build(bg, cfg.amount or 0.5, bd_dim_ns)
+end
+
+--- Suspend the per-window focus-dim managers (lvim-colorscheme) IFF any live backdrop currently owns windows —
+--- so the two managers don't fight (which left the backdrop covering only SOME windows). Recomputed after every
+--- paint, so it is correct with several backdrops and across lifts.
+local function sync_suspend()
+    local any = false
+    for _, bd in pairs(backdrops) do
+        if next(bd.dimmed) then
+            any = true
+            break
+        end
+    end
+    M.suspend(any)
+end
+
+--- Mute every window that is NOT protected by `bd.cfg.protect` (and not a SPECIAL buftype window — sidebars /
+--- terminals / help paint their own bg, so muting their fg toward the editor bg would LIGHTEN them), or restore
+--- them (`on = false`). Idempotent per window; only windows WE muted are restored to their ORIGINAL namespace.
+---@param bd { cfg: LvimDimBackdrop, dimmed: table<integer, integer> }
+---@param on boolean
+local function bd_paint(bd, on)
+    if on then
+        M.suspend(true) -- release the focus-dim manager's windows BEFORE we grab them
+        local ns = bd_ns(bd.cfg)
+        for _, w in ipairs(api.nvim_list_wins()) do
+            if api.nvim_win_is_valid(w) then
+                local buf = api.nvim_win_get_buf(w)
+                local special = vim.bo[buf].buftype ~= ""
+                if not bd.cfg.protect(w) and not special and not bd.dimmed[w] then
+                    -- Remember the window's CURRENT namespace (it may be on its OWN, e.g. neo-tree) so close
+                    -- restores it EXACTLY instead of clobbering it to 0. (0 is truthy in Lua, so the guard holds.)
+                    local prev = 0
+                    pcall(function()
+                        prev = api.nvim_get_hl_ns({ winid = w })
+                    end)
+                    -- CRITICAL for OVERLAPPING backdrops (2+ live at once — e.g. a terminal in `bottom` + a picker
+                    -- in `area`): the window may ALREADY be on a BACKDROP namespace from the other one. Its true
+                    -- ORIGINAL is NOT that dim/darken ns — capturing it would make THIS backdrop's restore leave the
+                    -- window stuck on the dim ns (the "backdrop not cleared with 2+ in the stack" bug). Fall back to
+                    -- the global ns (0) in that case.
+                    if prev == bd_dim_ns or prev == bd_darken_ns then
+                        prev = 0
+                    end
+                    bd.dimmed[w] = (type(prev) == "number" and prev >= 0) and prev or 0
+                    M.set(w, ns)
+                end
+            end
+        end
+    else
+        for w, prev in pairs(bd.dimmed) do
+            M.set(w, prev)
+        end
+        bd.dimmed = {}
+        sync_suspend()
+    end
+end
+
+--- The one session-wide WinEnter that keeps every live backdrop in step with focus: for each, mute-behind while
+--- a PROTECTED window is current, lift while a non-protected one is (so the editor you moved into is crisp).
+local function register_bd_focus()
+    if bd_focus_registered then
+        return
+    end
+    bd_focus_registered = true
+    api.nvim_create_autocmd("WinEnter", {
+        group = api.nvim_create_augroup("LvimUtilsBackdropFocus", { clear = true }),
+        callback = function()
+            local cur = api.nvim_get_current_win()
+            local ok = api.nvim_win_is_valid(cur)
+            for _, bd in pairs(backdrops) do
+                bd_paint(bd, ok and bd.cfg.protect(cur) or false)
+            end
+        end,
+    })
+end
+
+--- Apply (or update) the focus-aware backdrop `id` behind a consumer. `cfg.protect(win)` marks the consumer's
+--- OWN windows (never muted); everything else behind is muted per `cfg.mode`/`amount`. Focus-aware from here on
+--- (a session WinEnter lifts/reapplies). `cfg.enabled == false` ⇒ this is a `clear_backdrop(id)`.
+---@param id string|integer  a stable key per consumer instance (so several can coexist)
+---@param cfg LvimDimBackdrop
+function M.apply_backdrop(id, cfg)
+    if cfg == nil or cfg.enabled == false or type(cfg.protect) ~= "function" then
+        M.clear_backdrop(id)
+        return
+    end
+    local bd = backdrops[id] or { dimmed = {} }
+    bd.cfg = cfg
+    backdrops[id] = bd
+    register_bd_focus()
+    -- apply immediately, keyed to the CURRENT focus (muted only if a protected window is current)
+    local cur = api.nvim_get_current_win()
+    bd_paint(bd, api.nvim_win_is_valid(cur) and cfg.protect(cur) or false)
+end
+
+--- Tear down backdrop `id`: restore every window it muted to its original namespace and forget it.
+---@param id string|integer
+function M.clear_backdrop(id)
+    local bd = backdrops[id]
+    if not bd then
+        return
+    end
+    bd_paint(bd, false)
+    backdrops[id] = nil
+end
+
+--- Rebuild EVERY live backdrop's namespace from the CURRENT global highlights, so windows veiled behind an open
+--- surface track a LIVE theme change (e.g. the colorscheme picker preview) instead of freezing on the palette
+--- captured at open — the windows re-read the rebuilt namespace, so no re-apply is needed. No-op when none own
+--- windows. (The per-consumer surface `refresh_backdrop` delegates here.)
+function M.refresh_backdrop()
+    for _, bd in pairs(backdrops) do
+        if next(bd.dimmed) then
+            bd_ns(bd.cfg) -- rebuild the shared ns in place; the dimmed windows re-read it
+        end
+    end
+end
+
 return M

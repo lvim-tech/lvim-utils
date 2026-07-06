@@ -17,13 +17,18 @@ local M = {}
 local _hl_factory = require("lvim-utils.config.highlight")
 M.colors = vim.deepcopy(_hl_factory())
 M.cursor = vim.deepcopy(require("lvim-utils.config.cursor"))
+-- The dock-stack manager's live config (lvim-utils.dock reads `require("lvim-utils.config").dock`).
+M.dock = vim.deepcopy(require("lvim-utils.config.dock"))
 
 --- Merge user-provided options into the base config tables, in place.
----@param opts? { cursor?: table }
+---@param opts? { cursor?: table, dock?: table }
 function M.setup(opts)
     opts = opts or {}
     if opts.cursor then
         merge(M.cursor, opts.cursor)
+    end
+    if opts.dock then
+        merge(M.dock, opts.dock)
     end
 end
 

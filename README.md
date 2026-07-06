@@ -659,49 +659,65 @@ require("lvim-utils.ui").peek({
 
 ---
 
-### Runtime UI geometry (`:LvimUtils`)
+### Dock geometry — the single size + backdrop authority
 
-The shared surface geometry — `config.ui.size` — is **runtime-configurable and persisted**. Each layout
-has its own fraction of the available space (or `"auto"`, fit-to-content up to `auto_max`):
+`config.dock.geometry.<layout>` is **THE** authority for the size + backdrop of every docked / floated surface
+in the whole lvim-tech UI (pickers, the terminal, the qf browser, control-center, lvim-ui modals, lsp peek, …).
+No plugin keeps its own size — each resolves its slot from it. `height_auto`/`width_auto`: when `true` the value
+is a **MAX** (content-fit up to it), when `false` it is **exact/fixed**. `area`/`bottom` are full-width (no width):
 
 ```lua
 require("lvim-utils").setup({
-    ui = {
-        size = {
-            float = { height = 0.8, width = 0.7 }, -- centred floats
-            area = { height = 0.6 }, -- the msgarea / cmdline dock (full-width)
-            bottom = { height = 0.4 }, -- a plain bottom dock (full-width)
-            auto_max = 0.85, -- cap for any dimension set to "auto"
+    dock = {
+        geometry = {
+            float = {
+                height = 0.7,
+                width = 0.9,
+                height_auto = true,
+                width_auto = false,
+                keep_focus = false,
+                auto_hide = true,
+                backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
+            },
+            area = {
+                height = 0.5,
+                height_auto = true,
+                keep_focus = true,
+                auto_hide = false,
+                backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
+            },
+            bottom = {
+                height = 0.5,
+                height_auto = true,
+                keep_focus = true,
+                auto_hide = false,
+                backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
+            },
         },
     },
 })
 ```
 
-Every consumer (pickers, `ui.tabs`, lvim-shell, lvim-space) reads this live via
-`require("lvim-utils.ui").size(layout)`, so a change re-sizes them all on the next open.
+`require("lvim-utils.dock").slot(layout)` resolves it to a rect (cells) — the seam consumers use; a per-open
+`opts` (size fields + `backdrop = false` | a merge) **anchors** an override that wins over the global for that
+one open.
 
 ##### Backdrop (dim / darken)
 
-`config.ui.backdrop` draws a **full-editor veil BEHIND an open surface**, so the rest of the editor dims and
-the surface reads as the focus. It is **per layout** (three independent settings), and `hl` + `blend` together
-dial the look — `hl` is the colour (darken), `blend` is the winblend (how much shows through = dim/haze):
+The `backdrop` sub-table draws a **veil BEHIND an open surface** so the editor mutes and the surface reads as the
+focus. `mode = "dim"` mutes the **foreground** toward the editor bg (lighter); `"darken"` mutes fg **and** bg
+toward black (a uniform darker look); each mode carries its own `amount` (0–1, higher = stronger). It is applied
+through `lvim-utils.dim.apply_backdrop` — a **highlight namespace, NO covering window**, so a terminal-composited
+image (kitty) underneath stays visible — and is **focus-aware**: it lifts off the editor window you move into and
+re-applies when the dock is focused again. A consumer may override per-open with `surface.open({ backdrop = {
+mode = "darken" } })` or turn it off with `backdrop = false`; absent → the config default.
 
-```lua
-require("lvim-utils").setup({
-    ui = {
-        backdrop = {
-            -- enabled=false → no veil; hl = a dark group (darken); blend 0–100 (low = opaque, high = soft haze)
-            float = { enabled = true, blend = 65, hl = "LvimUiBackdrop" },
-            area = { enabled = true, blend = 65, hl = "LvimUiBackdrop" },
-            bottom = { enabled = false }, -- e.g. no veil for the bottom dock
-        },
-    },
-})
-```
+##### Dock stack keys + command
 
-The veil never takes focus and is torn down with the surface; `area`/`bottom` docks dim the editor **above** the
-dock (the dock stays bright on top). A consumer may override its layout's veil per-open with
-`surface.open({ backdrop = { blend = 30 } })` or turn it off with `backdrop = false`; absent → the config default.
+Each layout keeps its own MRU stack of consumers (one visible at a time). While a docked window is focused:
+`<Leader>n` / `<Leader>p` cycle · `<Leader>x` kill the visible one · `<Leader>m` a menu of every live dock. And
+the command works from anywhere: `:LvimDock <area|bottom|float>` reveals that layout's top dock; `:LvimDock
+<area|bottom|float> menu` opens a layout-scoped dock menu.
 
 ---
 
@@ -1244,6 +1260,60 @@ local ico = icons.bind("devicons") -- bind a provider once for a hot loop: ico.g
 
 Each consumer exposes an `icon_provider` option in its OWN config (default `"auto"`), and
 forwards it here — so you pick the icon plugin per lvim-tech plugin, in that plugin's setup.
+
+---
+
+### `store`
+
+The unified persistence model — one seam for every kind of stored state, so no plugin hand-rolls
+persistence. Three backends, plus mirroring + cross-instance sync.
+
+```lua
+local store = require("lvim-utils.store")
+
+-- Read/write is a DECLARATIVE LIVE TABLE: declare the fields, then just assign — assignment
+-- auto-persists and auto-mirrors, no manual save().
+local s = store.new({
+    backend = "sqlite", -- "file" | "json" | "sqlite"
+    name = "control-center", -- → stdpath("data")/control-center/control-center.db
+    fields = { colorscheme = "lvim_dark", opacity = 0.9 },
+    mirror = { colorscheme = vim.fn.stdpath("config") .. "/.theme" }, -- plain file for early read
+    watch = true,
+    on_change = function(all) end, -- another instance changed the file on disk
+    -- sqlite only: relational tables + versioned migrations
+    tables = { macros = { id = { "integer", primary = true, autoincrement = true }, name = { "text", unique = true } } },
+    version = 1,
+    migrations = {
+        [2] = function(db)
+            db:exec("ALTER TABLE macros ADD COLUMN scope TEXT")
+        end,
+    },
+})
+
+s.colorscheme = "lvim_light" -- persists + writes the .theme mirror
+print(s.colorscheme) -- reads (live cache)
+s:find("macros", { name = "q" }) -- relational CRUD (sqlite backend)
+s:insert("macros", { name = "q" })
+```
+
+**Backends** — `file` (plain `key=value`, string values, human-readable and readable EARLY /
+externally — the colorscheme choice at startup before plugins); `json` (a typed/nested document,
+git-friendly — lvim-linguistics data, lvim-pkg state); `sqlite` (real relational tables + CRUD +
+`PRAGMA user_version` migrations — vault / tasks / space / control-center).
+
+**Sync** — `mirror = { field = path }` writes a field's raw value to a plain file (the backend
+stays the source of truth) for early/external reads; `watch = true` + `on_change` reloads when the
+backing file changes on disk (another instance / an external tool). For the earliest startup path
+there is a dependency-free static read that opens no store:
+
+```lua
+store.read_file(path) -- a mirror's raw value (e.g. the .theme)
+store.read_json(path, key) -- a value out of a json store
+```
+
+Shared is the **code** only — every plugin owns its **own** file/db (own path, own schema). No
+central store, no cross-plugin coupling. `store.available()` / `store.health(health, mandatory)`
+report the sqlite backend for a consumer's `:checkhealth` (file/json need no dependency).
 
 ---
 

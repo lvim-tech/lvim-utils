@@ -18,9 +18,10 @@ M.config = require("lvim-utils.config")
 M.colors = require("lvim-utils.colors")
 M.cursor = require("lvim-utils.cursor")
 M.highlight = require("lvim-utils.highlight")
+M.dock = require("lvim-utils.dock")
 
 ---Setup the base (lvim-utils). Only the palette + cursor + the self-themed group map are configured here.
----@param opts? { highlights?: table<string, table>, colors?: table, cursor?: table }
+---@param opts? { highlights?: table<string, table>, colors?: table, cursor?: table, dock?: table }
 function M.setup(opts)
     opts = opts or {}
 
@@ -50,6 +51,11 @@ function M.setup(opts)
     if opts.cursor then
         M.cursor.setup(M.config.cursor)
     end
+
+    -- 6. dock: the dock-stack manager (area / bottom / float coordination). config.setup already merged
+    --    opts.dock; dock.setup binds the global cycle keymaps per the LIVE config (gated by `enable`).
+    M.config.setup({ dock = opts.dock })
+    M.dock.setup()
 end
 
 return M
