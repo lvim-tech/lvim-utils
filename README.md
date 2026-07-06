@@ -703,20 +703,6 @@ The veil never takes focus and is torn down with the surface; `area`/`bottom` do
 dock (the dock stays bright on top). A consumer may override its layout's veil per-open with
 `surface.open({ backdrop = { blend = 30 } })` or turn it off with `backdrop = false`; absent → the config default.
 
-`:LvimUtils` opens a floating settings panel (an `ui.tabs`) that edits these values **live** — a select
-row per dimension; changing one applies it into `config.ui.size` immediately and persists it. Persistence
-is handled by `lvim-utils.store`:
-
-- **standalone** — a plain JSON file under `stdpath("data")/lvim-utils/` (pure Lua, no sqlite).
-- **with lvim-control-center present** — values flow through its sqlite backend; the setting **names match
-  control-center's**, so its panel and `:LvimUtils` edit the **same keys** and never drift (the JSON store
-  is migrated into the DB the first time the two cohabit).
-
-`lvim-utils.settings` holds the single spec list that drives both panels (`settings.specs`, `settings.get`,
-`settings.set`, `settings.restore`, `settings.lcc_group`); `require("lvim-utils").setup()` calls
-`settings.restore()` (load persisted values) and registers the `:LvimUtils` command automatically. So
-neither the control-center nor sqlite is ever a hard dependency.
-
 ---
 
 ### `notify`

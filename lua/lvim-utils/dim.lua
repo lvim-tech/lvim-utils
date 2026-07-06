@@ -95,7 +95,9 @@ end
 ---@return integer ns
 function M.build(bg_hex, amount, ns)
     if not ns then
-        M.ns = M.ns or api.nvim_create_namespace("lvim_utils_dim")
+        if not M.ns then
+            M.ns = api.nvim_create_namespace("lvim_utils_dim")
+        end
         ns = M.ns
     end
     local bg = tonumber((bg_hex or "#000000"):gsub("#", ""), 16) or 0
@@ -118,7 +120,7 @@ function M.build(bg_hex, amount, ns)
             api.nvim_set_hl(ns, name, def)
         end
     end
-    return ns
+    return ns --[[@as integer]]
 end
 
 --- (Re)build the DARKEN namespace from the current global highlights, muting each group's fg AND bg (and sp)
@@ -131,7 +133,9 @@ end
 ---@return integer ns
 function M.darken(dark_hex, amount, ns)
     if not ns then
-        M.darken_ns = M.darken_ns or api.nvim_create_namespace("lvim_utils_darken")
+        if not M.darken_ns then
+            M.darken_ns = api.nvim_create_namespace("lvim_utils_darken")
+        end
         ns = M.darken_ns
     end
     local dark = tonumber((dark_hex or "#000000"):gsub("#", ""), 16) or 0
@@ -153,7 +157,7 @@ function M.darken(dark_hex, amount, ns)
             api.nvim_set_hl(ns, name, def)
         end
     end
-    return ns
+    return ns --[[@as integer]]
 end
 
 --- Switch `win` onto namespace `ns` (a dim/darken namespace) or back to namespace 0 / full colour when `ns` is

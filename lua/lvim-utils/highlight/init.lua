@@ -209,17 +209,19 @@ function M.bind(fn)
     -- initial: default (overwritable by a colorscheme/user that already themed the group)
     apply_bound(fn, false)
     -- palette sync / live preview: force, so the actually-changed colors take effect
-    local disposed = false
+    ---@type fun()|nil
+    local unsubscribe = nil
     local ok, colors = pcall(require, "lvim-utils.colors")
     if ok and type(colors.on_change) == "function" then
-        colors.on_change(function()
-            if not disposed then
-                apply_bound(fn, true)
-            end
+        unsubscribe = colors.on_change(function()
+            apply_bound(fn, true)
         end)
     end
     return function()
-        disposed = true
+        if unsubscribe then
+            unsubscribe()
+            unsubscribe = nil
+        end
         for i, f in ipairs(bound) do
             if f == fn then
                 table.remove(bound, i)

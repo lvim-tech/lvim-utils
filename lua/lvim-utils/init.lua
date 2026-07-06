@@ -3,7 +3,6 @@
 --   • colors     — the live palette (synced from lvim-colorscheme)
 --   • highlight  — the group registrar (define / bind / self-theming on ColorScheme)
 --   • cursor     — the canonical cursor-hide mechanism (by registered filetype)
---   • store      — the small persisted key/value store (control-center sqlite when present, else JSON)
 --   • config     — the central highlight-group factory (read BY NAME by every split plugin) + the cursor config
 --
 -- `setup()` configures ONLY the base: it merges the palette + cursor overrides, self-themes the group map from

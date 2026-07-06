@@ -326,22 +326,6 @@ with the surface; area/bottom docks dim the editor ABOVE the dock.
 A consumer may override its layout's veil per-open — `surface.open({ backdrop = { blend =
 30 } })` or `backdrop = false` to disable; absent → the config default.
 
-                                                        *:LvimUtils*
-`:LvimUtils` opens a floating settings panel (an |lvim-utils-ui| `tabs`) that edits these
-values LIVE — a select row per dimension; changing one applies it into `config.ui.size`
-immediately and persists it via `lvim-utils.store`:
-
-  - standalone            a plain JSON file under stdpath("data")/lvim-utils/ (no sqlite).
-  - lvim-control-center   values flow through its sqlite backend; the setting names match
-                          control-center's, so its panel and `:LvimUtils` edit the SAME
-                          keys and never drift (the JSON store is migrated into the DB the
-                          first time the two cohabit).
-
-`lvim-utils.settings` holds the single spec list driving both panels (`settings.specs`,
-`settings.get`, `settings.set`, `settings.restore`, `settings.lcc_group`); `setup()` calls
-`settings.restore()` and registers `:LvimUtils` automatically. Neither the control-center
-nor sqlite is ever a hard dependency.
-
 ==============================================================================
 8. NOTIFY                                                *lvim-utils-notify*
 

@@ -193,8 +193,17 @@ local _on_change_cbs = {}
 
 ---Register a callback that fires whenever the palette is synced from lvim-colorscheme.
 ---@param fn function
+---@return fun() unsubscribe
 function M.on_change(fn)
     table.insert(_on_change_cbs, fn)
+    return function()
+        for i, cb in ipairs(_on_change_cbs) do
+            if cb == fn then
+                table.remove(_on_change_cbs, i)
+                break
+            end
+        end
+    end
 end
 
 local function _fire_change()
@@ -261,7 +270,7 @@ local function _sync_from_lcs()
     end
     -- Follow lvim-colorscheme's `transparent` so the UI panels can drop their background too.
     local ok_cfg, lcfg = pcall(require, "lvim-colorscheme.config")
-    _p.transparent = (ok_cfg and lcfg.options and lcfg.options.transparent) or false
+    _p.transparent = (ok_cfg and lcfg.transparent == true) or false
     -- user overrides stay sticky on top of the synced theme
     _p.fg_dim, _p.fg_muted, _p.bg_input = _overrides.fg_dim, _overrides.fg_muted, _overrides.bg_input
     for k, v in pairs(_overrides) do
@@ -291,7 +300,9 @@ function M._activate()
             M.sync_from_lcs()
         end
     end)
+    local aug = vim.api.nvim_create_augroup("LvimUtilsColors", { clear = true })
     vim.api.nvim_create_autocmd("User", {
+        group = aug,
         pattern = "LvimColorscheme",
         callback = function()
             M.sync_from_lcs()
@@ -302,6 +313,7 @@ function M._activate()
     -- flip and notify listeners. When lvim-colorscheme drives the palette it handles its
     -- own light/dark, so we defer to it.
     vim.api.nvim_create_autocmd("OptionSet", {
+        group = aug,
         pattern = "background",
         callback = function()
             if _lcs_synced then

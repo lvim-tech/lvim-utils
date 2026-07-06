@@ -89,7 +89,7 @@ local function show_cursor()
         if state.saved_guicursor == nil then
             state.saved_guicursor = vim.o.guicursor
         end
-        local want = state.saved_guicursor .. "," .. frag
+        local want = state.saved_guicursor ~= "" and (state.saved_guicursor .. "," .. frag) or frag
         if vim.o.guicursor ~= want then
             vim.o.guicursor = want
         end
@@ -271,6 +271,7 @@ local function refresh_autocmds()
         callback = function(ev)
             state.input_buffers[ev.buf] = nil
             state.hide_buffers[ev.buf] = nil
+            state.custom_buffers[ev.buf] = nil
             vim.schedule(update)
         end,
     })
