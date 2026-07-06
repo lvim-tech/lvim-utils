@@ -25,6 +25,7 @@ CONTENTS                                                        *lvim-utils*
  20. dashboard .............................. |lvim-utils-dashboard|
  21. Highlight groups ....................... |lvim-utils-highlights|
  22. Health ................................. |lvim-utils-health|
+ 23. icons .................................. |lvim-utils-icons|
 
 ==============================================================================
 1. INTRODUCTION                                           *lvim-utils-intro*
@@ -657,6 +658,54 @@ Reports:
   - the |lvim-utils-picker| backends: the file-listing engine (fd / fdfind / rg / find),
     ripgrep for grep, and the fzf-TUI backend (fzf + mkfifo) for the heavy finders.
   - delegates to the |lvim-utils-dashboard| health() when present.
+
+==============================================================================
+23. ICONS                                                 *lvim-utils-icons*
+
+A provider-agnostic icon facade. Every lvim-tech plugin that shows a file /
+filetype icon resolves it HERE and passes the provider ITS OWN config chose —
+so a consumer works with lvim-icons, nvim-web-devicons or mini.icons (or none)
+WITHOUT depending on any particular one. The adapter logic lives here once;
+consumers only forward a `provider` string.
+
+                                                    *lvim-utils.icons.get()*
+require("lvim-utils.icons").get({name}, {opts})
+    Resolve an icon for a path / bare filename. Returns a unified result across
+    every backend: >
+
+        { glyph = "…", hl = "<group>", color = "#rrggbb"|nil, width = <cells>, name = "<id>" }
+<
+    `width` is 1 for devicons/mini and lvim-icons font mode, 2 for lvim-icons
+    svg mode — consumers ALWAYS pad columns from it. Never errors / returns nil.
+
+    {opts}:
+        provider  "auto" | "lvim" | "devicons" | "mini"
+                  "auto" probes installed providers in order lvim-icons ->
+                  nvim-web-devicons -> mini.icons, using the first present
+                  (else a built-in fallback glyph). A named-but-absent provider
+                  degrades through the same chain.
+        filetype  a filetype hint when the name is weak (help, qf, terminal).
+        kind      a filesystem kind ("directory"/"symlink"/"executable"/…).
+
+                                              *lvim-utils.icons.get_icons()*
+require("lvim-utils.icons").get_icons({opts})
+    A KEY->{icon,color,hl,name} map over the provider's whole table — for
+    building a static lookup (e.g. an fzf awk icon map). Empty when the provider
+    offers no enumeration.
+
+                                                 *lvim-utils.icons.active()*
+require("lvim-utils.icons").active({requested})
+    The concrete provider that WOULD be used ("lvim"/"devicons"/"mini"/
+    "fallback"). For health and provider-aware consumers.
+
+                                                   *lvim-utils.icons.bind()*
+require("lvim-utils.icons").bind({provider})
+    Bind a provider once and return a small resolver ({ get, get_icons }) — for
+    hot paths (a picker over thousands of rows).
+
+Each consumer exposes an `icon_provider` option in its OWN config (default
+"auto") and forwards it here — so the icon plugin is chosen per lvim-tech
+plugin, in that plugin's setup().
 
 ==============================================================================
 vim:tw=78:ts=8:noet:ft=help:norl:

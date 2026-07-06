@@ -1214,6 +1214,37 @@ every `require("<plugin>.config")` reader sees the effective values.
 
 ---
 
+### `icons`
+
+A provider-agnostic icon facade. Every lvim-tech plugin that shows a file/filetype icon
+resolves it here and passes the provider ITS OWN config chose — so a consumer works with
+[lvim-icons](https://github.com/lvim-tech/lvim-icons), `nvim-web-devicons` or `mini.icons`
+(or none) WITHOUT depending on any particular one. The adapter logic lives here once;
+consumers only forward a `provider` string.
+
+```lua
+local icons = require("lvim-utils.icons")
+
+-- unified result across every backend: { glyph, hl, color, width, name }
+local r = icons.get("src/main.rs", { provider = "auto" })
+
+-- opts.provider: "auto" | "lvim" | "devicons" | "mini"
+--   "auto" probes installed providers in order lvim-icons -> nvim-web-devicons ->
+--   mini.icons, using the first present (else a built-in fallback glyph). A named but
+--   absent provider degrades through the same chain. Never errors, never returns nil.
+-- opts.filetype / opts.kind : hints (a filetype for a weak name; a filesystem kind like
+--   "directory" / "symlink" / "executable").
+
+icons.get_icons({ provider = "auto" }) -- KEY->{icon,color,hl,name} map (for an fzf awk map)
+icons.active("auto") -- the concrete provider that would be used ("lvim"/"devicons"/"mini"/"fallback")
+local ico = icons.bind("devicons") -- bind a provider once for a hot loop: ico.get(name)
+```
+
+Each consumer exposes an `icon_provider` option in its OWN config (default `"auto"`), and
+forwards it here — so you pick the icon plugin per lvim-tech plugin, in that plugin's setup.
+
+---
+
 ## Highlight Groups
 
 All groups are self-themed from the [`colors`](#colors) palette via [`highlight.bind`](#highlight)

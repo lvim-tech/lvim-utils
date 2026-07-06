@@ -42,6 +42,19 @@ function M.check()
     else
         health.info("highlight groups not applied yet — call require('lvim-utils').setup()")
     end
+
+    -- icon provider facade: which backend the set's consumers resolve icons through
+    local ok_icons, icons = pcall(require, "lvim-utils.icons")
+    if ok_icons then
+        local active = icons.active("auto")
+        if active == "fallback" then
+            health.warn(
+                "no icon provider installed (lvim-icons / nvim-web-devicons / mini.icons) — consumers show a fallback glyph"
+            )
+        else
+            health.ok(("icon provider (auto) resolves to %q"):format(active))
+        end
+    end
 end
 
 return M
