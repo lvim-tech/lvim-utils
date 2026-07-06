@@ -23,6 +23,12 @@ M.ns = nil
 ---@type integer? the DARKEN namespace (background muted toward a dark colour); lazily created by darken()
 M.darken_ns = nil
 
+---@type table<integer, table<string, true>> per-namespace record of the group NAMES written on the last
+--- (re)build. On the next rebuild any name in this set but ABSENT from the current global highlights is cleared
+--- (`nvim_set_hl(ns, name, {})`) — otherwise a group that vanished on a theme switch would linger in the ns and
+--- shadow the now-undefined global group for windows using that namespace.
+local written = {}
+
 ---@type table<string, true> Lua patterns for highlight groups whose fg must NOT be muted — their foreground
 --- carries DATA, not a colour (e.g. lvim-image's `LvimImage_<id>` encode the kitty image id in fg; muting it
 --- makes the terminal read a different id and the image vanishes). Registered via `M.preserve`.
@@ -71,6 +77,23 @@ local function is_preserved(name)
     return false
 end
 
+--- Drop from namespace `ns` any group written on the previous (re)build that is absent from `fresh` (the set
+--- of names written this build), then record `fresh` as the new set. Clearing a group in a namespace is
+--- `nvim_set_hl(ns, name, {})` — it stops shadowing the (now-undefined) global group for windows on that ns.
+---@param ns integer
+---@param fresh table<string, true>
+local function clear_stale(ns, fresh)
+    local prev = written[ns]
+    if prev then
+        for name in pairs(prev) do
+            if not fresh[name] then
+                api.nvim_set_hl(ns, name, {})
+            end
+        end
+    end
+    written[ns] = fresh
+end
+
 --- Numeric (0xRRGGBB) blend of `fg` toward `bg` by fraction `t` (0 = fg unchanged, 1 = fully bg).
 ---@param fg integer
 ---@param bg integer
@@ -101,7 +124,9 @@ function M.build(bg_hex, amount, ns)
         ns = M.ns
     end
     local bg = tonumber((bg_hex or "#000000"):gsub("#", ""), 16) or 0
+    local fresh = {}
     for name, def in pairs(api.nvim_get_hl(0, {})) do
+        fresh[name] = true
         if is_preserved(name) then
             -- Data-carrying fg (e.g. an image id) — copy verbatim so it renders identically under the dim ns.
             api.nvim_set_hl(ns, name, def)
@@ -120,6 +145,7 @@ function M.build(bg_hex, amount, ns)
             api.nvim_set_hl(ns, name, def)
         end
     end
+    clear_stale(ns --[[@as integer]], fresh)
     return ns --[[@as integer]]
 end
 
@@ -139,7 +165,9 @@ function M.darken(dark_hex, amount, ns)
         ns = M.darken_ns
     end
     local dark = tonumber((dark_hex or "#000000"):gsub("#", ""), 16) or 0
+    local fresh = {}
     for name, def in pairs(api.nvim_get_hl(0, {})) do
+        fresh[name] = true
         if is_preserved(name) then
             api.nvim_set_hl(ns, name, def)
         elseif def.link then
@@ -157,6 +185,7 @@ function M.darken(dark_hex, amount, ns)
             api.nvim_set_hl(ns, name, def)
         end
     end
+    clear_stale(ns --[[@as integer]], fresh)
     return ns --[[@as integer]]
 end
 
