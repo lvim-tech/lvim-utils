@@ -540,6 +540,31 @@ function M.reveal(layout)
     show_top(layout) -- shows + focuses the MRU-top live entry (prunes dead ones)
 end
 
+--- DESCEND from an OUTSIDE editor window into the visible docked consumer — landing on its HEADER (e.g. a
+--- tab bar), the mirror of the surface's `<C-k>` escape-UP. Picks the first VISIBLE consumer across the
+--- `bottom` → `area` → `float` stacks and calls its `descend` (else `focus`). Returns false — a no-op — when
+--- the cursor is already inside a dock frame (its own sector key owns the navigation there) or nothing is
+--- docked, so the global key handler can fall through to the editor's default key.
+---@return boolean descended
+function M.descend()
+    if vim.w.lvim_frame then
+        return false -- already inside a frame → its buffer-local sector key handles the navigation
+    end
+    for _, layout in ipairs({ "bottom", "area", "float" }) do
+        local key = visible[layout]
+        local c = key and by_key[key]
+        if c and alive(key) then
+            if c.descend then
+                pcall(c.descend)
+            elseif c.focus then
+                pcall(c.focus)
+            end
+            return true
+        end
+    end
+    return false
+end
+
 --- Notify the manager that consumer `id` closed ITSELF (its window was destroyed externally — a
 --- `:q`, a killed terminal, a WinClosed). The manager only updates bookkeeping — it does NOT call
 --- the consumer's hide/close (it is already gone) — then reveals the next on that layout (LIFO).
@@ -827,6 +852,13 @@ function M.setup(opts)
             M.cycle(nil, -1)
         end, { silent = true, desc = "lvim-dock: cycle to the previous consumer in the current layout" })
     end
+    -- Register the descend into lvim-msgarea's `focus_content`, so ONE user `<C-j>` → `focus_content()`
+    -- binding descends into the AREA zone AND a bottom / float dock uniformly — the dock never grabs a global
+    -- key (that would clobber the user's own navigator, exactly what msgarea deliberately avoids). Edge stays
+    -- INVERTED: the dock does not `require` msgarea beyond this optional wiring; msgarea calls the fn it is given.
+    pcall(function()
+        require("lvim-msgarea").set_descend_fallback(M.descend)
+    end)
     M.setup_command()
 end
 
