@@ -165,8 +165,9 @@ return function(c)
         LvimUiFooterSep = { fg = mtint(c.red, 0.3), bg = mtint(c.red, 0.6), bold = true },
         LvimUiBarChevron = { fg = mtint(c.red, 0.3), bg = mtint(c.red, 0.6), bold = true }, -- bar overflow chevron BOX (‹ ›) — red, matching the footer legend's LvimUiFooterSep
         -- A continuous full-width bg STRIP under a bar's buttons, so the whole row reads as one tinted bar (the
-        -- buttons + the blue 0.05 hover sit on top). A FAINT blue tint, below the hover so the selection pops.
-        LvimUiBarFill = { bg = mtint(c.blue, 0.02) },
+        -- buttons + the hover sit on top). A soft YELLOW tint — visible enough to read as its own bar, still
+        -- light enough that the buttons / selection pop above it.
+        LvimUiBarFill = { bg = mtint(c.yellow, 0.08) },
         -- The BACKDROP veil behind an open surface — pure black; `config.ui.backdrop.<layout>.blend` (winblend) sets
         -- how much the editor shows through, so the same group reads as a strong darken or a soft dim per config.
         LvimUiBackdrop = { bg = c.black },
