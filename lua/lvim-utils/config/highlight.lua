@@ -45,7 +45,7 @@ return function(c)
         LvimUiNormal = { bg = panel_bg, fg = c.fg },
         LvimUiBorder = { bg = panel_bg, fg = c.blue },
         LvimUiSeparator = { fg = c.red }, -- the ────── divider row between groups in a list/form
-        LvimUiCursorLine = { bg = mtint(c.blue, 0.1) }, -- active list row (blue tint)
+        LvimUiCursorLine = { bg = mtint(c.blue, 0.04) }, -- active list row: a very faint blue wash, well below the section/header bands so the two never read alike
         LvimUiInput = { bg = c.bg_input, fg = c.fg },
 
         -- Title block (title = STRONG; subtitle / info = BODY). The optional title icon is its
@@ -253,7 +253,7 @@ return function(c)
         -- CursorLineNr (see ui/peek.lua dress()), so the preview reads like a normal buffer.
         LvimUiPeekText = { fg = c.fg },
         LvimUiPeekGuide = { fg = c.comment },
-        LvimUiPeekCursorLine = { fg = c.yellow, bg = mtint(c.blue, 0.1) }, -- list hover row: yellow TEXT + blue tint bg
+        LvimUiPeekCursorLine = { fg = c.yellow, bg = mtint(c.blue, 0.04) }, -- list hover row: yellow TEXT + a very faint blue tint bg
         LvimUiPeekMatch = { fg = c.blue, bg = mtint(c.blue, 0.25), bold = true },
         -- Footer key hints on the container's bottom border: each key is a blue 0.3-tint badge,
         -- its label a yellow 0.2-tint box — matching the LvimUiFooter* convention.
