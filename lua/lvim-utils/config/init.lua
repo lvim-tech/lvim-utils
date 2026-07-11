@@ -20,8 +20,16 @@ M.cursor = vim.deepcopy(require("lvim-utils.config.cursor"))
 -- The dock-stack manager's live config (lvim-utils.dock reads `require("lvim-utils.config").dock`).
 M.dock = vim.deepcopy(require("lvim-utils.config.dock"))
 
+-- Collapsible SECTION-HEADER tinting, GLOBAL for every lvim-tech fold (read by highlight.section_accent).
+-- `tint` = how far the header's accent is blended onto the bg at rest; `tint_hover` = while the cursor hovers
+-- the header. One knob for the whole set — change it here and every plugin's fold headers follow.
+---@class LvimUtilsSectionConfig
+---@field tint number        -- rest band blend factor toward the accent (0..1), default 0.1
+---@field tint_hover number  -- hover band blend factor (0..1), default 0.2
+M.section = { tint = 0.1, tint_hover = 0.2 }
+
 --- Merge user-provided options into the base config tables, in place.
----@param opts? { cursor?: table, dock?: table }
+---@param opts? { cursor?: table, dock?: table, section?: LvimUtilsSectionConfig }
 function M.setup(opts)
     opts = opts or {}
     if opts.cursor then
@@ -29,6 +37,9 @@ function M.setup(opts)
     end
     if opts.dock then
         merge(M.dock, opts.dock)
+    end
+    if opts.section then
+        merge(M.section, opts.section)
     end
 end
 

@@ -231,6 +231,95 @@ function M.bind(fn)
     end
 end
 
+-- ─── collapsible-section header accents (the shared fold-header canon) ─────────
+-- Every lvim-tech UI with a COLLAPSIBLE section whose children share ONE accent (a mark tab's Local/Global,
+-- a jumplist's This-buffer/Other, …) themes its header the SAME way: the full-width row is that accent
+-- tinted onto the bg — a faint 0.1 at rest, a brighter 0.2 while the cursor HOVERS the header — and the
+-- label reads in the accent fg (bold), matching the caret box in front of it. Rather than each plugin
+-- hand-defining band / hover / text groups, they call `section_accent(accent)` for the group names; ONE
+-- shared bound factory re-derives every requested accent on ColorScheme, so the treatment is identical
+-- everywhere and tracks the live palette. (The hover SWAP itself lives in lvim-ui's form — a `{ inactive,
+-- active }` row_hl — so it is already global too.)
+
+--- Requested section accents (palette key or "#rrggbb") → true.
+---@type table<string, boolean>
+local section_accents = {}
+---@type boolean  the shared re-derive factory is bound
+local section_bound = false
+
+--- The 3 group names for an accent (sanitised so a "#rrggbb" is a valid group identifier).
+---@param accent string
+---@return { band: string, hover: string, text: string }
+local function section_names(accent)
+    local key = accent:gsub("[^%w]", "")
+    return {
+        band = "LvimUiSectionBand_" .. key,
+        hover = "LvimUiSectionHover_" .. key,
+        text = "LvimUiSectionText_" .. key,
+    }
+end
+
+--- The opts for an accent's 3 groups from the live palette: band = accent tinted onto the bg at
+--- `config.section.tint` (rest), hover at `tint_hover`, text = the accent fg (bold). The tints are GLOBAL
+--- (one knob in lvim-utils.config for every fold). `accent` is a palette KEY (tracks the theme) or "#rrggbb".
+---@param accent string
+---@param c table  the live palette
+---@return table<string, table>
+local function section_opts(accent, c)
+    local col = c[accent] or accent
+    local n = section_names(accent)
+    local tint, tint_hover = 0.1, 0.2
+    local ok, cfg = pcall(require, "lvim-utils.config")
+    if ok and type(cfg.section) == "table" then
+        tint = cfg.section.tint or tint
+        tint_hover = cfg.section.tint_hover or tint_hover
+    end
+    return {
+        [n.band] = { bg = M.blend(col, c.bg, tint) },
+        [n.hover] = { bg = M.blend(col, c.bg, tint_hover) },
+        [n.text] = { fg = col, bold = true },
+    }
+end
+
+--- Register (idempotently) the collapsible-section-header groups for `accent` and return their names
+--- `{ band, hover, text }` — the full-width row tint at rest (0.1) / hover (0.2) and the label fg, all the
+--- SAME accent as the section's child badges. The groups track the live palette (re-derived on ColorScheme
+--- via one shared bound factory). THE mechanism every plugin uses for a fold header — nothing is hand-defined
+--- per plugin. Pair the returned `band`/`hover` as a `{ inactive, active }` row_hl and use `text` for the
+--- header label (see lvim-ui's section builder).
+---@param accent string  a palette key ("blue", "cyan", …) or a literal "#rrggbb"
+---@return { band: string, hover: string, text: string }
+function M.section_accent(accent)
+    local names = section_names(accent)
+    if not section_accents[accent] then
+        section_accents[accent] = true
+        -- Already bound (an earlier accent set it up): the factory won't re-run until the next ColorScheme,
+        -- so apply just this new accent NOW (force). The first-ever accent is applied by the bind below.
+        if section_bound then
+            local ok, c = pcall(require, "lvim-utils.colors")
+            if ok then
+                for name, opts in pairs(section_opts(accent, c)) do
+                    vim.api.nvim_set_hl(0, name, opts)
+                end
+            end
+        end
+    end
+    if not section_bound then
+        section_bound = true
+        M.bind(function(c)
+            c = c or require("lvim-utils.colors")
+            local groups = {}
+            for a in pairs(section_accents) do
+                for name, opts in pairs(section_opts(a, c)) do
+                    groups[name] = opts
+                end
+            end
+            return groups
+        end)
+    end
+    return names
+end
+
 ---Install the ColorScheme autocmd so registered + bound groups survive theme changes.
 ---Call once during plugin initialisation.
 function M.setup()
