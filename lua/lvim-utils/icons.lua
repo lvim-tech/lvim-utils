@@ -31,8 +31,8 @@ local M = {}
 ---@field name  string   The backend's icon id / key
 
 -- Built-in fallback glyphs when NO provider is installed (single-width Nerd Font).
----@type table<string, integer>
-local FALLBACK = { file = 0xF15B, directory = 0xF07B }
+---@type table<string, string>
+local FALLBACK = { file = "", directory = "" }
 
 -- provider name → module require path.
 ---@type table<string, string>
@@ -157,8 +157,8 @@ function M.get(name, opts)
         return from_mini(m, name, opts)
     end
     -- No provider installed → a single built-in glyph so consumers still render something.
-    local cp = (opts.kind and opts.kind:find("directory")) and FALLBACK.directory or FALLBACK.file
-    return { glyph = vim.fn.nr2char(cp, 1), hl = "", color = nil, width = 1, name = "default" }
+    local glyph = (opts.kind and opts.kind:find("directory")) and FALLBACK.directory or FALLBACK.file
+    return { glyph = glyph, hl = "", color = nil, width = 1, name = "default" }
 end
 
 --- A KEY→{icon,color,hl,name} map over the provider's whole table — for consumers building a

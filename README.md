@@ -1060,7 +1060,7 @@ Compose segments from the helper modules:
 
 Each component carries its OWN `exclude = { buftype, filetype }` blacklist (8 lists in all — the start
 dashboard, tool panels, terminals, … get no chrome). All glyphs are configurable single-width Nerd-font
-codepoints under `chrome.icons` (mode pill leader, folder, git branch, diagnostics, git-gutter bar, the
+characters under `chrome.icons` (mode pill leader, folder, git branch, diagnostics, git-gutter bar, the
 `➤` breadcrumb separator, the 8 scrollbar block chars, …). See `config/chrome.lua` for the full schema.
 
 The four bar components are **excluded from the [start dashboard](#dashboard)** automatically (they never
