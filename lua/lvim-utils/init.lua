@@ -17,6 +17,7 @@ local M = {}
 M.config = require("lvim-utils.config")
 M.colors = require("lvim-utils.colors")
 M.cursor = require("lvim-utils.cursor")
+M.mouse = require("lvim-utils.mouse")
 M.highlight = require("lvim-utils.highlight")
 M.dock = require("lvim-utils.dock")
 
@@ -56,6 +57,13 @@ function M.setup(opts)
     --    opts.dock; dock.setup binds the global cycle keymaps per the LIVE config (gated by `enable`).
     M.config.setup({ dock = opts.dock })
     M.dock.setup()
+
+    -- 7. mouse: the ecosystem-wide selection lock. A panel is a rendered surface, not text — a mouse click
+    --    there must never start Visual (a fast click emits <2-/<3-/<4-LeftMouse>, which natively select the
+    --    word / line / block and replace the row's cursorline bar with a Visual patch over the label). Keyed
+    --    off the SAME registry as the cursor hiding (cursor.ft / cursor.panel_ft), so every lvim-* panel is
+    --    covered automatically — including ones that never go through the lvim-ui surface chassis.
+    M.mouse.setup()
 end
 
 return M
