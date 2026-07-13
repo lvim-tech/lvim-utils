@@ -2,12 +2,16 @@
 -- FACTORY function (not a table) so callers can re-evaluate it against the CURRENT palette on a colorscheme
 -- change — the reason it lives here as `return function(c)` rather than a plain config table.
 --
--- Style (the lvim-keys-helper convention, applied everywhere): the panel is a uniform
--- `bg_dark`; every coloured chrome cell is its OWN accent blended toward that bg — a
--- STRONG tint for the prominent cells (title / name boxes, active tabs/buttons, key
--- badges) and a LIGHT tint for the secondary ones (subtitles, inactive, stripes, labels,
--- separators). List BODY rows stay fg-only — their selection is shown via CursorLine, so
--- a tinted text span there would fight the cursorline. Tints are configurable via ui.tint.
+-- NOTHING here is a design decision any more: every tint strength and every accent comes from
+-- `config/ui.lua` (`lvim-utils.config.ui` — the shared chrome theme spec). This file only says WHICH role
+-- each group plays; the spec says what a role looks like. So retuning the chrome is a config edit, never a
+-- code edit — and the whole set moves together, because every plugin's chrome is built from this one scale.
+--
+-- The style it encodes (the lvim-keys-helper convention, applied everywhere): the panel is a uniform
+-- `bg_dark`; every coloured chrome cell is its OWN accent blended toward that bg — a STRONG tint for the
+-- prominent cells (title / name boxes, active tabs/buttons, key badges) and a BODY tint for the secondary
+-- ones (subtitles, inactive, stripes, labels, separators). List BODY rows stay fg-only — their selection is
+-- shown via CursorLine, so a tinted text span there would fight the cursorline.
 --
 ---@module "lvim-utils.config.highlight"
 
@@ -19,267 +23,270 @@ return function(c)
     local hl = require("lvim-utils.highlight")
     local bg = c.bg_dark
 
-    -- Tint strengths (overridable via ui.tint). On the very first factory call the config
-    -- module is still mid-load (ui not set yet) → the defaults below apply; rebuilds pick
-    -- up the user's values.
+    -- The theme spec. On the very first factory call the config module may still be mid-load (`ui` not set
+    -- yet) → the file's own defaults apply; every rebuild picks up the user's values.
     local ok_cfg, cfg = pcall(require, "lvim-utils.config")
-    local tcfg = (ok_cfg and cfg.ui and cfg.ui.tint) or {}
-    local STRONG = tcfg.strong or 0.2 -- prominent / active cell
-    local BODY = tcfg.body or 0.05 -- secondary / inactive / body
-    -- All chrome + notify tints blend toward c.bg (matching the Messages groups LvimUiMsg*) —
-    -- same blend base, same colours, so popups and notifications share one look.
+    local ui_cfg = (ok_cfg and cfg.ui) or {}
+    local spec = ok_cfg and cfg.ui or require("lvim-utils.config.ui")
+    local T = ui_cfg.tint or spec.tint
+    local A = ui_cfg.accent or spec.accent
+
+    --- Resolve an accent: a palette KEY ("blue") or a literal "#rrggbb".
+    ---@param v string?
+    ---@param fallback string
+    ---@return string
+    local function col(v, fallback)
+        v = v or fallback
+        if type(v) == "string" and v:sub(1, 1) == "#" then
+            return v
+        end
+        return c[v] or c[fallback] or c.blue
+    end
+
+    -- All chrome + notify tints blend toward c.bg (matching the Messages groups LvimUiMsg*) — same blend
+    -- base, same colours, so popups and notifications share one look.
+    ---@param color string  a resolved hex colour
+    ---@param t number      a strength from the tint scale
     local function mtint(color, t)
         return hl.blend(color, c.bg, t)
     end
-    -- Panel background follows the theme's `styles.floats` via the synced `bg_float` (which is
-    -- already NONE when transparent, the float "dark" shade, or the editor bg for "normal").
-    -- Defaults to bg_dark when unset, so the panel look is unchanged out of the box. Falls back
-    -- to the transparent-or-bg_dark rule if no theme has driven bg_float yet.
+
+    -- Panel background follows the theme's `styles.floats` via the synced `bg_float` (already NONE when
+    -- transparent, the float "dark" shade, or the editor bg for "normal"); defaults to bg_dark.
     local panel_bg = c.bg_float or (c.transparent and c.none or bg)
 
+    -- Resolved accents (one lookup each, then reused below).
+    local a_title = col(A.title, "blue")
+    local a_sub = col(A.subtitle, "yellow")
+    local a_border = col(A.border, "blue")
+    local a_sep = col(A.separator, "red")
+    local a_cursor = col(A.cursorline, "blue")
+    local a_spacer = col(A.spacer, "magenta")
+    local tab = A.tab or {}
+    local a_tab, a_tab_icon, a_tab_text = col(tab.box, "red"), col(tab.icon, "blue"), col(tab.text, "yellow")
+    local a_btn = col(A.button, "orange")
+    local a_row, a_row_icon = col(A.row, "yellow"), col(A.row_icon, "teal")
+    local a_item = col(A.item, "yellow")
+    local a_path = col(A.path, "blue")
+    local ftr = A.footer or {}
+    local a_fkey, a_flabel = col(ftr.key, "blue"), col(ftr.label, "yellow")
+    local a_fsep, a_fchev = col(ftr.sep, "red"), col(ftr.chevron, "yellow")
+    local a_barfill, a_barsep = col(A.bar_fill, "yellow"), col(A.bar_sep, "blue")
+    local pk = A.picker or {}
+    local pe = A.peek or {}
+    local nt = A.notify or {}
+    local ma = A.msgarea or {}
+    local db = A.dashboard or {}
+    local title_cfg = ui_cfg.title or spec.title
+    local a_zone = col(title_cfg.accent, "blue")
+    local t_zone = title_cfg.tint or T.strong
+
+    --- The four notify/message groups per level share one shape — build them from the accent map.
+    ---@param level string  "info"|"warn"|"error"|"debug"
+    ---@param fallback string
+    ---@return string
+    local function nlevel(level, fallback)
+        return col(nt[level], fallback)
+    end
+    local n_info, n_warn = nlevel("info", "blue"), nlevel("warn", "orange")
+    local n_err, n_dbg = nlevel("error", "red"), nlevel("debug", "purple")
+
     return {
-        -- Window chrome (the panel itself — uniform bg, no tint)
-        -- The whole popup chrome follows the notify look: accent fg over a tint of that same
-        -- accent blended toward c.bg (mtint) — STRONG (0.2) for the prominent/active cell,
-        -- BODY (0.05) for the secondary/inactive one. Each element keeps its own role colour.
+        -- ── Window chrome (the panel itself — uniform bg, no tint) ─────────────────────────────────────
         LvimUiNormal = { bg = panel_bg, fg = c.fg },
-        LvimUiBorder = { bg = panel_bg, fg = c.blue },
-        LvimUiSeparator = { fg = c.red }, -- the ────── divider row between groups in a list/form
-        LvimUiCursorLine = { bg = mtint(c.blue, 0.04) }, -- active list row: a very faint blue wash, well below the section/header bands so the two never read alike
+        LvimUiBorder = { bg = panel_bg, fg = a_border },
+        LvimUiSeparator = { fg = a_sep }, -- the ────── divider row between groups in a list/form
+        LvimUiCursorLine = { bg = mtint(a_cursor, T.cursorline) }, -- the active list row: the faintest wash in the set
         LvimUiInput = { bg = c.bg_input, fg = c.fg },
 
-        -- Title block (title = STRONG; subtitle / info = BODY). The optional title icon is its
-        -- own box: same blue as the title text, with a 0.5 tint (matching the active tab icon).
-        LvimUiTitle = { fg = c.blue, bg = mtint(c.blue, STRONG), bold = true },
-        LvimUiTitleIcon = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
-        LvimUiSubtitle = { fg = c.yellow, bg = mtint(c.yellow, BODY) },
-        -- Semantic subtitle variants — fg only (NO bg), one per `type`: info=blue, warn=orange, error=red.
-        LvimUiSubtitleInfo = { fg = c.blue },
-        LvimUiSubtitleWarn = { fg = c.orange },
-        LvimUiSubtitleError = { fg = c.red },
-        LvimUiInfo = { fg = c.yellow, bg = mtint(c.yellow, BODY) },
+        -- ── Title block (title = STRONG; subtitle / info = BODY; the icon is its own box) ──────────────
+        LvimUiTitle = { fg = a_title, bg = mtint(a_title, T.strong), bold = true },
+        LvimUiTitleIcon = { fg = a_title, bg = mtint(a_title, T.icon), bold = true },
+        LvimUiSubtitle = { fg = a_sub, bg = mtint(a_sub, T.body) },
+        -- Semantic subtitle variants — fg only (NO bg), one per `type`.
+        LvimUiSubtitleInfo = { fg = n_info },
+        LvimUiSubtitleWarn = { fg = n_warn },
+        LvimUiSubtitleError = { fg = n_err },
+        LvimUiInfo = { fg = a_sub, bg = mtint(a_sub, T.body) },
 
-        -- Message area (lvim-utils.msgarea): a docked panel — own dark bg + a full-width blue title bar.
+        -- ── Message area (lvim-msgarea): a docked panel — own dark bg + a full-width title bar ─────────
         LvimUiMsgAreaNormal = { fg = c.fg, bg = c.bg_dark },
-        LvimUiMsgAreaTitle = { fg = c.blue, bg = mtint(c.blue, 0.4), bold = true },
-        LvimUiMsgAreaTitleFill = { bg = mtint(c.blue, 0.4) },
-        -- Intercepted completion list rendered IN the zone (blink stays the engine; we draw it).
-        -- The grid is striped by accent (odd BLUE, even YELLOW): the WHOLE row — icon + label — takes
-        -- that accent as its fg over a LIGHT tint of it (0.1); the selected cell raises the tint to 0.2
-        -- (+ bold) of its row's accent, one solid block. fg and bg share the colour ("fg = the tint").
-        LvimUiMsgAreaItem = { fg = c.fg, bg = c.bg_dark }, -- a completion item row (the label)
-        LvimUiMsgAreaItemKind = { fg = c.cyan, bg = c.bg_dark }, -- its kind icon (fallback when no source hl)
-        -- The finder PROMPT row: a leading icon/text badge (STRONG blue tint 0.3) then the typed area (light
-        -- blue tint 0.1) — the same "тинт, тинт" canon as the cmdline mode badge.
-        LvimUiPickerPrompt = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true }, -- the icon + label badge
-        LvimUiPickerInput = { fg = c.blue, bg = mtint(c.blue, 0.1) }, -- the typed-text area (blue text)
-        LvimUiPickerCursor = { bg = c.blue, fg = c.bg }, -- the fzf input caret (a thin blue bar via guicursor)
-        LvimUiPickerMarker = { fg = c.red, bold = true }, -- the multi-select mark dot (●) — red, in the front column
-        LvimUiPickerSeparator = { fg = c.red, bg = panel_bg }, -- the panel divider — a THIN red line
-        -- the preview winbar's PATH (dir): the tint's OWN accent fg on the WINBAR's bg (the "fg = the tint"
-        -- canon), so it blends into the bar; the file name stays the brighter LvimUiPeekFile.
-        LvimUiPickerPreviewDir = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
-        -- ── start dashboard (lvim-utils.dashboard) ── colours mirror the old snacks dashboard groups,
-        -- self-themed from the palette: header green_dark, icon/footer/file red_dark (the Special accent),
-        -- key orange, desc cyan, special purple, dir comment, title green_dark+bold (the Title accent).
-        LvimUiDashboardHeader = { fg = c.green_dark }, -- the ASCII banner
-        LvimUiDashboardFooter = { fg = c.red_dark }, -- a footer line
-        LvimUiDashboardIcon = { fg = c.red_dark }, -- a key/file leading glyph
-        LvimUiDashboardKey = { fg = c.orange }, -- the keyboard shortcut (right side)
-        LvimUiDashboardDesc = { fg = c.cyan }, -- a key row's description
-        LvimUiDashboardTitle = { fg = c.green_dark, bold = true }, -- a section title (Recent Files / Projects)
-        LvimUiDashboardFile = { fg = c.red_dark }, -- a file name (the Special accent)
-        LvimUiDashboardDir = { fg = c.comment }, -- a file's directory part (dim)
-        LvimUiDashboardSpecial = { fg = c.purple }, -- emphasised inline text (the startup counts)
-        LvimUiDashboardNormal = { fg = c.fg, bg = c.bg }, -- the buffer background / plain text
-        LvimUiDashboardCursorLine = { bg = mtint(c.blue, 0.12) }, -- the active item's row cell (a subtle tint)
+        LvimUiMsgAreaTitle = { fg = a_zone, bg = mtint(a_zone, t_zone), bold = true },
+        LvimUiMsgAreaTitleFill = { bg = mtint(a_zone, t_zone) },
+        -- The intercepted completion grid rendered IN the zone (blink stays the engine; we draw it). Striped
+        -- by accent: the WHOLE row takes its accent as fg over a BODY tint; the selected cell raises it to
+        -- STRONG (+ bold), one solid block. fg and bg share the colour ("fg = the tint").
+        LvimUiMsgAreaItem = { fg = c.fg, bg = c.bg_dark },
+        LvimUiMsgAreaItemKind = { fg = col(ma.kind, "cyan"), bg = c.bg_dark },
         LvimUiMsgAreaItemSource = { fg = c.comment, bg = c.bg_dark }, -- the right-aligned [source] tag, dim
-        LvimUiMsgAreaRowOdd = { fg = c.blue, bg = mtint(c.blue, 0.05) }, -- odd grid row stripe (blue)
-        LvimUiMsgAreaRowEven = { fg = c.yellow, bg = mtint(c.yellow, 0.05) }, -- even grid row stripe (yellow)
-        LvimUiMsgAreaSelOdd = { fg = c.blue, bg = mtint(c.blue, 0.2), bold = true }, -- selected cell, blue row
-        LvimUiMsgAreaSelEven = { fg = c.yellow, bg = mtint(c.yellow, 0.2), bold = true }, -- selected cell, yellow row
-        -- The fuzzy-matched characters within an item — bold + a contrasting accent so the typed query
-        -- stands out over the row's own accent fg (painted above the row stripe AND the selected cell).
-        LvimUiMsgAreaMatch = { fg = c.red, bold = true },
+        LvimUiMsgAreaRowOdd = { fg = col(ma.row_odd, "blue"), bg = mtint(col(ma.row_odd, "blue"), T.body) },
+        LvimUiMsgAreaRowEven = { fg = col(ma.row_even, "yellow"), bg = mtint(col(ma.row_even, "yellow"), T.body) },
+        LvimUiMsgAreaSelOdd = {
+            fg = col(ma.row_odd, "blue"),
+            bg = mtint(col(ma.row_odd, "blue"), T.strong),
+            bold = true,
+        },
+        LvimUiMsgAreaSelEven = {
+            fg = col(ma.row_even, "yellow"),
+            bg = mtint(col(ma.row_even, "yellow"), T.strong),
+            bold = true,
+        },
+        LvimUiMsgAreaMatch = { fg = col(ma.match, "red"), bold = true }, -- the typed query inside an item
 
-        -- Tab bar. The ICON box is the BLUE key-badge accent (follows the footer `q close` key style);
-        -- the TEXT box stays yellow. Each renders its own tinted box, in three states:
-        --   inactive (secondary) · active (the selected tab) · hover (the focused-sector selection).
-        LvimUiTabActive = { fg = c.red, bg = mtint(c.red, STRONG), bold = true },
-        LvimUiTabInactive = { fg = c.red, bg = mtint(c.red, BODY) },
-        -- Overflow chevrons (hidden tabs) — red with a 0.3 tint, padded 1 space front/back.
-        LvimUiTabChevron = { fg = c.red, bg = mtint(c.red, 0.3), bold = true },
-        LvimUiTabIconActive = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true },
-        LvimUiTabIconInactive = { fg = c.blue, bg = mtint(c.blue, 0.2) },
-        LvimUiTabIconHover = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
-        LvimUiTabTextActive = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
-        LvimUiTabTextInactive = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
-        LvimUiTabTextHover = { fg = c.yellow, bg = mtint(c.yellow, 0.5), bold = true },
+        -- ── Picker (the finder prompt + its panes) ─────────────────────────────────────────────────────
+        LvimUiPickerPrompt = { fg = col(pk.prompt, "blue"), bg = mtint(col(pk.prompt, "blue"), T.badge), bold = true },
+        LvimUiPickerInput = { fg = col(pk.input, "blue"), bg = mtint(col(pk.input, "blue"), T.input) },
+        LvimUiPickerCursor = { bg = col(pk.cursor, "blue"), fg = c.bg }, -- the fzf caret (a thin bar via guicursor)
+        LvimUiPickerMarker = { fg = col(pk.marker, "red"), bold = true }, -- the multi-select mark dot
+        LvimUiPickerSeparator = { fg = col(pk.separator, "red"), bg = panel_bg }, -- the thin divider line
+        LvimUiPickerPreviewDir = {
+            fg = col(pk.preview_dir, "yellow"),
+            bg = mtint(col(pk.preview_dir, "yellow"), T.badge),
+        },
 
-        -- Action bar buttons (active = STRONG, inactive = BODY)
-        LvimUiButtonActive = { fg = c.orange, bg = mtint(c.orange, STRONG), bold = true },
-        LvimUiButtonInactive = { fg = c.orange, bg = mtint(c.orange, BODY) },
-        LvimUiButtonIconActive = { fg = c.orange },
-        LvimUiButtonIconInactive = { fg = c.orange },
-        LvimUiButtonTextActive = { fg = c.orange, bold = true },
-        LvimUiButtonTextInactive = { fg = c.orange },
+        -- ── Start dashboard ───────────────────────────────────────────────────────────────────────────
+        LvimUiDashboardHeader = { fg = col(db.header, "green_dark") },
+        LvimUiDashboardFooter = { fg = col(db.footer, "red_dark") },
+        LvimUiDashboardIcon = { fg = col(db.icon, "red_dark") },
+        LvimUiDashboardKey = { fg = col(db.key, "orange") },
+        LvimUiDashboardDesc = { fg = col(db.desc, "cyan") },
+        LvimUiDashboardTitle = { fg = col(db.title, "green_dark"), bold = true },
+        LvimUiDashboardFile = { fg = col(db.file, "red_dark") },
+        LvimUiDashboardDir = { fg = col(db.dir, "comment") },
+        LvimUiDashboardSpecial = { fg = col(db.special, "purple") },
+        LvimUiDashboardNormal = { fg = c.fg, bg = c.bg },
+        LvimUiDashboardCursorLine = { bg = mtint(a_cursor, T.separator) },
 
-        -- Tabs rows icon / text (accent fg; the row line tint comes from CursorLine/ItemBody)
-        LvimUiRowIconActive = { fg = c.yellow },
-        LvimUiRowIconInactive = { fg = c.yellow },
-        LvimUiRowItemIconActive = { fg = c.teal },
-        LvimUiRowItemIconInactive = { fg = c.teal },
-        LvimUiRowTextActive = { fg = c.yellow, bold = true },
+        -- ── Tab bar (three states per box: inactive · active · hover) ──────────────────────────────────
+        LvimUiTabActive = { fg = a_tab, bg = mtint(a_tab, T.strong), bold = true },
+        LvimUiTabInactive = { fg = a_tab, bg = mtint(a_tab, T.body) },
+        LvimUiTabChevron = { fg = a_tab, bg = mtint(a_tab, T.badge), bold = true },
+        LvimUiTabIconActive = { fg = a_tab_icon, bg = mtint(a_tab_icon, T.badge), bold = true },
+        LvimUiTabIconInactive = { fg = a_tab_icon, bg = mtint(a_tab_icon, T.strong) },
+        LvimUiTabIconHover = { fg = a_tab_icon, bg = mtint(a_tab_icon, T.icon), bold = true },
+        LvimUiTabTextActive = { fg = a_tab_text, bg = mtint(a_tab_text, T.bright), bold = true },
+        LvimUiTabTextInactive = { fg = a_tab_text, bg = mtint(a_tab_text, T.strong) },
+        LvimUiTabTextHover = { fg = a_tab_text, bg = mtint(a_tab_text, T.icon), bold = true },
+
+        -- ── Action-bar buttons (active = STRONG, inactive = BODY) ──────────────────────────────────────
+        LvimUiButtonActive = { fg = a_btn, bg = mtint(a_btn, T.strong), bold = true },
+        LvimUiButtonInactive = { fg = a_btn, bg = mtint(a_btn, T.body) },
+        LvimUiButtonIconActive = { fg = a_btn },
+        LvimUiButtonIconInactive = { fg = a_btn },
+        LvimUiButtonTextActive = { fg = a_btn, bold = true },
+        LvimUiButtonTextInactive = { fg = a_btn },
+
+        -- ── Rows (accent fg; the row's line tint comes from CursorLine) ────────────────────────────────
+        LvimUiRowIconActive = { fg = a_row },
+        LvimUiRowIconInactive = { fg = a_row },
+        LvimUiRowItemIconActive = { fg = a_row_icon },
+        LvimUiRowItemIconInactive = { fg = a_row_icon },
+        LvimUiRowTextActive = { fg = a_row, bold = true },
         LvimUiRowTextInactive = { fg = c.fg },
-        -- A DISABLED row — a setting that exists but is INERT in the current context (e.g. relative line numbers
-        -- while "show line numbers" is off): the whole line is dimmed (fg muted toward the bg) + struck through,
-        -- so it reads as present-but-inactive without changing its value.
-        LvimUiRowDisabled = { fg = mtint(c.fg, 0.5), strikethrough = true },
-        -- A file row's path: the file name is BLUE + bold; the leading project/dir path is the same blue
-        -- tinted toward the bg (a dimmer blue), so the name clearly reads over the muted path.
-        LvimUiPathDim = { fg = mtint(c.blue, 0.8) },
-        LvimUiPathName = { fg = c.blue, bold = true },
+        -- A DISABLED row — present but INERT in this context: dimmed + struck through, so it stays visible
+        -- and reads as inactive without changing its value.
+        LvimUiRowDisabled = { fg = mtint(c.fg, T.row_dim), strikethrough = true },
+        -- A file row: the NAME in full accent, the leading path the same hue pulled toward the bg.
+        LvimUiPathDim = { fg = mtint(a_path, T.path_dim) },
+        LvimUiPathName = { fg = a_path, bold = true },
 
-        -- Select / multiselect items (clean list — yellow text, active row = yellow + bold)
-        LvimUiItemIconActive = { fg = c.yellow },
-        LvimUiItemIconInactive = { fg = c.yellow },
-        LvimUiItemTextActive = { fg = c.yellow, bold = true },
-        LvimUiItemTextInactive = { fg = c.yellow },
+        -- ── Select / multiselect items ────────────────────────────────────────────────────────────────
+        LvimUiItemIconActive = { fg = a_item },
+        LvimUiItemIconInactive = { fg = a_item },
+        LvimUiItemTextActive = { fg = a_item, bold = true },
+        LvimUiItemTextInactive = { fg = a_item },
+        LvimUiCheckboxSelected = { fg = a_item },
+        LvimUiCheckboxEmpty = { fg = a_item },
 
-        -- Multiselect checkboxes
-        LvimUiCheckboxSelected = { fg = c.yellow },
-        LvimUiCheckboxEmpty = { fg = c.yellow },
-
-        -- Footer hints. No full-width footer bar (the base has no bg); each badge is its own box:
-        -- the key a blue 0.3 tint, the label a yellow 0.2 tint, on the plain panel background.
-        LvimUiFooter = { fg = c.blue, bold = true },
-        LvimUiFooterKey = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true },
-        LvimUiFooterLabel = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
-        -- Footer HOVER/selected: each part keeps its own bg tint, raised by +0.2 (0.3→0.5, 0.2→0.4).
-        LvimUiFooterKeyHover = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
-        LvimUiFooterLabelHover = { fg = c.yellow, bg = mtint(c.yellow, 0.4) },
-        LvimUiFooterChevron = { fg = c.yellow, bold = true }, -- overflow scroll chevrons (‹ ›)
-        -- The key-hint legend's part-separator (•) dividing the panel keys (left) from the focused-row keys
-        -- (right). Its OWN red box — a STRONG 0.6 red-tint bg with a lighter 0.3 red-tint dot — so it pops
-        -- against the blue keys / yellow labels around it.
-        LvimUiFooterSep = { fg = mtint(c.red, 0.3), bg = mtint(c.red, 0.6), bold = true },
-        LvimUiBarChevron = { fg = mtint(c.red, 0.3), bg = mtint(c.red, 0.6), bold = true }, -- bar overflow chevron BOX (‹ ›) — red, matching the footer legend's LvimUiFooterSep
-        -- A continuous full-width bg STRIP under a bar's buttons, so the whole row reads as one tinted bar (the
-        -- buttons + the hover sit on top). A soft YELLOW tint — visible enough to read as its own bar, still
-        -- light enough that the buttons / selection pop above it.
-        LvimUiBarFill = { bg = mtint(c.yellow, 0.08) },
-        -- The BACKDROP veil behind an open surface — pure black; `config.ui.backdrop.<layout>.blend` (winblend) sets
-        -- how much the editor shows through, so the same group reads as a strong darken or a soft dim per config.
+        -- ── Footer hints (no full-width bar: each badge is its own box) ────────────────────────────────
+        LvimUiFooter = { fg = a_fkey, bold = true },
+        LvimUiFooterKey = { fg = a_fkey, bg = mtint(a_fkey, T.badge), bold = true },
+        LvimUiFooterLabel = { fg = a_flabel, bg = mtint(a_flabel, T.label) },
+        -- HOVER/selected: each part keeps its colour and just deepens.
+        LvimUiFooterKeyHover = { fg = a_fkey, bg = mtint(a_fkey, T.icon), bold = true },
+        LvimUiFooterLabelHover = { fg = a_flabel, bg = mtint(a_flabel, T.bright) },
+        LvimUiFooterChevron = { fg = a_fchev, bold = true },
+        -- The legend's part-separator (•) dividing the panel keys from the focused-row keys: its own DEEP
+        -- box with a lighter dot, so it pops against the keys/labels around it.
+        LvimUiFooterSep = { fg = mtint(a_fsep, T.badge), bg = mtint(a_fsep, T.deep), bold = true },
+        LvimUiBarChevron = { fg = mtint(a_fsep, T.badge), bg = mtint(a_fsep, T.deep), bold = true },
+        -- The continuous full-width strip under a bar's buttons (they sit on top of it).
+        LvimUiBarFill = { bg = mtint(a_barfill, T.bar_fill) },
+        LvimUiBarSep = { fg = a_barsep, bg = mtint(a_barsep, T.separator) }, -- the ➤ / ● between bar groups
+        LvimUiFrameSel = { bg = mtint(a_barsep, T.strong) }, -- the focused bar-button selection (no-accent fallback)
+        -- The BACKDROP veil behind an open surface — pure black; `config.dock.<layout>.backdrop.blend`
+        -- (winblend) decides how much shows through, so one group reads as a darken OR a soft dim.
         LvimUiBackdrop = { bg = c.black },
-        LvimUiBarSep = { fg = c.blue, bg = mtint(c.blue, 0.12) }, -- visible bar separator box (➤ / ● between groups)
-        LvimUiFrameSel = { bg = mtint(c.blue, 0.2) }, -- focused bar-button selection bg (no-accent fallback)
 
-        -- Spacer / divider rows
-        LvimUiSpacer = { fg = c.magenta },
+        -- ── Spacers / disabled ────────────────────────────────────────────────────────────────────────
+        LvimUiSpacer = { fg = a_spacer },
+        -- A value that exists but cannot apply here. `comment` alone is nearly identical to the INACTIVE row
+        -- text, so on an unfocused row the dim was invisible — blend it further toward the bg.
+        LvimUiDisabled = { fg = mtint(c.comment, T.dim), strikethrough = true },
 
-        -- Disabled row: a value that exists but can't apply in the current context — dimmed +
-        -- struck through, so it stays visible but reads as inert. The fg is the comment colour
-        -- blended further toward the background: plain `c.comment` is nearly identical to the
-        -- INACTIVE row text, so on a non-focused row the dim was invisible — this keeps it
-        -- clearly greyer than any normal row, focused or not.
-        LvimUiDisabled = { fg = mtint(c.comment, 0.45), strikethrough = true },
-
-        -- Notify panel — matches the Messages groups (LvimUiMsg*) exactly: colours
-        -- Error=red, Warn=orange, Info=teal, Debug=purple; tints blended toward c.bg, with
-        -- the header/title at 0.2 (the Messages "icon" tint) and the body at 0.1 (its "text"
-        -- tint). fg is the level's own accent throughout.
+        -- ── Notify panel (mirrors the message groups exactly) ──────────────────────────────────────────
         LvimNotifyNormal = { bg = panel_bg, fg = c.fg },
-        LvimNotifyTitle = { fg = c.blue, bold = true },
-        LvimNotifyInfo = { fg = c.blue },
-        LvimNotifyWarn = { fg = c.orange },
-        LvimNotifyError = { fg = c.red },
-        LvimNotifyDebug = { fg = c.purple },
+        LvimNotifyTitle = { fg = a_title, bold = true },
+        LvimNotifyInfo = { fg = n_info },
+        LvimNotifyWarn = { fg = n_warn },
+        LvimNotifyError = { fg = n_err },
+        LvimNotifyDebug = { fg = n_dbg },
+        -- entry title + header bar → STRONG; the body → BODY; fg is the level's own accent throughout
+        LvimNotifyTitleInfo = { fg = n_info, bg = mtint(n_info, T.strong), bold = true },
+        LvimNotifyTitleWarn = { fg = n_warn, bg = mtint(n_warn, T.strong), bold = true },
+        LvimNotifyTitleError = { fg = n_err, bg = mtint(n_err, T.strong), bold = true },
+        LvimNotifyTitleDebug = { fg = n_dbg, bg = mtint(n_dbg, T.strong), bold = true },
+        LvimNotifyHeaderInfo = { fg = n_info, bg = mtint(n_info, T.strong), bold = true },
+        LvimNotifyHeaderWarn = { fg = n_warn, bg = mtint(n_warn, T.strong), bold = true },
+        LvimNotifyHeaderError = { fg = n_err, bg = mtint(n_err, T.strong), bold = true },
+        LvimNotifyHeaderDebug = { fg = n_dbg, bg = mtint(n_dbg, T.strong), bold = true },
+        LvimNotifyBodyInfo = { fg = n_info, bg = mtint(n_info, T.body) },
+        LvimNotifyBodyWarn = { fg = n_warn, bg = mtint(n_warn, T.body) },
+        LvimNotifyBodyError = { fg = n_err, bg = mtint(n_err, T.body) },
+        LvimNotifyBodyDebug = { fg = n_dbg, bg = mtint(n_dbg, T.body) },
+        LvimNotifySepInfo = { bg = mtint(n_info, T.body), fg = mtint(n_info, T.icon) },
+        LvimNotifySepWarn = { bg = mtint(n_warn, T.body), fg = mtint(n_warn, T.icon) },
+        LvimNotifySepError = { bg = mtint(n_err, T.body), fg = mtint(n_err, T.icon) },
+        LvimNotifySepDebug = { bg = mtint(n_dbg, T.body), fg = mtint(n_dbg, T.icon) },
 
-        -- Entry title → 0.2 tint
-        LvimNotifyTitleInfo = { fg = c.blue, bg = mtint(c.blue, 0.2), bold = true },
-        LvimNotifyTitleWarn = { fg = c.orange, bg = mtint(c.orange, 0.2), bold = true },
-        LvimNotifyTitleError = { fg = c.red, bg = mtint(c.red, 0.2), bold = true },
-        LvimNotifyTitleDebug = { fg = c.purple, bg = mtint(c.purple, 0.2), bold = true },
-
-        -- Header bar (icon + level name) → 0.2 tint
-        LvimNotifyHeaderInfo = { fg = c.blue, bg = mtint(c.blue, 0.2), bold = true },
-        LvimNotifyHeaderWarn = { fg = c.orange, bg = mtint(c.orange, 0.2), bold = true },
-        LvimNotifyHeaderError = { fg = c.red, bg = mtint(c.red, 0.2), bold = true },
-        LvimNotifyHeaderDebug = { fg = c.purple, bg = mtint(c.purple, 0.2), bold = true },
-
-        -- Content body (every entry line) → 0.05 tint, fg = the level accent (like Messages text)
-        LvimNotifyBodyInfo = { fg = c.blue, bg = mtint(c.blue, 0.05) },
-        LvimNotifyBodyWarn = { fg = c.orange, bg = mtint(c.orange, 0.05) },
-        LvimNotifyBodyError = { fg = c.red, bg = mtint(c.red, 0.05) },
-        LvimNotifyBodyDebug = { fg = c.purple, bg = mtint(c.purple, 0.05) },
-
-        -- Separator lines (soft level-tinted line over the 0.05 body bg)
-        LvimNotifySepInfo = { bg = mtint(c.blue, 0.05), fg = mtint(c.blue, 0.5) },
-        LvimNotifySepWarn = { bg = mtint(c.orange, 0.05), fg = mtint(c.orange, 0.5) },
-        LvimNotifySepError = { bg = mtint(c.red, 0.05), fg = mtint(c.red, 0.5) },
-        LvimNotifySepDebug = { bg = mtint(c.purple, 0.05), fg = mtint(c.purple, 0.5) },
-
-        -- Peek (two-pane location navigator) — a FLATTER, glance-like look: the only tinted cell
-        -- is the centred title; the rest of the list is fg-only (filename, directory, count, the
-        -- source rows and the tree guide), selection shown via the cursorline. The match range in
-        -- the PREVIEW keeps a tint so it stays visible over real code.
+        -- ── Peek (the two-pane location navigator) — a flatter, glance-like look: the only tinted cells are
+        -- the title + the winbars; the list itself is fg-only (its selection is the cursorline).
         LvimUiPeekNormal = { bg = panel_bg, fg = c.fg },
-        LvimUiPeekBorder = { bg = panel_bg, fg = c.blue },
-        LvimUiPeekTitle = { fg = c.blue, bg = mtint(c.blue, STRONG), bold = true },
-        LvimUiPeekTitleIcon = { fg = c.blue, bg = mtint(c.blue, 0.4), bold = true }, -- title ICON box (accent)
-        -- The chassis COUNTER box (a frame's item/match count) — a green tint box matching the overlay
-        -- count colour, rendered either as a chunk in the border-title (`counter="title"`) or as the
-        -- right-aligned native border-FOOTER (`counter="footer"`). See ui/surface.lua build_brand/build_border_footer.
-        LvimUiPeekCounter = { fg = c.green, bg = mtint(c.green, 0.3), bold = true },
-        -- List winbar: a green bar (tint 0.2 across its whole width), with the kind ("References")
-        -- standing out on a stronger green (tint 0.3).
-        LvimUiPeekKindBar = { fg = c.green, bg = mtint(c.green, 0.3) },
-        LvimUiPeekKind = { fg = c.green, bg = mtint(c.green, 0.4), bold = true },
-        -- Preview winbar: a yellow bar (tint 0.2) with the file name on a stronger yellow (0.3);
-        -- the path follows on the bar. Both keep the real yellow fg.
-        LvimUiPeekFileBar = { fg = c.yellow, bg = mtint(c.yellow, 0.3) },
-        LvimUiPeekFile = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
-        -- The "nothing to preview" placeholder: yellow fg on a light yellow tint (0.3) across the whole width
-        -- (a plain styled row imitating the title bar — no winbar, so it leaves no empty body row below it).
-        LvimUiPeekEmpty = { fg = c.yellow, bg = mtint(c.yellow, 0.3), bold = true },
-        -- The filetype icon shown before the file name — its own group (yellow), independent of the
-        -- per-filetype devicon colour; shares the file name's strong yellow tint cell.
-        LvimUiPeekFileIcon = { fg = c.yellow, bg = mtint(c.yellow, 0.4), bold = true },
-        LvimUiPeekGroup = { fg = c.green, bold = true }, -- the file NAME (tail)
-        LvimUiPeekGroupIcon = { fg = c.red }, -- the chevron (▸/▾) fold arrows
-        LvimUiPeekDir = { fg = c.yellow }, -- the file PATH (dir)
+        LvimUiPeekBorder = { bg = panel_bg, fg = col(pe.title, "blue") },
+        LvimUiPeekTitle = { fg = col(pe.title, "blue"), bg = mtint(col(pe.title, "blue"), T.strong), bold = true },
+        LvimUiPeekTitleIcon = { fg = col(pe.icon, "blue"), bg = mtint(col(pe.icon, "blue"), T.bright), bold = true },
+        LvimUiPeekCounter = { fg = col(pe.count, "green"), bg = mtint(col(pe.count, "green"), T.badge), bold = true },
+        LvimUiPeekKindBar = { fg = col(pe.kind, "green"), bg = mtint(col(pe.kind, "green"), T.badge) },
+        LvimUiPeekKind = { fg = col(pe.kind, "green"), bg = mtint(col(pe.kind, "green"), T.bright), bold = true },
+        LvimUiPeekFileBar = { fg = col(pe.file, "yellow"), bg = mtint(col(pe.file, "yellow"), T.badge) },
+        LvimUiPeekFile = { fg = col(pe.file, "yellow"), bg = mtint(col(pe.file, "yellow"), T.bright), bold = true },
+        LvimUiPeekEmpty = { fg = col(pe.file, "yellow"), bg = mtint(col(pe.file, "yellow"), T.badge), bold = true },
+        LvimUiPeekFileIcon = {
+            fg = col(pe.file, "yellow"),
+            bg = mtint(col(pe.file, "yellow"), T.bright),
+            bold = true,
+        },
+        LvimUiPeekGroup = { fg = col(pe.kind, "green"), bold = true }, -- the file NAME (tail)
+        LvimUiPeekGroupIcon = { fg = a_sep }, -- the ▸/▾ fold arrows
+        LvimUiPeekDir = { fg = col(pe.file, "yellow") }, -- the file PATH (dir)
         LvimUiPeekCount = { fg = c.comment },
-        -- The preview's line numbers are intentionally left to the editor's own LineNr /
-        -- CursorLineNr (see ui/peek.lua dress()), so the preview reads like a normal buffer.
         LvimUiPeekText = { fg = c.fg },
         LvimUiPeekGuide = { fg = c.comment },
-        LvimUiPeekCursorLine = { fg = c.yellow, bg = mtint(c.blue, 0.04) }, -- list hover row: yellow TEXT + a very faint blue tint bg
-        LvimUiPeekMatch = { fg = c.blue, bg = mtint(c.blue, 0.25), bold = true },
-        -- Footer key hints on the container's bottom border: each key is a blue 0.3-tint badge,
-        -- its label a yellow 0.2-tint box — matching the LvimUiFooter* convention.
-        LvimUiPeekFooterKey = { fg = c.blue, bg = mtint(c.blue, 0.3), bold = true },
-        LvimUiPeekFooterLabel = { fg = c.yellow, bg = mtint(c.yellow, 0.2) },
-        -- Hover variants: SAME fg, the bg tint stepped up by 0.2 (so each part keeps its colour and
-        -- just deepens) — the footer buttons use these as their per-segment hover state.
-        LvimUiPeekFooterKeyHover = { fg = c.blue, bg = mtint(c.blue, 0.5), bold = true },
-        LvimUiPeekFooterLabelHover = { fg = c.yellow, bg = mtint(c.yellow, 0.4) },
-        -- Filter bar (centred bracket-key buttons): fg-only, no background. Active = the full accent
-        -- (bold), inactive = the same accent kept mostly intact (0.6 = 60% accent toward bg) so it
-        -- stays clearly readable — the old 0.45 was too washed out. The generic ([A]ll / scope)
-        -- buttons use this green; diagnostics override per severity. (mtint(c, t): t=1 full, t=0 bg.)
-        LvimUiPeekFilterActive = { fg = c.green, bold = true },
-        LvimUiPeekFilterInactive = { fg = mtint(c.green, 0.6) },
-        LvimUiPeekFilterSep = { fg = c.yellow }, -- the ● separator before/between filter groups
-        -- The button under the keyboard selection in a focused bar: a clearly visible bg drawn OVER the
-        -- button (above its fg/badge spans, bg-only so it keeps its fg) + bold, so the selection reads
-        -- on the footer badges too.
-        LvimUiPeekFilterSelected = { bg = mtint(c.fg, 0.35), bold = true },
-        -- Mouse-hover over a header/footer button: a subtle tint above the panel (≈ +0.1), clearly
-        -- weaker than the selection. (mtint t: 0 = panel bg, 1 = full fg.)
-        LvimUiPeekHover = { bg = mtint(c.fg, 0.12) },
-        -- Overflow scroll chevrons (yellow by default), separate groups for the filter bar (header)
-        -- and the key-hint footer so each can be themed on its own.
-        LvimUiPeekFilterChevron = { fg = c.yellow, bold = true },
-        LvimUiPeekFooterChevron = { fg = c.yellow, bold = true },
+        LvimUiPeekCursorLine = { fg = col(pe.file, "yellow"), bg = mtint(a_cursor, T.cursorline) },
+        LvimUiPeekMatch = { fg = col(pe.match, "blue"), bg = mtint(col(pe.match, "blue"), T.match), bold = true },
+        LvimUiPeekFooterKey = { fg = a_fkey, bg = mtint(a_fkey, T.badge), bold = true },
+        LvimUiPeekFooterLabel = { fg = a_flabel, bg = mtint(a_flabel, T.label) },
+        LvimUiPeekFooterKeyHover = { fg = a_fkey, bg = mtint(a_fkey, T.icon), bold = true },
+        LvimUiPeekFooterLabelHover = { fg = a_flabel, bg = mtint(a_flabel, T.bright) },
+        -- The filter bar: fg-only, no background. Active = the full accent (bold); inactive = the same
+        -- accent kept mostly intact (`tint.filter_off`) so it stays readable.
+        LvimUiPeekFilterActive = { fg = col(pe.filter, "green"), bold = true },
+        LvimUiPeekFilterInactive = { fg = mtint(col(pe.filter, "green"), T.filter_off) },
+        LvimUiPeekFilterSep = { fg = a_flabel }, -- the ● separator before/between filter groups
+        -- The keyboard selection drawn OVER a focused bar button (bg-only, so the button keeps its fg).
+        LvimUiPeekFilterSelected = { bg = mtint(c.fg, T.selection), bold = true },
+        LvimUiPeekHover = { bg = mtint(c.fg, T.hover) }, -- a mouse hover — clearly weaker than the selection
+        LvimUiPeekFilterChevron = { fg = a_fchev, bold = true },
+        LvimUiPeekFooterChevron = { fg = a_fchev, bold = true },
     }
 end

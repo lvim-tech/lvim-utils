@@ -28,8 +28,17 @@ M.dock = vim.deepcopy(require("lvim-utils.config.dock"))
 ---@field tint_hover number  -- hover band blend factor (0..1), default 0.2
 M.section = { tint = 0.1, tint_hover = 0.2 }
 
+-- The SHARED chrome tint scale (read by config/highlight.lua's factory) — how far an accent is blended onto
+-- the background. One scale for the whole set: change it here and every panel, bar and title follows.
+-- (The factory always claimed these were overridable through `ui.tint`, but `M.ui` did not exist — so the
+-- literals in the factory were the only values there ever were. This is that promised seam, made real.)
+-- The SHARED chrome THEME SPEC — every tint strength + every accent the UI paints with, named by ROLE
+-- (`lvim-utils.config.ui`). The highlight factory reads ONLY this: no tint or colour is decided in code any
+-- more, so retuning the whole set's chrome is a config edit.
+M.ui = vim.deepcopy(require("lvim-utils.config.ui"))
+
 --- Merge user-provided options into the base config tables, in place.
----@param opts? { cursor?: table, dock?: table, section?: LvimUtilsSectionConfig }
+---@param opts? { cursor?: table, dock?: table, section?: LvimUtilsSectionConfig, ui?: LvimUtilsUiConfig }
 function M.setup(opts)
     opts = opts or {}
     if opts.cursor then
@@ -40,6 +49,9 @@ function M.setup(opts)
     end
     if opts.section then
         merge(M.section, opts.section)
+    end
+    if opts.ui then
+        merge(M.ui, opts.ui)
     end
 end
 

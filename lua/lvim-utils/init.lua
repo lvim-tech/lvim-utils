@@ -31,8 +31,16 @@ function M.setup(opts)
         M.colors.setup(opts.colors)
     end
 
-    -- 2. Merge the base config (cursor) so it reads the updated values.
-    M.config.setup({ cursor = opts.cursor })
+    -- 2. Merge the base config so every reader sees the effective values. It used to forward ONLY `cursor`,
+    --    so `dock`, `section` and `ui` (the shared tint scale + the panel title bar) silently never arrived —
+    --    a user's override of them did nothing at all. Forward the whole set, BEFORE the highlight factory
+    --    below reads the tints.
+    M.config.setup({
+        cursor = opts.cursor,
+        dock = opts.dock,
+        section = opts.section,
+        ui = opts.ui,
+    })
 
     -- 3. Self-theme the group map from the fully-configured palette via bind(): applied with `default = true`
     --    so a non-lvim colorscheme (or the user) can override, and re-applied automatically on palette /

@@ -1317,6 +1317,62 @@ report the sqlite backend for a consumer's `:checkhealth` (file/json need no dep
 
 ---
 
+## Chrome theme spec (`ui`)
+
+Every tint strength and every accent the lvim-tech chrome paints with lives in ONE place —
+`lvim-utils.config.ui`. The highlight factory decides only WHICH ROLE a group plays; the spec decides what
+a role looks like. Retuning the whole set's chrome is therefore a config edit, never a code edit.
+
+```lua
+require("lvim-utils").setup({
+    ui = {
+        -- TINT = how far an accent is blended toward the panel bg (0 = plain bg, 1 = the pure accent).
+        -- Named by ROLE, ordered from the faintest to the densest, so the chrome keeps one rhythm.
+        tint = {
+            cursorline = 0.04, -- the active row's wash (the faintest in the set)
+            body = 0.05, -- a secondary / inactive / body cell
+            bar_fill = 0.08, -- the strip under a bar's buttons
+            input = 0.1, -- a prompt's typed-text area
+            separator = 0.12, -- a bar-group separator box
+            hover = 0.12, -- a mouse hover
+            strong = 0.2, -- a PROMINENT / ACTIVE cell (the workhorse)
+            label = 0.2, -- a badge's label box
+            match = 0.25, -- a fuzzy-match span
+            badge = 0.3, -- a key badge / icon box / counter
+            selection = 0.35, -- the keyboard selection over a focused button
+            bright = 0.4, -- an active text box (a tab's text, a file name)
+            icon = 0.5, -- an icon box / a hovered badge
+            deep = 0.6, -- a chevron / footer-separator BOX
+            -- fg blends (not backgrounds)
+            dim = 0.45, -- a disabled value
+            row_dim = 0.5, -- a disabled ROW
+            path_dim = 0.8, -- a file row's leading directory
+            filter_off = 0.6, -- an inactive filter button
+        },
+        -- ACCENT = which colour a component wears: a palette KEY (tracks the live theme) or "#rrggbb".
+        accent = {
+            title = "blue",
+            subtitle = "yellow",
+            separator = "red",
+            tab = { box = "red", icon = "blue", text = "yellow" },
+            button = "orange",
+            item = "yellow",
+            footer = { key = "blue", label = "yellow", sep = "red", chevron = "yellow" },
+            picker = { prompt = "blue", marker = "red", preview_dir = "yellow" },
+            peek = { title = "blue", kind = "green", file = "yellow", filter = "green" },
+            notify = { info = "blue", warn = "orange", error = "red", debug = "purple" },
+            msgarea = { title = "blue", row_odd = "blue", row_even = "yellow", match = "red" },
+            dashboard = { header = "green_dark", key = "orange", desc = "cyan" },
+        },
+        -- The docked panel's full-width title bar (the message zone's "MESSAGES", and every bar like it).
+        title = { accent = "blue", tint = 0.2 },
+    },
+})
+```
+
+One line recolours a whole component: `accent.notify.error = "#ff00ff"` repaints that level's title, header,
+body, separator **and** its filter button together — they are all derived from the same entry.
+
 ## Highlight Groups
 
 All groups are self-themed from the [`colors`](#colors) palette via [`highlight.bind`](#highlight)
