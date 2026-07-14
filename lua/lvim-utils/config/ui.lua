@@ -22,6 +22,8 @@
 ---@field bar_fill   number  the continuous strip under a bar's buttons
 ---@field separator  number  a separator box between bar groups
 ---@field input      number  the typed-text FIELD of any input popup / prompt (its background wash)
+---@field help_desc  number  the DESCRIPTION box of a cheatsheet row (`lvim-ui.help`)
+---@field help_key   number  its KEY box — and the ACTIVE row's description, so the row reads as one block
 ---@field hover      number  a mouse-hover cell (weaker than a keyboard selection)
 ---@field match      number  a fuzzy-match span inside a row
 ---@field strong     number  a PROMINENT / ACTIVE cell (titles, active tabs, active buttons)
@@ -99,6 +101,7 @@
 ---@field item      string  a select/multiselect item
 ---@field path      string  a file row's name + path
 ---@field input     LvimUtilsUiAccentInput
+---@field help      table   { odd, even } — the cheatsheet's row striping accents
 ---@field footer    LvimUtilsUiAccentFooter
 ---@field bar_fill  string  the strip under a bar
 ---@field bar_sep   string  the ➤/● separator box between bar groups
@@ -126,6 +129,8 @@ return {
         bar_fill = 0.08, -- the strip under a bar's buttons (light enough that the buttons pop above it)
         separator = 0.12, -- a bar-group separator box
         input = 0.05, -- the typed-text FIELD of every input popup / prompt (the badge before it sits at `badge`)
+        help_desc = 0.05, -- the DESCRIPTION box of a cheatsheet row (`lvim-ui.help`)
+        help_key = 0.1, -- its KEY box — and what the ACTIVE row's description rises to, so the row reads solid
         hover = 0.12, -- a mouse hover (clearly weaker than the keyboard selection below)
         match = 0.25, -- a fuzzy-match span (must stay visible over real code in a preview)
         strong = 0.2, -- a PROMINENT / ACTIVE cell — the workhorse of the chrome
@@ -155,6 +160,12 @@ return {
         -- background wash is blended from (at `tint.input`), `text` the colour the typed value is drawn in.
         -- Both are palette keys (or a literal "#rrggbb"), so the field tracks the live theme.
         input = { bg = "blue", text = "fg" },
+
+        -- The keymap CHEATSHEET (`lvim-ui.help`) — every plugin's `?` window. Rows STRIPE by these two
+        -- accents; the KEY box wears its accent at `tint.help_key`, the DESCRIPTION at `tint.help_desc`, and
+        -- the row under the (hidden) cursor raises its description to the KEY strength, so the whole row
+        -- reads as one solid block of its own colour.
+        help = { odd = "blue", even = "yellow" },
 
         tab = { box = "red", icon = "blue", text = "yellow" },
         button = "orange", -- action-bar buttons

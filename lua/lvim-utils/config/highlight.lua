@@ -68,6 +68,8 @@ return function(c)
     local a_row, a_row_icon = col(A.row, "yellow"), col(A.row_icon, "teal")
     local a_item = col(A.item, "yellow")
     local a_path = col(A.path, "blue")
+    local help = A.help or {}
+    local a_help_odd, a_help_even = col(help.odd, "blue"), col(help.even, "yellow")
     local ftr = A.footer or {}
     local a_fkey, a_flabel = col(ftr.key, "blue"), col(ftr.label, "yellow")
     local a_fsep, a_fchev = col(ftr.sep, "red"), col(ftr.chevron, "yellow")
@@ -103,6 +105,17 @@ return function(c)
             bg = mtint(col(A.input and A.input.bg, "blue"), T.input),
             fg = col(A.input and A.input.text, "fg"),
         },
+
+        -- The keymap CHEATSHEET (`lvim-ui.help`) — ONE definition for every plugin's `?` window (each used to
+        -- hand-roll these groups with literal tints). Rows stripe odd/even by accent; the KEY box sits at
+        -- `tint.help_key`, the DESCRIPTION at `tint.help_desc`, and the row under the hidden cursor raises its
+        -- description to the KEY strength, so the active row reads as one solid block of its own colour.
+        LvimUiHelpKeyOdd = { fg = a_help_odd, bg = mtint(a_help_odd, T.help_key), bold = true },
+        LvimUiHelpDescOdd = { fg = a_help_odd, bg = mtint(a_help_odd, T.help_desc) },
+        LvimUiHelpActiveOdd = { fg = a_help_odd, bg = mtint(a_help_odd, T.help_key) },
+        LvimUiHelpKeyEven = { fg = a_help_even, bg = mtint(a_help_even, T.help_key), bold = true },
+        LvimUiHelpDescEven = { fg = a_help_even, bg = mtint(a_help_even, T.help_desc) },
+        LvimUiHelpActiveEven = { fg = a_help_even, bg = mtint(a_help_even, T.help_key) },
 
         -- ── Title block (title = STRONG; subtitle / info = BODY; the icon is its own box) ──────────────
         LvimUiTitle = { fg = a_title, bg = mtint(a_title, T.strong), bold = true },
