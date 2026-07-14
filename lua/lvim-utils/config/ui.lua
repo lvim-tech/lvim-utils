@@ -21,7 +21,7 @@
 ---@field body       number  a secondary / inactive / body cell (stripes, subtitles, inactive boxes)
 ---@field bar_fill   number  the continuous strip under a bar's buttons
 ---@field separator  number  a separator box between bar groups
----@field input      number  a prompt's typed-text area
+---@field input      number  the typed-text FIELD of any input popup / prompt (its background wash)
 ---@field hover      number  a mouse-hover cell (weaker than a keyboard selection)
 ---@field match      number  a fuzzy-match span inside a row
 ---@field strong     number  a PROMINENT / ACTIVE cell (titles, active tabs, active buttons)
@@ -35,6 +35,10 @@
 ---@field row_dim    number  how far a disabled ROW's fg is blended toward the bg
 ---@field path_dim   number  how far a file row's leading PATH is blended (a dimmer shade of the name)
 ---@field filter_off number  an inactive filter button's fg (kept mostly intact — it must stay readable)
+
+---@class LvimUtilsUiAccentInput
+---@field bg   string  the accent the input FIELD's background wash is blended from (at `tint.input`)
+---@field text string  the colour the typed value is drawn in
 
 ---@class LvimUtilsUiAccentTab
 ---@field box  string  the tab's own box (active/inactive)
@@ -94,6 +98,7 @@
 ---@field row_icon  string  a row's leading icon
 ---@field item      string  a select/multiselect item
 ---@field path      string  a file row's name + path
+---@field input     LvimUtilsUiAccentInput
 ---@field footer    LvimUtilsUiAccentFooter
 ---@field bar_fill  string  the strip under a bar
 ---@field bar_sep   string  the ➤/● separator box between bar groups
@@ -120,7 +125,7 @@ return {
         body = 0.05, -- secondary / inactive / body
         bar_fill = 0.08, -- the strip under a bar's buttons (light enough that the buttons pop above it)
         separator = 0.12, -- a bar-group separator box
-        input = 0.1, -- the typed-text area of a prompt (the badge before it sits at `badge`)
+        input = 0.05, -- the typed-text FIELD of every input popup / prompt (the badge before it sits at `badge`)
         hover = 0.12, -- a mouse hover (clearly weaker than the keyboard selection below)
         match = 0.25, -- a fuzzy-match span (must stay visible over real code in a preview)
         strong = 0.2, -- a PROMINENT / ACTIVE cell — the workhorse of the chrome
@@ -145,6 +150,11 @@ return {
         separator = "red", -- the ────── divider row between groups
         cursorline = "blue",
         spacer = "magenta",
+
+        -- The input FIELD of every input popup (lvim-ui.input and any prompt band): `bg` is the accent its
+        -- background wash is blended from (at `tint.input`), `text` the colour the typed value is drawn in.
+        -- Both are palette keys (or a literal "#rrggbb"), so the field tracks the live theme.
+        input = { bg = "blue", text = "fg" },
 
         tab = { box = "red", icon = "blue", text = "yellow" },
         button = "orange", -- action-bar buttons

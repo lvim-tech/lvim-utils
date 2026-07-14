@@ -97,7 +97,12 @@ return function(c)
         LvimUiBorder = { bg = panel_bg, fg = a_border },
         LvimUiSeparator = { fg = a_sep }, -- the ────── divider row between groups in a list/form
         LvimUiCursorLine = { bg = mtint(a_cursor, T.cursorline) }, -- the active list row: the faintest wash in the set
-        LvimUiInput = { bg = c.bg_input, fg = c.fg },
+        -- The typed-text FIELD of every input popup / prompt: its own accent washed onto the bg at the
+        -- `input` strength (it was the one group hard-wired to a raw palette colour, `c.bg_input`).
+        LvimUiInput = {
+            bg = mtint(col(A.input and A.input.bg, "blue"), T.input),
+            fg = col(A.input and A.input.text, "fg"),
+        },
 
         -- ── Title block (title = STRONG; subtitle / info = BODY; the icon is its own box) ──────────────
         LvimUiTitle = { fg = a_title, bg = mtint(a_title, T.strong), bold = true },
