@@ -60,6 +60,11 @@ return {
     -- its own size — each resolves its slot via `dock.slot(layout)`. Control-center's "Utils" panel edits THIS.
     --   height / width — fraction 0.1..1.0 of the screen; area/bottom are full-width (width ignored).
     --   height_auto / width_auto — true → the value is a MAXIMUM (content-fit up to it); false → EXACT/fixed.
+    --   height_peek — the height cap of the `dynamic` PREVIEW: a peek FLOAT above the list (the third rotation
+    --     position, after right / left). DOCKED layouts only (area / bottom): the peek lives in the editor's own
+    --     space ABOVE the dock, which a centred float does not have — so `float` carries no such key. Same units
+    --     as `height` (≤1 = a fraction of the screen, >1 = absolute rows); the chassis re-derives it from the
+    --     CURRENT window height on every rotation / resize.
     --   backdrop — the behind-the-surface mute (via the shared lvim-utils.dim namespace — no covering window).
     --   keep_focus / auto_hide — focus / close behaviour after opening a file from the dock.
     -- Numbers taken from the user's LIVE control-center base (settings persisted under `ui_size_*` /
@@ -78,6 +83,7 @@ return {
         -- keys, not even = 1.0); `dock.slot` returns the full columns for them. Only `float` has a width.
         area = {
             height = 0.5,
+            height_peek = 0.7,
             height_auto = true,
             backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
             keep_focus = true,
@@ -85,6 +91,7 @@ return {
         },
         bottom = {
             height = 0.5,
+            height_peek = 0.7,
             height_auto = true,
             backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
             keep_focus = true,
