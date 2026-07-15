@@ -126,12 +126,17 @@ return {
     tint = {
         cursorline = 0.04, -- the active row's wash: must sit BELOW the section/header bands so the two never read alike
         body = 0.05, -- secondary / inactive / body
+        -- The list STRIPES (LvimUiMsgAreaRow*/Sel*): both rows are the SAME accent (blue), so the zebra reads by
+        -- DEPTH of tint, not by hue — odd lighter, even a touch stronger, and the selected row stronger still.
+        row_odd = 0.05,
+        row_even = 0.08,
+        row_sel = 0.15,
         bar_fill = 0.08, -- the strip under a bar's buttons (light enough that the buttons pop above it)
         separator = 0.12, -- a bar-group separator box
         input = 0.05, -- the typed-text FIELD of every input popup / prompt (the badge before it sits at `badge`)
         help_desc = 0.05, -- the DESCRIPTION box of a cheatsheet row (`lvim-ui.help`)
         help_key = 0.1, -- its KEY box — and what the ACTIVE row's description rises to, so the row reads solid
-        hover = 0.12, -- a mouse hover (clearly weaker than the keyboard selection below)
+        hover = 0.15, -- a mouse hover
         match = 0.25, -- a fuzzy-match span (must stay visible over real code in a preview)
         strong = 0.2, -- a PROMINENT / ACTIVE cell — the workhorse of the chrome
         label = 0.2, -- a badge's label box
@@ -201,8 +206,9 @@ return {
 
         msgarea = {
             title = "blue",
-            row_odd = "blue",
-            row_even = "yellow",
+            row_odd = "yellow",
+            row_even = "yellow", -- both stripes yellow: the alternation is by TINT depth, not by hue
+
             match = "red",
             kind = "cyan",
             marker = "red",

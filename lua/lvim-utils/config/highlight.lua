@@ -137,16 +137,19 @@ return function(c)
         LvimUiMsgAreaItem = { fg = c.fg, bg = c.bg_dark },
         LvimUiMsgAreaItemKind = { fg = col(ma.kind, "cyan"), bg = c.bg_dark },
         LvimUiMsgAreaItemSource = { fg = c.comment, bg = c.bg_dark }, -- the right-aligned [source] tag, dim
-        LvimUiMsgAreaRowOdd = { fg = col(ma.row_odd, "blue"), bg = mtint(col(ma.row_odd, "blue"), T.body) },
-        LvimUiMsgAreaRowEven = { fg = col(ma.row_even, "yellow"), bg = mtint(col(ma.row_even, "yellow"), T.body) },
+        LvimUiMsgAreaRowOdd = { fg = col(ma.row_odd, "blue"), bg = mtint(col(ma.row_odd, "blue"), T.row_odd or T.body) },
+        LvimUiMsgAreaRowEven = {
+            fg = col(ma.row_even, "blue"),
+            bg = mtint(col(ma.row_even, "blue"), T.row_even or T.body),
+        },
         LvimUiMsgAreaSelOdd = {
             fg = col(ma.row_odd, "blue"),
-            bg = mtint(col(ma.row_odd, "blue"), T.strong),
+            bg = mtint(col(ma.row_odd, "blue"), T.row_sel or T.strong),
             bold = true,
         },
         LvimUiMsgAreaSelEven = {
-            fg = col(ma.row_even, "yellow"),
-            bg = mtint(col(ma.row_even, "yellow"), T.strong),
+            fg = col(ma.row_even, "blue"),
+            bg = mtint(col(ma.row_even, "blue"), T.row_sel or T.strong),
             bold = true,
         },
         LvimUiMsgAreaMatch = { fg = col(ma.match, "red"), bold = true }, -- the typed query inside an item
