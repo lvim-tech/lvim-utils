@@ -66,11 +66,16 @@ local _base_dark = {
     teal_dark = "#2d695d",
 
     git = {
-        add = "#5f7240",
-        change = "#bf954a",
-        delete = "#ce5f57",
+        add = "#75783a",
+        change = "#af9e6b",
+        delete = "#cb4f4f",
         change_delete = "#cc7942",
-        untracked = "#759c73",
+        untracked = "#42728b",
+        add_nr = "#54562a",
+        change_nr = "#7e724d",
+        delete_nr = "#923939",
+        change_delete_nr = "#935730",
+        untracked_nr = "#305264",
     },
 }
 
@@ -119,10 +124,15 @@ local _base_light = {
 
     git = {
         add = "#6a7d2e",
-        change = "#9a7a20",
+        change = "#9a8420",
         delete = "#c34540",
         change_delete = "#c06a2e",
         untracked = "#3a708a",
+        add_nr = "#4c5a21",
+        change_nr = "#6f5f17",
+        delete_nr = "#8c322e",
+        change_delete_nr = "#8a4c21",
+        untracked_nr = "#2a5163",
     },
 }
 
@@ -140,6 +150,16 @@ local function _compute()
     -- Float/panel background: synced from lvim-colorscheme (it follows `styles.floats` + the
     -- transparent state). Falls back to the panel bg_dark when no theme has driven it.
     _p.bg_float = _p.bg_float or _p.bg_dark
+    -- Git line-number ("*_nr") variants: every theme SHIPS them, but a theme (or a user `git` override) that
+    -- sets only the sign colors gets the darker line-number variant derived here, so `c.git.<state>_nr` is
+    -- always present.
+    if _p.git then
+        for _, st in ipairs({ "add", "change", "delete", "change_delete", "untracked", "staged", "conflict" }) do
+            if _p.git[st] and _p.git[st .. "_nr"] == nil then
+                _p.git[st .. "_nr"] = hl.darken(_p.git[st], 0.28)
+            end
+        end
+    end
 end
 
 --- Rebuild `_p` from the base for the current `&background` plus the user overrides.
