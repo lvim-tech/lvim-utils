@@ -6,6 +6,7 @@
 --
 -- Public API:
 --   M.setup(opts)               – register filetypes and install autocmds
+--   M.register(opts)            – add ft / panel_ft at runtime (a plugin self-registering its own panels)
 --   M.mark_input_buffer(buf, v) – exempt a buffer from cursor hiding
 --   M.update()                  – force-refresh cursor state from outside
 --
@@ -319,6 +320,29 @@ local function refresh_autocmds()
 end
 
 -- ─── setup ────────────────────────────────────────────────────────────────────
+
+--- Register additional filetypes at RUNTIME, AFTER `setup()` — for a plugin that owns its own panels and
+--- self-registers them from its own `setup()` (so the user's central cursor config need not name every
+--- plugin panel). Unlike `M.setup` this only EXTENDS the registry; it does not rebuild the autocmds (they
+--- read `state` live), so it can run in any order relative to the central setup without disturbing it. If the
+--- central setup has not installed the autocmds yet, it installs them once so the registration takes effect.
+---   `panel_ft` — persistent side panels: hide the cursor ONLY while the panel is the CURRENT window.
+---   `ft`       — transient popups: hide whenever a buffer of that ft is visible in ANY window.
+---@param opts { ft?: string[], panel_ft?: string[] }
+function M.register(opts)
+    opts = opts or {}
+    for _, ft in ipairs(opts.ft or {}) do
+        state.fts[ft] = true
+    end
+    for _, ft in ipairs(opts.panel_ft or {}) do
+        state.panel_fts[ft] = true
+    end
+    if not state.augroup then
+        refresh_autocmds() -- also schedules update()
+    else
+        vim.schedule(update)
+    end
+end
 
 --- Initialise the cursor module.
 --- Registers filetypes that should trigger cursor hiding and installs autocmds.
