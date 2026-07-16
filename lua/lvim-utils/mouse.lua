@@ -29,7 +29,9 @@ local M = {}
 M.SELECT_EVENTS = {
     "<LeftDrag>",
     "<LeftRelease>",
-    "<2-LeftMouse>",
+    -- NOTE: `<2-LeftMouse>` is NOT swallowed here — it gets its own panel handler below (routed to the panel's
+    -- row-click with a click COUNT of 2, so a panel can act on a DOUBLE click); over the editor it still runs the
+    -- native word-select. Its drag/release stay swallowed.
     "<2-LeftDrag>",
     "<2-LeftRelease>",
     "<3-LeftMouse>",
@@ -72,7 +74,8 @@ local function bound_lhs(buf)
     return out
 end
 
----@type table<integer, fun(line: integer, col0: integer, pos: table)>  buf → the panel's row-click handler
+---@type table<integer, fun(line: integer, col0: integer, pos: table, count: integer)>  buf → the panel's row-click
+--- handler; `count` is 1 for a single click, 2 for a double click (a panel may act only on a double).
 local click_handlers = {}
 
 --- Register a panel's row-click handler with the GLOBAL mouse layer.
@@ -83,7 +86,7 @@ local click_handlers = {}
 --- label), and the panel's own map never runs. The global `<LeftMouse>` below handles that case by focusing the
 --- panel, parking the cursor at column 0, and calling this handler with the clicked (line, col0).
 ---@param buf integer
----@param fn fun(line: integer, col0: integer)
+---@param fn fun(line: integer, col0: integer, pos?: table, count?: integer)  `count` = 1 single, 2 double click
 function M.register_click(buf, fn)
     click_handlers[buf] = fn
     api.nvim_buf_attach(buf, false, {
@@ -242,7 +245,11 @@ function M.setup()
             -- drag was no longer "over a panel", passed through as native — and painted a selection back in the
             -- PANEL, over the row's label. Position alone is not enough; the gesture's ORIGIN decides.
             if in_panel_gesture or over_panel() then
-                if lhs == "<LeftRelease>" then
+                -- ANY left-release ends the gesture and runs the deferred activation — NOT only `<LeftRelease>`:
+                -- a DOUBLE click ends on `<2-LeftRelease>` (triple on `<3-…>`), and a panel that activates on a
+                -- double click defers its open until release, so only flushing on `<LeftRelease>` left that open
+                -- stranded forever.
+                if lhs:match("LeftRelease") then
                     in_panel_gesture = false
                     vim.schedule(M.flush_activation) -- gesture over: run the deferred activation (jump / open)
                 end
@@ -258,17 +265,25 @@ function M.setup()
     -- native click and reproduce the panel semantics: focus the panel, park the cursor at COLUMN 0 (a panel row
     -- is a widget; the column carries no meaning), then run the panel's registered row-click handler with the
     -- clicked (line, col0) so column-addressable hit-testing (a fold chevron) still works.
-    pcall(vim.keymap.set, { "n", "v", "i" }, "<LeftMouse>", function()
+    -- `<LeftMouse>` passes click COUNT 1, `<2-LeftMouse>` passes 2 — so a panel that keys on the count (a file
+    -- tree that OPENS only on a double click) gets a RELIABLE double. A buffer-local `<2-LeftMouse>` cannot: the
+    -- first click's focus is DEFERRED (scheduled below), so the panel is not yet current when the fast second
+    -- click arrives, and the buffer-local map never fires. Routing the double through the global layer (decided
+    -- by the window UNDER the pointer, not the current buffer) fixes that.
+    ---@param native string  the key fed through natively when the pointer is NOT over a panel
+    ---@param count integer  the click count (1 = single, 2 = double)
+    ---@return string
+    local function panel_click(native, count)
         local m = vim.fn.getmousepos()
         local win = m.winid
         if not (win and win ~= 0 and api.nvim_win_is_valid(win)) then
             in_panel_gesture = false
-            return "<LeftMouse>"
+            return native
         end
         local buf = api.nvim_win_get_buf(win)
         if not is_locked_buf(buf) then
             in_panel_gesture = false
-            return "<LeftMouse>" -- the editor: untouched native click
+            return native -- the editor: untouched native click / word-select
         end
         -- The gesture STARTS on a panel: swallow every drag/release it produces from here on, even if the
         -- pointer is dragged out into the editor (nvim would otherwise anchor a Visual selection back here).
@@ -285,11 +300,17 @@ function M.setup()
             if handler then
                 -- `m` (the full getmousepos table) rides along: a panel with column-addressable chrome needs the
                 -- SCREEN column (`wincol`), not just the byte column — e.g. to tell a scrollbar hit from a row.
-                pcall(handler, line, col0, m)
+                pcall(handler, line, col0, m, count)
             end
         end)
         return "" -- swallow the native click
+    end
+    pcall(vim.keymap.set, { "n", "v", "i" }, "<LeftMouse>", function()
+        return panel_click("<LeftMouse>", 1)
     end, { expr = true, silent = true, desc = "lvim-utils: panel row click" })
+    pcall(vim.keymap.set, { "n", "v", "i" }, "<2-LeftMouse>", function()
+        return panel_click("<2-LeftMouse>", 2)
+    end, { expr = true, silent = true, desc = "lvim-utils: panel row double-click" })
 
     -- Buffer-local locking stays as well (it also stamps `b:lvim_mouse_locked`, which the global maps read).
     local group = api.nvim_create_augroup("LvimUtilsMouseLock", { clear = true })
