@@ -198,7 +198,7 @@ return {
             kind = "green", -- the list winbar
             file = "yellow", -- the preview winbar
             match = "blue",
-            filter = "green",
+            filter = "yellow",
             count = "green", -- the counter box in the border
         },
 

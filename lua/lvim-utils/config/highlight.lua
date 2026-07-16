@@ -231,8 +231,11 @@ return function(c)
         -- box with a lighter dot, so it pops against the keys/labels around it.
         LvimUiFooterSep = { fg = mtint(a_fsep, T.badge), bg = mtint(a_fsep, T.deep), bold = true },
         LvimUiBarChevron = { fg = mtint(a_fsep, T.badge), bg = mtint(a_fsep, T.deep), bold = true },
-        -- The continuous full-width strip under a bar's buttons (they sit on top of it).
+        -- The continuous full-width strip under a bar's buttons (they sit on top of it). Two depths: the
+        -- resting `bar_fill` tint, and a deeper `hover` tint the surface swaps in when the cursor is ON that
+        -- bar's row (the whole bar reads as "active" without moving anything — one bg, two tints).
         LvimUiBarFill = { bg = mtint(a_barfill, T.bar_fill) },
+        LvimUiBarFillHover = { bg = mtint(a_barfill, T.hover) },
         LvimUiBarSep = { fg = a_barsep, bg = mtint(a_barsep, T.separator) }, -- the ➤ / ● between bar groups
         LvimUiFrameSel = { bg = mtint(a_barsep, T.strong) }, -- the focused bar-button selection (no-accent fallback)
         -- The BACKDROP veil behind an open surface — pure black; `config.dock.<layout>.backdrop.blend`

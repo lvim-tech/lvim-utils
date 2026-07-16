@@ -320,6 +320,35 @@ function M.section_accent(accent)
     return names
 end
 
+--- Build a single multi-colour subtitle/meta band line from coloured parts, joined by `sep`. Each part is
+--- `{ text = "…", accent = "green" }` — the accent a palette key resolved to its `section_accent(accent).text`
+--- group. Returns the concatenated text plus per-part INLINE `hls` (byte-offset `{ c0, c1, group }` spans),
+--- exactly what a lvim-ui `subtitle`/meta band consumes (`return { { text = text, hls = hls } }`). THE shared
+--- way every info band (repo bands, filter/scope bands) paints its segments in distinct hues instead of one
+--- flat colour — a part with no `accent` is left uncoloured (default fg). A part may set its own `sep` to
+--- override the separator placed BEFORE it (e.g. a subject that trails a sha with a plain space, not the ➤).
+---@param parts { text: string, accent?: string, sep?: string }[]
+---@param sep? string  the default segment separator (default " ➤ ", the pointer canon)
+---@return string text, table[] hls
+function M.band_line(parts, sep)
+    sep = sep or " \u{27a4} " -- ➤
+    local text, hls, pos = "", {}, 0
+    for i, p in ipairs(parts) do
+        if i > 1 then
+            local s = p.sep or sep
+            text = text .. s
+            pos = pos + #s
+        end
+        local c0 = pos
+        text = text .. p.text
+        pos = pos + #p.text
+        if p.accent then
+            hls[#hls + 1] = { c0, pos, M.section_accent(p.accent).text }
+        end
+    end
+    return text, hls
+end
+
 ---Install the ColorScheme autocmd so registered + bound groups survive theme changes.
 ---Call once during plugin initialisation.
 function M.setup()
