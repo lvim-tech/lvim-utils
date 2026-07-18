@@ -50,6 +50,7 @@ local M = {}
 ---@field is_alive fun(): boolean               Still has restorable state? false ⇒ dropped from the stack.
 ---@field close?    fun()                        Full teardown on `M.close` (else `hide` is used).
 ---@field focus?    fun()                        Focus its window (else the manager uses the current window).
+---@field descend?  fun()                        DESCEND into its HEADER from an outside window (else `focus` is used).
 ---@field buffers?  fun(): integer[]             Buffers to install the leader owner on (else the current buffer).
 ---@field is_current? fun(): boolean             Does it own the CURRENT window? (used to resolve `cycle`'s layout)
 ---@field icon?     string                       A Nerd Font glyph for the `<Leader>m` dock menu row (optional).
@@ -553,7 +554,7 @@ function M.descend()
     for _, layout in ipairs({ "bottom", "area", "float" }) do
         local key = visible[layout]
         local c = key and by_key[key]
-        if c and alive(key) then
+        if key and c and alive(key) then
             if c.descend then
                 pcall(c.descend)
             elseif c.focus then
