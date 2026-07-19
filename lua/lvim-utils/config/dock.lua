@@ -23,6 +23,8 @@
 ---@class LvimUtilsDockLayoutGeometry
 ---@field height      number   Fraction 0.1..1.0 of the screen height (area/bottom are also clamped to the room).
 ---@field height_auto boolean  true → `height` is a MAXIMUM (content-fit UP TO it); false → EXACT/fixed height.
+---@field height_peek? number  DOCKED layouts only (area/bottom): the height cap of the `dynamic` PREVIEW peek
+---                            float above the list (same units as `height`). `float` carries no such key.
 ---@field width?      number   Fraction 0.1..1.0 of the screen width — FLOAT ONLY (area/bottom are full-width and
 ---                            carry NO width key at all).
 ---@field width_auto? boolean  true → `width` is a MAXIMUM (content-fit up to it); false → EXACT/fixed. FLOAT ONLY.

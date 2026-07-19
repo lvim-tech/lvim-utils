@@ -1,6 +1,26 @@
 # lvim-utils
 
-A collection of independent Neovim utility modules — floating UI components, cursor management, highlight registration, a quit dialog, a notification system, and a universal "open under cursor" extension.
+The **base plugin** of the lvim-tech set — the shared foundation every other plugin builds on. It owns
+the live colour palette, the central highlight-group factory (read **by name** by every other plugin), the
+canonical cursor-hiding mechanism, the ecosystem-wide mouse-selection lock, the foreground-dim primitives,
+the dock-stack manager, and the unified persistence store.
+
+Modules:
+
+- **`utils`** — shared helpers (`merge`, `match_indices`).
+- **`colors`** — the live palette (bundled dark/light, synced from `lvim-colorscheme` when present).
+- **`highlight`** — the group registrar (`define` / `register` / `bind` — self-theming on `ColorScheme`).
+- **`config`** — the central highlight-group factory + the cursor / dock / section / ui live config.
+- **`cursor`** — hide the hardware cursor by registered filetype (the ONE cursor system).
+- **`mouse`** — the panel mouse-selection lock (a click on a rendered panel must never start Visual).
+- **`dim`** — foreground-dim / darken namespaces + the focus-aware surface backdrop.
+- **`dock`** — the dock-stack manager (area / bottom / float coordination + `:LvimDock`).
+- **`store`** — one persistence model, three backends (file / json / sqlite) + mirror / watch.
+- **`icons`** — a provider facade (prefers `lvim-icons`, auto-falls back to any installed icon provider).
+- **`health`** — `:checkhealth lvim-utils`.
+
+> The former `ui` / `notify` / `msgarea` / `picker` / `dashboard` / `cmdline` / `chrome` / `fuzzy` / `gx`
+> modules moved to their **own plugins** in the monorepo split — see [Split-out modules](#split-out-modules).
 
 ---
 
@@ -8,7 +28,7 @@ A collection of independent Neovim utility modules — floating UI components, c
 
 ## Installation
 
-Requires Neovim >= 0.10.
+Requires Neovim >= 0.12.
 
 ### lvim-installer (recommended)
 
@@ -20,28 +40,6 @@ Install and manage it from the LVIM package manager — open the **Plugins** tab
 
 lvim-installer installs plugins through Neovim's built-in `vim.pack`, so no external plugin manager is needed.
 
-### lazy.nvim
-
-```lua
-return {
-    "lvim-tech/lvim-utils",
-    config = function()
-        require("lvim-utils").setup({})
-    end,
-}
-```
-
-### packer.nvim
-
-```lua
-use({
-    "lvim-tech/lvim-utils",
-    config = function()
-        require("lvim-utils").setup({})
-    end,
-})
-```
-
 ### Native (vim.pack)
 
 ```lua
@@ -51,28 +49,179 @@ vim.pack.add({
 require("lvim-utils").setup({})
 ```
 
-Each module is independently usable — `setup()` is optional. `setup()` merges every namespace into
-the live per-module config **in place** (via [`utils.merge`](#utils)), so a `require("lvim-utils.config").<mod>`
-reader always sees the effective values.
+`setup()` is optional and configures **only the base**: it merges the palette + the base config in place (via
+[`utils.merge`](#utils)), self-themes the group map from the fully-configured palette, and registers the
+cursor / dock / mouse layers. Every module is usable directly — `require("lvim-utils.colors")`,
+`require("lvim-utils.store")`, etc. Readers of `require("lvim-utils.config").<key>` always see the effective
+(post-merge) values.
 
-**`setup()` options**
+## `setup()` options
 
-| Key           | Description                                                       |
-| ------------- | ---------------------------------------------------------------- |
-| `colors`      | Override palette colors (see [colors](#colors))                  |
-| `highlights`  | Register highlight group overrides (always applied)              |
-| `ui`          | Windowed-UI chassis config (see [ui config](#ui-config))         |
-| `cursor`      | Cursor-hiding config (`ft` / `panel_ft` / `hide_on_cmdline`)     |
-| `colorcolumn` | Wrap-aware colorcolumn config (see [colorcolumn](#colorcolumn))  |
-| `gx`          | gx module config (see [gx](#gx))                                 |
-| `notify`      | Notify module config (see [notify config](#notify-config))       |
-| `cmdline`     | Self-rendered command-line config (opt-in)                       |
-| `input`       | `vim.ui.input` dispatcher config (opt-in)                        |
-| `msgarea`     | Message-area zone config (see [msgarea](#msgarea))               |
-| `chrome`      | Editor chrome: statusline / winbar / tabline / statuscolumn (see [chrome](#chrome)) |
-| `fuzzy`       | Shared fuzzy engine config (see [fuzzy](#fuzzy))                 |
-| `picker`      | Finder config (see [picker](#picker))                            |
-| `dashboard`   | Start dashboard config (see [dashboard](#dashboard))             |
+| Key          | Description                                                                                  |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| `colors`     | Override palette colours (see [colors](#colors)). Sticky across background flips + theme sync |
+| `highlights` | Register highlight-group overrides, applied hard (force)                                      |
+| `cursor`     | Cursor-hiding config — `ft` / `panel_ft` / `hide_on_cmdline` (see [cursor](#cursor))          |
+| `dock`       | The dock-stack manager config (see [dock](#dock))                                             |
+| `section`    | Collapsible section-header tinting, global for every lvim-tech fold                           |
+| `ui`         | The shared chrome theme spec — every tint strength + accent the UI paints with                |
+
+### Full default config
+
+Every option at its default value, mirroring `lua/lvim-utils/config/{cursor,dock,ui}.lua` + `section`:
+
+```lua
+require("lvim-utils").setup({
+    -- Palette overrides (any key from `colors`); sticky over background flips + lvim-colorscheme syncs.
+    colors = {},
+    -- Highlight-group overrides applied with force (win over the self-themed defaults).
+    highlights = {},
+
+    -- Cursor hiding (lvim-utils.cursor). Plugins usually SELF-register their panels via cursor.register();
+    -- keep these lists for shared/generic filetypes only.
+    cursor = {
+        ft = {}, -- transient popups: hide whenever such a buffer is visible in ANY window
+        panel_ft = {}, -- persistent side panels: hide only while the panel is the CURRENT window
+        hide_on_cmdline = false, -- hide the hardware cursor while the command-line is active
+    },
+
+    -- Collapsible section-header tinting, global for every lvim-tech fold header.
+    section = {
+        tint = 0.1, -- rest band blend toward the accent (0..1)
+        tint_hover = 0.2, -- hover band blend toward the accent (0..1)
+    },
+
+    -- The dock-stack manager (area / bottom / float coordination). ONE consumer visible per layout;
+    -- a key cycles the visible one. `geometry` is the single authority for every docked/floated surface size.
+    dock = {
+        enable = true, -- bind the global cycle keymaps on dock.setup()
+        keys = {
+            cycle_next = "<Leader>n", -- cycle to the NEXT consumer in the current layout's stack
+            cycle_prev = "<Leader>p", -- cycle to the PREVIOUS one
+            close = "<Leader>x", -- KILL the visible consumer + reveal the next per MRU
+            menu = "<Leader>m", -- open a menu of every live dock consumer across the three stacks
+        },
+        default_layout = "area", -- layout cycle() targets when no dock is focused
+        capture_leader = true, -- install the buffer-local <Leader> owner in a docked window
+        geometry = {
+            float = {
+                height = 0.7,
+                width = 0.9,
+                height_auto = true, -- height is a MAXIMUM (content-fit up to it)
+                width_auto = false, -- width is EXACT
+                backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
+                keep_focus = false, -- move focus to the opened file
+                auto_hide = true, -- one-shot modal: close on open
+            },
+            area = {
+                height = 0.5,
+                height_peek = 0.7, -- height cap of the `dynamic` preview peek float above the list
+                height_auto = true,
+                backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
+                keep_focus = true, -- keep focus IN the dock after opening a file
+                auto_hide = false, -- the dock STAYS open
+            },
+            bottom = {
+                height = 0.5,
+                height_peek = 0.7,
+                height_auto = true,
+                backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
+                keep_focus = true,
+                auto_hide = false,
+            },
+        },
+    },
+
+    -- The shared chrome theme spec: every tint strength + every accent the UI paints with, named by ROLE.
+    -- TINT = how far an accent is blended toward the panel bg (0 = plain bg, 1 = the pure accent).
+    -- ACCENT = a palette KEY (tracks the live theme) or a literal "#rrggbb".
+    ui = {
+        tint = {
+            cursorline = 0.04, -- the active list row's wash (the faintest tint)
+            body = 0.05, -- a secondary / inactive / body cell
+            row_odd = 0.05, -- odd list-stripe row
+            row_even = 0.08, -- even list-stripe row
+            row_sel = 0.15, -- selected list row
+            bar_fill = 0.08, -- the strip under a bar's buttons
+            separator = 0.12, -- a bar-group separator box
+            input = 0.05, -- the typed-text field of an input popup
+            help_desc = 0.05, -- the description box of a cheatsheet row
+            help_key = 0.1, -- its key box (and the active row's description)
+            hover = 0.15, -- a mouse hover
+            match = 0.25, -- a fuzzy-match span
+            strong = 0.2, -- a prominent / active cell
+            label = 0.2, -- a badge's label box
+            badge = 0.3, -- a key badge / icon box / counter
+            selection = 0.35, -- the keyboard selection over a focused bar button
+            bright = 0.4, -- an active text box (a tab's text, a file name)
+            icon = 0.5, -- an icon box / a hovered badge
+            deep = 0.6, -- a chevron / footer-separator box
+            dim = 0.45, -- a disabled value's fg blend toward bg
+            row_dim = 0.5, -- a disabled row's fg blend
+            path_dim = 0.8, -- a file row's leading directory
+            filter_off = 0.6, -- an inactive filter button's fg
+        },
+        accent = {
+            title = "blue",
+            subtitle = "yellow",
+            border = "blue",
+            separator = "red",
+            cursorline = "blue",
+            spacer = "magenta",
+            input = { bg = "blue", text = "fg" },
+            help = { odd = "blue", even = "yellow" },
+            tab = { box = "red", icon = "blue", text = "yellow" },
+            button = "orange",
+            row = "yellow",
+            row_icon = "teal",
+            item = "yellow",
+            path = "blue",
+            footer = { key = "blue", label = "yellow", sep = "red", chevron = "yellow" },
+            bar_fill = "yellow",
+            bar_sep = "blue",
+            picker = {
+                prompt = "blue",
+                input = "blue",
+                cursor = "blue",
+                marker = "red",
+                separator = "red",
+                preview_dir = "yellow",
+            },
+            peek = {
+                title = "blue",
+                icon = "blue",
+                kind = "green",
+                file = "yellow",
+                match = "blue",
+                filter = "yellow",
+                count = "green",
+            },
+            notify = { info = "blue", warn = "orange", error = "red", debug = "purple" },
+            msgarea = {
+                title = "blue",
+                row_odd = "yellow",
+                row_even = "yellow",
+                match = "red",
+                kind = "cyan",
+                marker = "red",
+            },
+            dashboard = {
+                header = "green_dark",
+                footer = "red_dark",
+                icon = "red_dark",
+                key = "orange",
+                desc = "cyan",
+                title = "green_dark",
+                file = "red_dark",
+                dir = "comment",
+                special = "purple",
+            },
+        },
+        -- The docked panel's full-width TITLE bar.
+        title = { accent = "blue", tint = 0.2 },
+    },
+})
+```
 
 ---
 
@@ -80,1448 +229,232 @@ reader always sees the effective values.
 
 ### `colors`
 
-Public color palette shared by all lvim-utils modules. Automatically syncs from `lvim-colorscheme` when available. Standalone, a bundled muted **dark** and **light** palette is used and swapped automatically on `&background` change; `setup({ colors = {...} })` overrides are sticky across background flips and theme syncs.
+The public colour palette. Bundled muted **dark** and **light** palettes are used standalone (swapped
+automatically on `&background` change); when `lvim-colorscheme` is present the palette **syncs from the active
+theme** (and follows its `transparent` state). `setup({ colors = {...} })` overrides are **sticky** — re-applied
+on top of every base swap and theme sync.
 
 ```lua
 local c = require("lvim-utils.colors")
 
 local red = c.red -- "#cb4f4f"
 local bg_light = c.bg_light -- "#2c3339"
-local add = c.git.add -- "#5f7240"
+local add = c.git.add
 local mixed = c.blend(c.teal, c.bg, 0.3)
 ```
 
-**Override palette via `setup()`:**
-
-```lua
-require("lvim-utils").setup({
-    colors = {
-        red = "#ff5555",
-        blue = "#569cd6",
-    },
-})
-```
-
-**API**
-
-| Function                 | Description                                                         |
-| ------------------------ | ------------------------------------------------------------------- |
-| `setup(overrides)`       | Override palette colors; derived colors recomputed automatically    |
-| `sync_from_lcs()`        | Pull palette from `lvim-colorscheme` and fire `on_change` listeners |
-| `on_change(fn)`          | Register a callback fired whenever the palette changes              |
-| `blend(fg, bg, alpha)`   | Blend two hex colors (alpha 1.0 = fully fg)                         |
-| `lighten(color, amount)` | Blend toward white                                                  |
-| `darken(color, amount)`  | Blend toward black                                                  |
-
----
-
-### `cursor`
-
-Hides the hardware cursor based on the current/visible buffers' filetypes. Uses a dedicated highlight group (`LvimUtilsHiddenCursor`) with `blend=100` and a 1-cell vertical bar shape — works in both GUI and TUI with `termguicolors`. This is the ONE cursor system; the `ui` surface engine delegates all its cursor hiding here.
-
-Two filetype lists:
-
-- **`ft`** (transient popups) — the cursor is hidden whenever such a buffer is visible in **any** window, so it stays hidden while a modal popup owns the screen even if focus flickers elsewhere.
-- **`panel_ft`** (persistent side panels) — the cursor is hidden **only while that panel is the current window**, so it stays visible in the code beside an always-open panel.
-
-```lua
-require("lvim-utils.cursor").setup({
-    ft = { "lvim-ui-frame", "neo-tree", "NvimTree" }, -- hidden whenever visible
-    panel_ft = { "lvim-lsp-outline" }, -- hidden only while current
-})
-```
-
-**API**
-
-| Function                          | Description                                                  |
-| --------------------------------- | ----------------------------------------------------------- |
-| `setup(opts)`                     | Register `ft` / `panel_ft` filetypes and install autocmds   |
-| `mark_input_buffer(bufnr, value)` | Keep the cursor VISIBLE in a buffer (e.g. a text-input field) even if its filetype is registered |
-| `mark_hide_buffer(bufnr, value)`  | HIDE the cursor while a buffer is the current window — by handle, for floats whose filetype is shared (e.g. a markdown hover) and so cannot be registered via `panel_ft` |
-| `update()`                        | Force-refresh cursor state                                  |
-
----
+| Function                 | Description                                                                 |
+| ------------------------ | --------------------------------------------------------------------------- |
+| `setup(overrides)`       | Override palette colours; re-applies over an already-synced theme, notifies |
+| `sync_from_lcs()`        | Pull the palette from `lvim-colorscheme` and fire `on_change` listeners     |
+| `on_change(fn)`          | Register a callback fired whenever the palette changes; returns unsubscribe |
+| `blend(fg, bg, alpha)`   | Blend two hex colours (alpha 1.0 = fully fg)                                 |
+| `lighten(color, amount)` | Blend toward white                                                          |
+| `darken(color, amount)`  | Blend toward black                                                          |
 
 ### `highlight`
 
-Dynamic highlight group registration that survives colorscheme changes, plus color manipulation helpers.
+The group registrar. Defines / links highlight groups, and **binds** a factory that rebuilds the whole group
+map from the live palette and re-applies it on every `ColorScheme` / `User LvimColorscheme` — so every group
+self-themes. Also carries the blend helpers and the fold-header accent / band helpers.
 
-**Self-theming with `bind` (recommended)**
+| Function                    | Description                                                              |
+| --------------------------- | ------------------------------------------------------------------------ |
+| `blend(fg, bg, alpha)`      | Blend two hex colours                                                    |
+| `lighten` / `darken`        | Blend toward white / black                                              |
+| `define(name, opts)`        | Define a highlight group                                                |
+| `define_if_missing(...)`    | Define only if the group does not already exist                        |
+| `link(name, link_to)`       | Link a group to another                                                 |
+| `get(name)` / `group_exists`| Read a group / test its existence                                      |
+| `clear(name)`               | Clear a group                                                          |
+| `register(groups, force)`   | Register a table of groups (force = apply hard, not `default`)         |
+| `bind(fn)`                  | Bind a factory `fn(colors) -> groups`, re-run on palette change         |
+| `setup()`                   | Install the `ColorScheme` autocmd                                       |
+| `section_accent(accent)`    | The tinted band for a collapsible fold header (uses `config.section`)  |
+| `band_line(parts, sep)`     | Build a full-width tinted band line                                    |
 
-`bind` is the canonical way for a plugin to theme its own UI from the shared
-[`colors`](#colors) palette while staying overwritable. Pass a factory that reads the
-palette and returns its groups; `bind` applies them with `default = true` (so the active
-colorscheme or the user can override them) and re-applies automatically whenever the
-palette syncs from lvim-colorscheme or on any `ColorScheme`. When the palette actually
-changes the groups are force-updated, so live theme previews recolor correctly.
+### `cursor`
 
-The factory receives the live palette as its argument. `bind` returns a dispose function
-that unbinds the factory (for isolated `ui.new()` instances or plugins that tear down).
+Hides the hardware cursor whenever a buffer with a **registered filetype** owns the screen, via a dedicated
+`LvimUtilsHiddenCursor` group (`blend=100`, 1-cell bar) — imperceptible in GUI and TUI with `termguicolors`.
+This is the ONE cursor system; every lvim-tech popup / panel delegates here. Two lists:
 
-```lua
-local hl = require("lvim-utils.highlight")
+- **`ft`** — transient popups: the cursor is hidden whenever such a buffer is visible in **any** window.
+- **`panel_ft`** — persistent side panels: hidden **only** while the panel is the **current** window.
 
-local dispose = hl.bind(function(c)
-    return {
-        MyPluginNormal = { bg = c.bg_dark, fg = c.fg },
-        MyPluginTitle = { fg = c.blue, bold = true },
-    }
-end)
-
--- later, to stop theming these groups:
--- dispose()
-```
-
-**Fixed groups with `register`**
-
-For groups that are not palette-derived (or to hard-apply user overrides):
-
-```lua
--- Register defaults (skips groups already set by the colorscheme)
-hl.register({
-    MyGroupNormal = { bg = "#1e1e2e" },
-    MyGroupTitle = { fg = "#cba6f7", bold = true },
-})
-
--- Register as overrides (always applied, even over colorscheme)
-hl.register({ MyGroup = { fg = "#ff0000" } }, true)
-
--- Install the ColorScheme autocmd (call once during plugin init)
-hl.setup()
-```
-
-**Color helpers**
+**Self-registration is preferred.** A plugin that owns a panel registers its own filetype from its own
+`setup()`:
 
 ```lua
-hl.blend("#cba6f7", "#1e1e2e", 0.3) -- blend two hex colors (alpha 0–1)
-hl.lighten("#cba6f7", 0.2) -- blend toward white
-hl.darken("#cba6f7", 0.2) -- blend toward black
+require("lvim-utils.cursor").register({ panel_ft = { "my-panel" } })
 ```
 
-**Group utilities**
-
-```lua
-hl.define("MyGroup", { fg = "#ff0000", bold = true }) -- set (always)
-hl.define_if_missing("MyGroup", { fg = "#ff0000" }) -- set only if not defined
-hl.clear("MyGroup") -- reset to empty
-hl.get("MyGroup") -- → attribute table or nil
-hl.link("MyGroup", "Normal") -- link to another group
-hl.group_exists("MyGroup") -- → boolean
-```
-
-**API**
-
-| Function                        | Description                                     |
-| ------------------------------- | ----------------------------------------------- |
-| `bind(fn)`                      | Self-theme: apply a palette factory (`default`), re-applied on palette/`ColorScheme` change |
-| `register(groups, force?)`      | Register and immediately apply fixed highlight groups |
-| `setup()`                       | Install the `ColorScheme` autocmd               |
-| `blend(fg, bg, alpha)`          | Blend two hex colors                            |
-| `lighten(color, amount)`        | Blend toward white                              |
-| `darken(color, amount)`         | Blend toward black                              |
-| `define(name, opts)`            | Set a group (always applied)                    |
-| `define_if_missing(name, opts)` | Set a group only if not already defined         |
-| `clear(name)`                   | Reset a group to empty                          |
-| `get(name)`                     | Get group attributes                            |
-| `link(name, link_to)`           | Link one group to another                       |
-| `group_exists(name)`            | Check if a group is defined                     |
-
----
-
-### `ui`
-
-Floating popup components. All popups share a unified visual style driven by highlight groups and config.
-
-The only module that supports independent instances — see [`ui.new()`](#uinew--isolated-instances).
-
-#### `select`
-
-Pick one item from a list. Pass `current_item` to mark the currently active value with a `➤` indicator regardless of cursor position.
-
-```lua
-require("lvim-utils.ui").select({
-    title = "Choose colorscheme",
-    subtitle = "Active on next restart",
-    info = "Requires a full Neovim restart",
-    items = { "catppuccin", "tokyonight", "gruvbox" },
-    current_item = "tokyonight",
-    callback = function(ok, index)
-        if ok then
-            print("Selected index:", index)
-        end
-    end,
-})
-```
-
-Items can be plain strings or `SelectItem` tables:
-
-```lua
-items = {
-    { label = "catppuccin", icon = "󰄛" },
-    {
-        label = "tokyonight",
-        icon = "󰖔",
-        hl = {
-            active = { fg = "#7aa2f7", bold = true },
-            inactive = { fg = "#565f89" },
-        },
-    },
-}
-```
-
-#### `multiselect`
-
-Pick multiple items. `<Space>` toggles, `<CR>` confirms.
-
-```lua
-require("lvim-utils.ui").multiselect({
-    title = "Enable LSP servers",
-    items = { "lua_ls", "tsserver", "pyright" },
-    initial_selected = { lua_ls = true },
-    callback = function(ok, selected)
-        -- selected = table<string, boolean>
-        if ok then
-            vim.print(selected)
-        end
-    end,
-})
-```
-
-#### `input`
-
-Free-text input field.
-
-```lua
-require("lvim-utils.ui").input({
-    title = "Project name",
-    placeholder = "my-project",
-    callback = function(ok, value)
-        if ok then
-            print(value)
-        end
-    end,
-})
-```
-
-#### `confirm`
-
-Yes/no dialog (a two-item select). The default choice is focused on open; cancelling (`<Esc>`) resolves to `false`.
-
-```lua
-require("lvim-utils.ui").confirm({
-    prompt = " Delete file?",
-    yes = "Delete", -- optional labels
-    no = "Cancel",
-    default_no = true, -- focus "No" on open
-    callback = function(yes)
-        if yes then
-            -- ...
-        end
-    end,
-})
-```
-
-#### `tabs`
-
-Tabbed view. Supports two content modes:
-
-**Simple items** — pick one item per tab:
-
-```lua
-require("lvim-utils.ui").tabs({
-    title = "Package manager",
-    tabs = {
-        { label = "Installed", items = { "lazy.nvim", "mason.nvim" } },
-        { label = "Updates", items = { "blink.cmp" } },
-    },
-    callback = function(ok, res)
-        -- res = { tab, index, item }
-    end,
-})
-```
-
-**Typed rows** — settings-style UI with bool toggles, selects, number inputs, and actions:
-
-```lua
-require("lvim-utils.ui").tabs({
-    title = "Settings",
-    tabs = {
-        {
-            label = "Editor",
-            rows = {
-                { type = "spacer", label = "Appearance" },
-                { type = "bool", name = "cursorline", label = "Cursor line", value = true },
-                { type = "bool", name = "cursorline", label = "With icon", value = true, icon = "󰇷" },
-                {
-                    type = "select",
-                    name = "colorscheme",
-                    label = "Colorscheme",
-                    value = "catppuccin",
-                    options = { "catppuccin", "tokyonight", "gruvbox" },
-                },
-                { type = "int", name = "scrolloff", label = "Scroll offset", value = 8 },
-                { type = "float", name = "timeout", label = "Timeout (s)", value = 2.0 },
-                { type = "string", name = "exclude_ft", label = "Exclude ft", value = "markdown" },
-                { type = "spacer_line" },
-                { type = "action", label = "Reset to defaults", run = function() end },
-            },
-        },
-    },
-    on_change = function(row)
-        print(row.name, "=", row.value)
-    end,
-    callback = function(ok, snapshot)
-        -- snapshot = table<name, value> for all named rows
-    end,
-})
-```
-
-**Subtitle** — an optional message line (or lines) under the title. A plain string uses the
-default style; a table picks a semantic colour via `type` (`"info"` blue · `"warn"` orange ·
-`"error"` red, all fg-only) or a custom `hl`, may be fronted by an `icon`, and can add a blank
-row beneath with `blank_below`. Pass a list of such tables for a multi-line subtitle:
-
-```lua
-subtitle = { text = "3 file(s) with unsaved changes", type = "error", icon = "", blank_below = true }
--- or multi-line:
-subtitle = {
-    { text = "Review the changes below", type = "info" },
-    { text = "Unsaved work will be lost", type = "warn" },
-}
-```
-
-**Row fields**
-
-| Field     | Type       | Description                                             |
-| --------- | ---------- | ------------------------------------------------------- |
-| `type`    | `RowType`  | Row type (see table below)                              |
-| `name`    | `string?`  | Key in the callback snapshot                            |
-| `label`   | `string?`  | Display text                                            |
-| `icon`    | `string?`  | Optional secondary icon shown between type icon & label |
-| `value`   | `any`      | Current value                                           |
-| `default` | `any`      | Fallback value when `value` is nil                      |
-| `options` | `string[]` | Choices for `select` type                               |
-| `run`     | `function` | Callback on change/execute                              |
-| `hl`      | `table?`   | `{ active?: HlDef, inactive?: HlDef }` per-row override |
-
-**Row types**
-
-| Type               | Input method            | Value     |
-| ------------------ | ----------------------- | --------- |
-| `bool` / `boolean` | `<CR>` toggles          | `boolean` |
-| `select`           | `<Tab>` / `<BS>` cycles | `string`  |
-| `int` / `integer`  | `<CR>` opens input      | `integer` |
-| `float` / `number` | `<CR>` opens input      | `number`  |
-| `string` / `text`  | `<CR>` opens input      | `string`  |
-| `action`           | `<CR>` executes         | —         |
-| `spacer`           | non-interactive label   | —         |
-| `spacer_line`      | horizontal divider      | —         |
-
-Set `horizontal_actions = true` to render all `action` rows as a button bar at the bottom.
-
-#### `info`
-
-Read-only scrollable info window (a single-panel `frame`). Content is a string or a list of lines, with optional per-span highlighting.
-
-```lua
-local buf, win = require("lvim-utils.ui").info({ "Title", "", "Some content." }, { title = "About" })
-```
-
-| Option              | Description                                                                                            |
-| ------------------- | ----------------------------------------------------------------------------------------------------- |
-| `title`             | Border-title text (`false` → no title)                                                                |
-| `width` / `height`  | FIXED size (a fraction ≤ 1 of the screen, or an absolute count); omit either for auto-fit             |
-| `highlights`        | `{ line, col_start, col_end, group }` (or positional `{ row, c0, c1, hl }`); `col_end = -1` = line end |
-| `footer_items`      | Extra footer action buttons `{ { key, name, run } }`, shown before the standard `q close`              |
-| `hide_cursor`       | Hide the hardware cursor (read-only viewer; the active row still reads via cursorline)                 |
-| `footer`            | `false` → no footer bar                                                                                |
-| `on_open(buf, win)` | Called after the window opens (set window-local options, extra keymaps, folds…)                       |
-| `border` / `close_keys` / `keymaps` | Frame overrides                                                                        |
-
-#### `close_info`
-
-Programmatically close an info window returned by `ui.info()`.
-
-```lua
-local buf, win = require("lvim-utils.ui").info(lines, opts)
--- later:
-require("lvim-utils.ui").close_info(win)
-```
-
-#### Popup positioning
-
-All popup functions accept a `position` option (overrides the global default):
-
-| Value      | Behaviour                                           |
-| ---------- | --------------------------------------------------- |
-| `"editor"` | Centered in the full Neovim editor area (default)   |
-| `"win"`    | Centered within the current window                  |
-| `"cursor"` | Below the cursor when space allows, otherwise above |
-
-```lua
-require("lvim-utils.ui").select({
-    title = "Pick one",
-    items = { "a", "b", "c" },
-    position = "cursor",
-    callback = function(ok, idx) end,
-})
-```
-
-#### `ui.new()` — isolated instances
-
-Create an independent UI instance with its own config overrides. All other modules (`notify`, `highlight`, `cursor`, `colors`, `gx`) are global-only.
-
-Useful when multiple plugins share lvim-utils but need different colors, icons, or keymaps.
-
-```lua
-local my_ui = require("lvim-utils.ui").new({
-    highlights = {
-        LvimUiNormal = { bg = "#1a1a2e", fg = "#eee" },
-        LvimUiTitle = { fg = "#e94560", bold = true },
-        LvimUiBorder = { fg = "#e94560" },
-    },
-    icons = {
-        bool_on = "✓",
-        bool_off = "✗",
-    },
-})
-
-my_ui.select({ title = "Pick", items = { "a", "b" }, callback = function(ok, idx) end })
-my_ui.multiselect({ ... })
-my_ui.input({ ... })
-my_ui.tabs({ ... })
-my_ui.info(lines, opts)
-```
-
-Instance `highlights` override the global `LvimUi*` groups **only for popups opened through that instance**. Inline table definitions (e.g. `{ fg = "#ff0000" }`) are registered in the highlight registry and survive colorscheme changes.
-
-#### UI config
-
-| Key              | Default                          | Description                                 |
-| ---------------- | -------------------------------- | ------------------------------------------- |
-| `border`         | `"none"`                         | THE container frame source (off by default; see below) |
-| `content_border` | `"none"` (per-panel ring off)    | THE per-panel ring (see below); off by default |
-| `group_border`   | `{ "", "", … }` (off) / ring     | THE single GROUP frame around the panels (see below) |
-| `separator`      | `{ h = "│", v = "─", hl = … }`   | THE single inter-panel divider (see below)  |
-| `separator_hl`   | `"LvimUiPeekBorder"`             | Highlight group for the inter-panel divider |
-| `title_line`     | `"row"`                          | Frame title placement (below)               |
-| `title_pos`      | `"left"`                         | Title alignment — left / center / right (below) |
-| `counter`        | `"title"`                        | Count placement on the frame (below)        |
-| `size`       | see [runtime geometry](#runtime-ui-geometry-lvimutils) | Per-layout height/width for the shared surface (float / area / bottom + auto_max) — the live, persisted geometry edited by `:LvimUtils` |
-| `position`   | `"editor"`                       | Default popup position                      |
-| `width`      | `0.8`                            | Popup width as fraction of editor           |
-| `max_width`  | `0.8`                            | Max width cap                               |
-| `height`     | `0.8`                            | Popup height as fraction                    |
-| `max_height` | `0.8`                            | Max height cap                              |
-| `max_items`  | `15`                             | Max visible items before scrolling          |
-| `disable_completion` | `true`                   | Disable all completion sources (native / nvim-cmp / blink.cmp) in input popups |
-| `filetype`   | `"lvim-utils-ui"`                | Filetype set on the popup buffer            |
-| `markview`   | `false`                          | Enable markview.nvim rendering in info mode |
-| `icons`      | see below                        | Icon overrides                              |
-| `labels`     | see below                        | Footer label overrides                      |
-| `keys`       | see below                        | Keymap overrides                            |
-
-**Unified frame border & title**
-
-These three `ui` keys are the single source of truth for the windowed-UI "frame" — every
-panel across **all** lvim-tech plugins (pickers, `ui.tabs` panels, lvim-lsp hover /
-diagnostic peeks, lvim-space, the control center, …) now resolves to them, so changing one
-re-borders or re-titles the whole set on the next open.
-
-| Key          | Values                       | Meaning                                                                                                                                                                          |
-| ------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `border`         | 8-cell ring / `"none"`       | THE container frame. Default `"none"` — no outer frame; the title + counter live in a top CONTENT row (`title_line = "row"`) and the panels are framed by `group_border` / divided by `separator`. Set an 8-element ring to box the whole container. |
-| `content_border` | 8-cell ring / `"none"`       | THE per-panel ring — drawn around EACH DATA block INSIDE the container (a picker's list + preview, the tabs content panel). Independent of `border` and `group_border`. Default `"none"` (panels BORDERLESS): the `group_border` frames the two panels as a group and the `separator` divides them, so a per-panel ring would just double the lines. Set an 8-element ring to also frame each panel. |
-| `group_border`   | 8-cell ring `{ …, hl }` / `false` | THE one canonical GROUP ring — a COMMON frame drawn around the DATA panels as a group (a picker's list + preview together), INSIDE the container but OUTSIDE the header / footer nav bands. The third, "unifying" ring: container › group › each panel's `content_border`. Drawn ONLY with ≥2 content panels (one panel needs no grouping); a 1-col gutter sits between container↔group and group↔panels so no edge doubles. `false` disables it. |
-| `separator`      | `{ h, v, hl }` / string / `false` | THE one canonical INTER-PANEL divider — the rule drawn BETWEEN adjacent content panels. Auto-oriented (`h` = `"│"` side-by-side, `v` = `"─"` stacked), `hl` tints it (default the border tint). Drawn only at `n-1` gaps, so a single-panel surface shows none. `false` disables it; a plain string is used verbatim for both axes. |
-| `title_line`     | `"row"` \| `"border"` \| `"statusline"` | Where a frame's TITLE goes — a top CONTENT row drawn from column 0 (default; flush-left title, flush-right counter), the native border-title (needs a top border, which the default `border = "none"` lacks), or published to the chrome statusline overlay (area only, minibuffer style). |
-| `title_pos`      | `"left"` \| `"center"` \| `"right"` | Title ALIGNMENT, honoured by BOTH the content-row title and the native border-title. `"left"` (default) puts the title flush-left + the counter flush-right; `"center"` / `"right"` place the title accordingly (counter stays right). Lets a panel (e.g. the control center) centre its title with no border. |
-| `counter`        | `"title"` \| `"footer"`      | Where a supplied count (item / match total) renders — RIGHT-aligned on the SAME line as the title (default, reads `NAME ………… 8/62`), or as a right-aligned native bottom border-FOOTER. |
-
-A single `ui.surface.open` / presenter call may override `border` / `content_border` /
-`separator` / `title_line` / `title_pos` / `counter` per-open, but the defaults above govern every consumer.
-
-**Default icons**
-
-| Key              | Default  | Used for                        |
-| ---------------- | -------- | ------------------------------- |
-| `bool_on`        | `󰄬`      | Bool row — true                 |
-| `bool_off`       | `󰍴`      | Bool row — false                |
-| `select`         | `󰘮`      | Select row                      |
-| `number`         | `󰎠`      | Int / float row                 |
-| `string`         | `󰬴`      | String row                      |
-| `action`         | ``       | Action row                      |
-| `spacer`         | `──────` | Spacer row prefix               |
-| `multi_selected` | `󰄬`      | Checked multiselect item        |
-| `multi_empty`    | `󰍴`      | Unchecked multiselect item      |
-| `current`        | `➤`      | Current item indicator (select) |
-
-**Callback signatures**
-
-| Mode           | `callback(ok, result)`               |
-| -------------- | ------------------------------------ |
-| `select`       | `result` = `integer` (1-based index) |
-| `multiselect`  | `result` = `table<string, boolean>`  |
-| `input`        | `result` = `string`                  |
-| `tabs` (items) | `result` = `{ tab, index, item }`    |
-| `tabs` (rows)  | `result` = `table<name, value>`      |
-| `info`         | returns `buf, win` directly          |
-
-**`M.peek(opts)` — two-pane location navigator**
-
-A collapsible list of source locations grouped by file (header = file icon + name + directory +
-count) on one side and a LIVE preview of the focused location on the other. An expanded group's
-rows are plain source text behind a `▏` guide (no line numbers); the preview shows its real
-buffer WITH line numbers, so syntax/treesitter highlighting comes for free. The look is
-glance-flat — only the centred title is tinted. Two presentations via `opts.mode`: `"split"`
-(embedded splits at the bottom) or `"float"` (detached floating container with an optional
-dimmed backdrop).
-
-Expansion is set by `ui.peek.expand`: `"auto"` keeps only the focused group open and lets it
-follow the cursor; `"manual"` toggles groups open/closed by click or `<CR>` on their header.
-
-```lua
-require("lvim-utils.ui").peek({
-    title = "References",
-    mode = "split", -- or "float"
-    items = {
-        -- 1-based lnum/col; end_lnum/end_col optional (highlight the match range).
-        -- icon/icon_hl (optional) render a glyph before the row text (e.g. a severity sign);
-        -- severity (optional) is a free caller tag usable by filter-bar predicates.
-        { filename = "/abs/path.lua", lnum = 12, col = 7, end_col = 18, text = "local foo = 1" },
-        { filename = "/abs/other.lua", lnum = 3, col = 1, text = "require('x')" },
-    },
-    -- optional; default jumps in the origin window
-    on_jump = function(item, cmd) end, -- cmd = "edit" | "split" | "vsplit" | "tabedit"
-})
-```
-
-Items are grouped by `filename` (first-seen order). Each group header is a fold icon + the file
-name (green) + its directory (yellow) + a bracketed `[count]` painted in the **active filter's
-colour**. A filter with no matches shows a `No <Filter> <kind>` message (in that filter's colour)
-instead of a blank list, and the preview pane clears. Returns `false` when `items` is empty.
-List keys (configurable via `ui.peek.keys`): `j`/`k` move, `<Tab>`/`<S-Tab>` jump between file
-groups, `<CR>` open a location (or fold a header in manual mode), `s`/`v`/`t` open in
-split/vsplit/tab, `<C-l>`/`<C-h>` move focus between the panes, `f` cycle the filter bar's primary
-group, `q` close. The focused pane's keys are also advertised on the container's bottom-border
-footer. The mouse works too: single-click selects (or folds a header, or toggles a filter button),
-double-click opens, and **dragging horizontally resizes the split** (the boundary follows the
-pointer). The left/right ratio is set by `list_width` (a fraction of the region — `0.4` = 40% list
-/ 60% preview — or an absolute column count when `> 1`); `list_position` chooses which side the
-list sits on. The panel is an outer container (8-element `border`, centred `title`) holding the two
-bordered inner panes. Appearance is configured under `ui.peek` (`mode`, `expand`, `list_position`,
-`list_width`, `preview_height`, `preview_number`, `float`, `border`, `list_border`,
-`preview_border`, `title`, `footer`, `group_icon_open`, `group_icon_closed`, `guide_icon`).
-
-**Filter bar (`opts.bar`)** — an optional row of toggle buttons centred on the whole panel under
-the title, rendered installer-style with a bracketed hotkey letter per button
-(`[A]ll 5  [E]rror 2  [W]arn 1 …`). Each *group* of buttons tracks one active button; the effective
-filter is the AND of every group's active-button `predicate(item)`. A button's bracketed letter (its
-`key`, else the label's first letter) jumps straight to it; clicking it, or `f` to cycle the
-`primary` group, also works — all re-filter the list **live** without reopening, and each button
-shows its live count. This is what the lvim-lsp diagnostics navigator uses for its scope
-(Workspace/Buffer) + severity (All/Error/Warn/…) filters.
-
-```lua
-require("lvim-utils.ui").peek({
-    title = "Diagnostics",
-    mode = "float",
-    items = items, -- each carries icon/icon_hl/severity
-    bar = {
-        groups = {
-            {
-                id = "severity",
-                active = "all",
-                primary = true, -- the `f` key cycles this group
-                buttons = {
-                    {
-                        id = "all",
-                        label = "All",
-                        predicate = function()
-                            return true
-                        end,
-                    },
-                    {
-                        id = "error",
-                        label = "Error",
-                        predicate = function(it)
-                            return it.severity == 1
-                        end,
-                        hl = "MyFilterError",
-                        hl_active = "MyFilterErrorActive",
-                    },
-                },
-            },
-        },
-    },
-})
-```
-
----
-
-### Dock geometry — the single size + backdrop authority
-
-`config.dock.geometry.<layout>` is **THE** authority for the size + backdrop of every docked / floated surface
-in the whole lvim-tech UI (pickers, the terminal, the qf browser, control-center, lvim-ui modals, lsp peek, …).
-No plugin keeps its own size — each resolves its slot from it. `height_auto`/`width_auto`: when `true` the value
-is a **MAX** (content-fit up to it), when `false` it is **exact/fixed**. `area`/`bottom` are full-width (no width):
-
-```lua
-require("lvim-utils").setup({
-    dock = {
-        geometry = {
-            float = {
-                height = 0.7,
-                width = 0.9,
-                height_auto = true,
-                width_auto = false,
-                keep_focus = false,
-                auto_hide = true,
-                backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
-            },
-            area = {
-                height = 0.5,
-                height_auto = true,
-                keep_focus = true,
-                auto_hide = false,
-                backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
-            },
-            bottom = {
-                height = 0.5,
-                height_auto = true,
-                keep_focus = true,
-                auto_hide = false,
-                backdrop = { enabled = true, mode = "dim", dim = { amount = 0.4 }, darken = { amount = 0.3 } },
-            },
-        },
-    },
-})
-```
-
-`require("lvim-utils.dock").slot(layout)` resolves it to a rect (cells) — the seam consumers use; a per-open
-`opts` (size fields + `backdrop = false` | a merge) **anchors** an override that wins over the global for that
-one open.
-
-##### Backdrop (dim / darken)
-
-The `backdrop` sub-table draws a **veil BEHIND an open surface** so the editor mutes and the surface reads as the
-focus. `mode = "dim"` mutes the **foreground** toward the editor bg (lighter); `"darken"` mutes fg **and** bg
-toward black (a uniform darker look); each mode carries its own `amount` (0–1, higher = stronger). It is applied
-through `lvim-utils.dim.apply_backdrop` — a **highlight namespace, NO covering window**, so a terminal-composited
-image (kitty) underneath stays visible — and is **focus-aware**: it lifts off the editor window you move into and
-re-applies when the dock is focused again. A consumer may override per-open with `surface.open({ backdrop = {
-mode = "darken" } })` or turn it off with `backdrop = false`; absent → the config default.
-
-##### Dock stack keys + command
-
-Each layout keeps its own MRU stack of consumers (one visible at a time). While a docked window is focused:
-`<Leader>n` / `<Leader>p` cycle · `<Leader>x` kill the visible one · `<Leader>m` a menu of every live dock. And
-the command works from anywhere: `:LvimDock <area|bottom|float>` reveals that layout's top dock; `:LvimDock
-<area|bottom|float> menu` opens a layout-scoped dock menu.
-
----
-
-### `notify`
-
-Notification hub: intercepts `vim.notify` and `print`, routes messages through pluggable printers, and ships two built-in printers:
-
-- **toast** — one floating panel per severity level, stacked at the bottom-right corner
-- **history** — ring-buffer; browsable with `M.history()`
-
-Works out-of-the-box after `require()` — no `setup()` call needed.
-
-```lua
--- Standard usage (intercepted automatically)
-vim.notify("Hello!", vim.log.levels.INFO)
-vim.notify("Oops", vim.log.levels.ERROR, { title = "My Plugin", timeout = 0 })
-print("debug message") -- routed as DEBUG level
-
--- Browse history
-require("lvim-utils.notify").history()
-
--- Get raw history table
-local entries = require("lvim-utils.notify").get_history()
--- entries[i] = { msg, level, opts, time }
-```
-
-The history window shows only active progress channels (channels with content). Channels with no active content are not displayed.
-
-#### Progress channels
-
-Independent floating panels for long-running operations (LSP, builds, etc.). A panel is shown only while its content is non-empty; it closes automatically when cleared.
-
-```lua
-local notify = require("lvim-utils.notify")
-
--- Register a named channel
-notify.progress_register("lsp", {
-    name = "LSP",
-    icon = "󰄭",
-    header_hl = "LvimNotifyHeaderInfo",
-})
-
--- Update content (auto-registers if not yet registered)
-notify.progress_update("lsp", {
-    "  Indexing workspace…",
-    "  42 / 300 files",
-})
-
--- Clear content and close the panel
-notify.progress_clear("lsp")
-
--- Clear all progress channels at once
-notify.progress_clear_all()
-```
-
-#### Custom panels
-
-Push messages to a named panel with custom appearance, independent of the standard severity levels.
-
-```lua
-local notify = require("lvim-utils.notify")
-
-notify.register_panel("build", {
-    name = "Build",
-    icon = "󰗼",
-    hl = "LvimNotifyInfo",
-    header_hl = "LvimNotifyHeaderInfo",
-})
-
-notify.push("build", "Compiling…", { timeout = 0 })
-notify.push("build", "Done.", { timeout = 3000 })
-```
-
-#### Custom printers
-
-```lua
-local notify = require("lvim-utils.notify")
-
-notify.add_printer("my_printer", function(msg, level, opts)
-    io.stderr:write("[" .. tostring(level) .. "] " .. msg .. "\n")
-end)
-
-notify.remove_printer("my_printer")
-notify.has_printer("my_printer") -- → boolean
-```
-
-**API**
-
-| Function                             | Description                                               |
-| ------------------------------------ | --------------------------------------------------------- |
-| `setup(opts)`                        | Configure the notify module                               |
-| `notify(msg, level, opts)`           | Dispatch a notification through all printers              |
-| `get_history()`                      | Return a deep copy of the history ring-buffer             |
-| `clear()`                            | Clear the history ring-buffer                             |
-| `history()`                          | Open the history browser popup                            |
-| `add_printer(name, fn)`              | Register a custom printer function                        |
-| `remove_printer(name)`               | Unregister a printer by name                              |
-| `has_printer(name)`                  | Check if a printer is registered                          |
-| `push(key, msg, opts)`               | Push directly to a panel by key or `vim.log.levels` value |
-| `register_panel(key, opts)`          | Register a custom panel with its own appearance           |
-| `progress_register(id, opts)`        | Register a named progress channel                         |
-| `progress_update(id, lines, marks?)` | Update content for a progress channel                     |
-| `progress_clear(id)`                 | Clear content and close a progress channel's panel        |
-| `progress_clear_all()`               | Clear all progress channels                               |
-
-#### Notify config
-
-| Key                | Default                  | Description                                               |
-| ------------------ | ------------------------ | --------------------------------------------------------- |
-| `timeout`          | `5000`                   | Auto-dismiss delay in ms; `0` = sticky                    |
-| `dedup`            | `true`                   | Collapse identical consecutive toasts into one `×N` badge |
-| `min_width`        | `50`                     | Minimum panel width in columns                            |
-| `max_width`        | `100`                    | Maximum panel width in columns                            |
-| `padding`          | `1`                      | Horizontal padding inside the panel                       |
-| `bottom_margin`    | `1`                      | Rows from the bottom of the editor                        |
-| `panel_gap`        | `0`                      | Rows between stacked level panels                         |
-| `border`           | `"none"`                 | Border style passed to `nvim_open_win`                    |
-| `zindex`           | `1000`                   | Floating window z-index                                   |
-| `separator`        | `"─"`                    | Character repeated as entry separator                     |
-| `max_history`      | `100`                    | Ring-buffer size                                          |
-| `override_print`   | `false`                  | Replace global `print()` (always routed as DEBUG)         |
-| `ext_messages`     | `true`                   | Intercept all Neovim messages via `vim.ui_attach`         |
-| `ext_echo_timeout` | `3000`                   | Timeout for echo/info-level ext messages                  |
-| `ext_kinds`        | see below                | Per-kind behaviour: `"toast"`, `"history"`, or `"ignore"` |
-| `printers`         | `{ "toast", "history" }` | Active printers on load                                   |
-| `icons`            | see below                | Level icons                                               |
-| `level_names`      | see below                | Singular/plural level names in the header bar             |
-
-**Default `ext_kinds` behaviour**
-
-| Kind                                                     | Default     |
-| -------------------------------------------------------- | ----------- |
-| `emsg`, `echoerr`, `lua_error`, `rpc_error`, `shell_err` | `"toast"`   |
-| `wmsg`, `echomsg`, `echo`, `bufwrite`, `undo`            | `"toast"`   |
-| `shell_out`, `lua_print`, `verbose`, `""`                | `"history"` |
-| `search_count`, `search_cmd`, `wildlist`, `completion`   | `"ignore"`  |
-
----
-
-### `msgarea`
-
-A persistent, toggleable zone docked at the screen bottom (over the `cmdheight` region, below the global statusline). It is a vertical stack of named **segments** — every owner puts content in through one, and the core composes them. Three are built in: **messages** (routed notifications), the **completion grid** (blink's list, rendered here), and the unified **cmdline** (reserved rows an external float overlays). Any plugin adds its own.
-
-The zone renders through a single [`ui.surface`](#ui) (`position = "cmdline"`) — the one layout chassis shared with the float finders / docks — which grows `cmdheight` so the global statusline stays above it. There is no separate render path.
-
-```lua
-require("lvim-utils").setup({
-    msgarea = {
-        enable = true,
-        max_height = 12, -- hard cap; auto_resize fits content up to it
-        unified = true, -- host the command-line at the bottom of the zone
-        completion_columns = 3, -- grid columns for the intercepted completion
-        integrations = { blink = true }, -- opt-in source glue (per plugin)
-    },
-})
-```
-
-Toggle live with `:LvimMsgArea`. The zone is hidden whenever the stack is empty.
-
-**Public segment API** — the seam every plugin uses. `segment(name)` returns a handle (get-or-create by name); its methods mutate that segment and reflow the zone:
-
-```lua
-local ma = require("lvim-utils.msgarea")
-
--- plain lines + parallel highlights (a whole-row group, a span list, or nil per line)
-ma.segment("my-plugin", { priority = 60 }):set({ "line one", "line two" }, { "Comment", false })
-
--- a row-major grid of neutral items { text, icon?, icon_hl?, match? }, one selected.
--- `match` = 0-based char indices into `text` to highlight (the fuzzy-matched query). blink fills it from
--- its fuzzy; a non-blink consumer computes its own: `match = require("lvim-utils.utils").match_indices(query, text)`.
-ma.segment("picker"):set_grid(items, 3, { columns = 2, max_rows = 8 })
-ma.segment("picker"):select(4) -- cheap selection-only update
-
--- a lazy provider re-rendered on every paint; call :refresh() to repaint after its data changed
-ma.segment("outline"):provider(function(width)
-    return lines, hls
-end)
-ma.segment("outline"):refresh()
-
--- reserve blank rows for your own float to overlay; returns the editor-relative rect
-local rect = ma.segment("input", { priority = 900 }):reserve(1)
-
-ma.segment("picker"):clear() -- empty content, keep registered
-ma.segment("picker"):release() -- remove entirely
-```
-
-**Interactive segment** — make the zone a focusable picker. Focus it, navigate the active grid with `h`/`j`/`k`/`l` (and arrows), `<CR>` confirms, `<Esc>` blurs. `blink` instead mirrors from the command line and is never focused, so the two never collide.
-
-```lua
-ma
-    .segment("picker", { priority = 40 })
-    :title("Results") -- an optional header row above the segment (separates owners)
-    :set_grid(items, 1, { columns = 2 })
-    :on_move(function(idx) end) -- selection changed
-    :on_confirm(function(item, idx) -- <CR>
-        ma.blur() -- return focus first, then act
-        -- … open `item` …
-    end)
-    :keys({ ["d"] = function(handle) end }) -- custom keymaps while focused
-    :focus() -- M.focus(name) / M.blur() also exist
-```
-
-When the focused segment is NOT a grid (e.g. messages), `h`/`j`/`k`/`l` and `<C-d>`/`<C-u>` stay native, so the scrollback scrolls normally.
-
-`priority` orders the stack (low = top, high = bottom). The built-ins use `messages` = 10, `completion` = 50, `cmdline` = 1000. New consumers ship as `msgarea/integrations/<plugin>.lua` (an `enable()`/`disable()` module) gated by the `integrations = { <plugin> = true }` flag.
-
----
-
-### `fuzzy`
-
-The shared fuzzy MATCHING engine used by the picker / navigator AND the native command-line completion. `filter(texts, query, cb)` ranks a list of strings against a query — the `fzf` binary in `--filter` mode when present (async), a pure-Lua subsequence matcher otherwise — and calls `cb` with `{ idx, match }` entries (the source index + the matched-char positions for highlighting).
-
-**Result ordering** is highly configurable via `config.fuzzy.sort` and applies to EVERY consumer:
-
-```lua
-require("lvim-utils").setup({
-    fuzzy = {
-        -- a preset name, a LIST of criteria (priority order — first decides, the rest break ties),
-        -- or a custom function(a, b) -> boolean comparator
-        sort = { "dirs_first", "score" },
-    },
-})
-```
-
-Built-in criteria: `score` (best fuzzy match), `dirs_first`, `files_first`, `ext` (group by extension), `length`, `alpha`. The fuzzy rank is always the final tiebreak, so the order is deterministic.
-
----
-
-### `picker`
-
-A native fuzzy finder built on the [ui.surface](#ui) chassis — a typed query, a results LIST and a scrollable PREVIEW (the diagnostics-peek layout, but fuzzy), in any of the surface layouts. It has **two render backends behind one chassis**, picked by the nature of the data:
-
-- **fzf-TUI** (the heavy, command-driven finders — `files` / `grep` / `git_files` / `directories` / `buffers`): the real `fzf` binary runs as a TUI inside the finder's list panel, exactly as fzf-lua does it. fzf — in C — owns parsing, matching, ranking AND rendering, and the producer (`fd` / `rg`) streams DIRECTLY into fzf, so the list stays instant and updates CONTINUOUSLY while you type even over millions of files (e.g. `~/`), and Neovim never blocks. fzf is themed from the live palette through `--color` (the prompt ➤, the matched chars, the selected line) so it matches the theme even though fzf paints the rows; the PREVIEW stays a real Neovim window (treesitter + the devicon winbar), driven by fzf's `focus` event. A title bar (the finder name left, live `matches/total` stats right — fed from fzf, so they climb during the stream and narrow as you filter) shows on the statusline (docked) or as a header band. `config.picker.park_key` (default `<C-o>`) is a focus toggle: from fzf's input it leaves to the editor WITHOUT closing the finder (fzf keeps running); pressed again in the editor it returns to the finder exactly where you left it. Toggle the backend with [`config.picker.fzf_tui`](#picker) (default on; needs `fzf` + `mkfifo`, falls back to the tint list when missing).
-- **tint list** (the structured, in-memory finders — lsp locations, diagnostics, marks, quickfix, …): the Lua-rendered tint-striped list (odd-blue / even-yellow rows, the selected row a strong tint, matched chars in red). The **matching engine is the `fzf` binary** in `--filter` mode (candidates in, ranked indices out — engine vs view, like the blink integration), a pure-Lua subsequence matcher when `fzf` is absent. Their data is small and in-memory, so the fzf TUI buys nothing there.
-
-```lua
-require("lvim-utils.picker").open({
-    items = { "one", "two", "three" }, -- strings, or tables (see `format`)
-    title = "Pick",
-    on_confirm = function(item)
-        vim.print(item)
-    end,
-    preview = function(item) -- optional: the right panel, refreshed per selection
-        return { "preview of " .. tostring(item) }
-    end,
-    -- format = function(it) return it.label end,  -- display text for table items
-    -- on_cancel = function() end, prompt = "➤ ", max_rows = 15,
-})
-
-require("lvim-utils.picker").buffers() -- ready finder over the open buffers (with a content preview)
-```
-
-**Layouts** — `layout = "float"` (default centred), `"bottom"` (a dock floating over the bottom rows), or `"area"` (the Emacs-style cmdline region — it grows `cmdheight` so a global statusline rises above it). **Preview side** — `preview_side = "right"` (default) `| "left" | "below" | "above"` (below/above stack and grow the height). **Result ordering** is the shared [`config.fuzzy.sort`](#fuzzy) (so it matches the rest of the engine).
-
-**Input styling** — the typed-text colour is `config.picker.hl.input`'s fg (shared by both backends); the **caret** is `config.picker.caret = { hl = "LvimUiPickerCursor", shape = "ver25" }` (its `hl` group's fg is the bar colour, `shape` is a `guicursor` spec) — a thin blue bar by default, every finder. The self-rendered cmdline mirrors this: its caret glyph is `config.cmdline.caret` (default `▎`), coloured per its mode group.
-
-**Ready finders:**
-
-```lua
-local picker = require("lvim-utils.picker")
-picker.buffers() -- open buffers (content preview; <CR> switches)
-picker.files() -- fuzzy file finder under cwd (fd / rg --files / find; <CR> edits)
-picker.directories() -- fuzzy directory finder (<CR> :cd's in)
-picker.grep() -- LIVE grep via ripgrep: each query re-runs rg, preview jumps to the matched line, <CR> opens at it
-picker.oldfiles() -- recent files (v:oldfiles, readable; <CR> edits)
-picker.help_tags() -- help tags (<CR> :help's the topic)
-picker.git_files() -- git-tracked files (git ls-files; <CR> edits)
-picker.colorschemes() -- colorschemes (apply on confirm, restore on cancel)
-picker.commands() -- ex commands (<CR> drops ":<cmd> " in the cmdline for args)
-picker.marks() -- marks (jump on confirm, preview at the line)
-picker.keymaps() -- keymaps (all modes; preview the rhs/desc)
-picker.quickfix() -- quickfix entries (jump on confirm, preview)
-picker.jumplist() -- jumplist, newest first (jump on confirm, preview)
-```
-
-`files`/`directories` are STATIC lists fuzzy-filtered as you type; `grep` is a **LIVE `source`** — each keystroke re-runs the command and the matches ARE the results (pass your own `source = function(query, cb) … end` to `open` for any live source).
-
-Keys (in the query input, insert mode): type to filter, `<C-j>`/`<Down>` and `<C-k>`/`<Up>` move the selection, `<C-d>`/`<C-u>` scroll the preview, `<CR>` confirms (calls `on_confirm` with the item's source value), `<Esc>`/`<C-c>` cancels. With no `preview` the float is the list alone.
-
-**Ex command** — every ready finder is reachable from one command (registered by `setup()`):
-
-```vim
-:LvimPicker <finder> [layout]
-```
-
-`<finder>` is any of the ready finders above (`files`, `grep`, `buffers`, `git_files`, `directories`,
-`oldfiles`, `help_tags`, `colorschemes`, `commands`, `marks`, `keymaps`, `quickfix`, `jumplist`);
-the optional `[layout]` is `float` / `bottom` / `area` (overrides `config.picker.layout` for that call).
-Tab-completes both arguments. `require("lvim-utils.picker").setup_command()` (called from the top-level
-`setup()`) registers it.
-
----
-
-### `chrome`
-
-The editor **chrome** family — **statusline**, **winbar**, **tabline** and **statuscolumn** — plus a
-folded transient finder/echo **overlay**. One `setup()` registers all four as `%!`-evaluated
-expressions, self-themes the `LvimUiChrome*` groups from the live palette, starts a shared git poller,
-and installs the redraw + per-window autocmds. Like the [dashboard](#dashboard) it ships the **ENGINE
-only** — there are **no predefined segments** (unlike heirline): you define every segment in your
-config, composed from the helper modules.
-
-Opt-in via the top-level setup (each component is independently toggleable):
-
-```lua
-require("lvim-utils").setup({
-    chrome = {
-        statusline = { enabled = true, segments = {} }, -- your segment specs
-        winbar = {
-            enabled = true,
-            segments = function()
-                return {}
-            end,
-        },
-        tabline = { enabled = true, showtabline = 2, segments = {} },
-        statuscolumn = { enabled = true, segments = {} },
-        overlay = { enabled = true }, -- the finder/echo model on the statusline
-        git = { poll_ms = 1000 }, -- .git/HEAD fs_poll interval (shared by the git segments)
-    },
-})
-```
-
-`chrome = false` disables the whole family. A `segments` value is a **list** of specs, **or a function
-returning one** (resolved lazily at render time). Each spec:
-
-```
-{ name, content = function(ctx) return "…" end, hl?, when?, events?, click?, buf?, align? }
-```
-
-Compose segments from the helper modules:
-
-| Module                       | Provides                                                                  |
-| ---------------------------- | ------------------------------------------------------------------------ |
-| `lvim-utils.chrome.parts`    | `seg` / `icons` / `devicon` / `unique_name` / `excluded` builders + `M.cfg()` |
-| `lvim-utils.chrome.utils`    | small formatting helpers                                                  |
-| `lvim-utils.chrome.git`      | the shared git poller (branch + diff counts) the git segments read       |
-| `lvim-utils.chrome.gutter`   | statuscolumn cells: `signs` / `diag_icon` / `mark_letter` / `sign_at_mouse` |
-| `lvim-utils.chrome.engine`   | the renderer + `click_region(key, fn, text)` for clickable window/tab cells |
-| `lvim-utils.chrome.overlay`  | the transient finder/echo status model (`M.line()` / `M.set()` / `M.get()`) |
-
-Each component carries its OWN `exclude = { buftype, filetype }` blacklist (8 lists in all — the start
-dashboard, tool panels, terminals, … get no chrome). All glyphs are configurable single-width Nerd-font
-characters under `chrome.icons` (mode pill leader, folder, git branch, diagnostics, git-gutter bar, the
-`➤` breadcrumb separator, the 8 scrollbar block chars, …). See `config/chrome.lua` for the full schema.
-
-The four bar components are **excluded from the [start dashboard](#dashboard)** automatically (they never
-paint over it), and the overlay lets a finder / the command-line publish its title + match counter to the
-bottom line (see [picker](#picker) and the `cmdline` config). The `LvimUiChrome*` highlight groups
-(see [Highlight Groups](#highlight-groups)) self-theme from the palette.
-
----
-
-### `dashboard`
-
-A declarative, section-based **start dashboard** (greeter) — the snacks.nvim dashboard model, reimplemented on the lvim-utils stack. Like the [chrome](#chrome) components it ships the ENGINE only; the CONTENT (the banner, the menu, the layout) is yours, defined in your config. Opt-in via `setup({ dashboard = { enable = true } })`; with `auto_open` (default on) it replaces the blank start buffer when Neovim is launched with no file.
-
-A `sections` list (top to bottom) drives it — each entry an item TABLE, a generator `function(self)`, or `{ section = "<built-in>" }`. Built-in sections: `header` (the `preset.header` banner), `keys` (the `preset.keys` menu), `recent_files` (oldfiles), `projects` (git roots of recent files), `startup` (plugin-load stat), `session` (restore the last session). Item fields: `text` / `icon` / `key` / `desc` / `title` / `action` / `pane` / `align` / `indent` / `title_indent` / `padding` / `gap` / `hl` / `label` / `file` / `header` / `footer` / `enabled` / `autokey`. `pane = N` lays sections out in side-by-side columns (as many as fit the window); `title_indent` sits a section title to the left of its (deeper-`indent`) list for a nested look. `action` is a `:Cmd` string, raw keys, or a `function`.
-
-```lua
-require("lvim-utils").setup({
-    dashboard = {
-        enable = true,
-        preset = {
-            header = "  L V I M\n  start screen", -- your banner
-            keys = { -- your menu (icon / key / desc / action)
-                { icon = "󰈞 ", key = "f", desc = "Find File", action = ":LvimDashboard pick files" },
-                { icon = "󰗼 ", key = "q", desc = "Quit", action = ":qa" },
-            },
-        },
-        sections = { -- your layout
-            { section = "header" },
-            { section = "keys", gap = 1, padding = 1 },
-            { pane = 2, icon = " ", title = "Recent Files", section = "recent_files", indent = 2, padding = 1 },
-            { section = "startup" },
-        },
-    },
-})
-```
-
-`:LvimDashboard` opens it; `:LvimDashboard pick <source>` opens a finder via [`picker`](#picker) (no fzf-lua/telescope). Keys: `j`/`k` (or `↓`/`↑`) step between the CLICKABLE rows of the current pane — skipping every blank / banner / title / meta line; `h`/`l` (or `←`/`→`) move between the side-by-side panes; `<CR>` runs the row under the cursor; each item's shortcut runs it directly; `q` closes. The buffer caret/colours are the `LvimUiDashboard*` groups; the caret is the input one (a thin blue bar). Configurable: `caret`/`width`/`pane_gap`/`autokeys`/`formats`/`hl`/`auto_open`. Closing tears down cleanly (one autocmd group, deleted once — no double-free).
-
----
-
-### `quit`
-
-Quit dialog that lists all unsaved normal buffers as toggleable rows. The user chooses which files to save, then picks an action from a horizontal button bar.
-
-```lua
-require("lvim-utils.quit").open()
-```
-
-- Quits immediately with `:qa` when there are no unsaved buffers.
-- Unnamed buffers trigger a `vim.ui.input` prompt for a save path.
-
-**Actions**
-
-| Button               | Behaviour                                   |
-| -------------------- | ------------------------------------------- |
-| Save Selected & Quit | Writes checked buffers, then `:qa` / `:qa!` |
-| Quit without Saving  | `:qa!`                                      |
-| Cancel               | Closes the dialog                           |
-
----
-
-### `gx`
-
-Universal "open under cursor" that replaces Neovim's built-in `gx`. Resolves URLs, local file paths (with optional `:line:col` suffix), bare domain/repo references (`github.com/foo/bar`), and paths inside file-manager buffers via registered adapters. Falls back to a proximity scan of nearby lines.
-
-```lua
-require("lvim-utils.gx").setup()
-require("lvim-utils.gx").map_default() -- binds gx → :GxOpen
-```
-
-Or via the main setup:
-
-```lua
-require("lvim-utils").setup({
-    gx = {
-        force_system_open_local = true,
-        dir_open_strategy = "system",
-    },
-})
-```
-
-**Built-in adapters**
-
-| Adapter      | Filetype                  |
-| ------------ | ------------------------- |
-| `neo_tree`   | `neo-tree`                |
-| `nvim_tree`  | `NvimTree`                |
-| `oil`        | `oil`                     |
-| `mini_files` | `minifiles` / `MiniFiles` |
-| `netrw`      | `netrw`                   |
-
-**Custom adapter**
-
-```lua
-require("lvim-utils.gx").register_adapter({
-    name = "my_fm",
-    detect = function(ctx)
-        return ctx.filetype == "my-filemanager"
-    end,
-    get = function(ctx)
-        return { path = "/some/resolved/path", type = "file" }
-    end,
-})
-```
-
-**Commands**
-
-| Command            | Description                                     |
-| ------------------ | ----------------------------------------------- |
-| `:GxOpen [target]` | Open target under cursor (or explicit argument) |
-| `:GxOpenDiag`      | Print context, adapter, and first 10 candidates |
-
-**Config options**
-
-| Key                       | Default        | Description                                     |
-| ------------------------- | -------------- | ----------------------------------------------- |
-| `highlight_match`         | `true`         | Briefly flash the matched token                 |
-| `highlight_duration_ms`   | `300`          | Flash duration in ms                            |
-| `system_open_cmd`         | `nil`          | Override opener (`xdg-open` / `open` / `start`) |
-| `force_system_open_local` | `true`         | Use system opener for local files               |
-| `allow_bare_domains`      | `true`         | Open `domain.tld/path` as HTTPS URL             |
-| `icon_guard`              | `true`         | Skip Nerd Font glyph tokens                     |
-| `dir_open_strategy`       | `"system"`     | `"system"` or `"edit"` for directories          |
-| `search_forward_if_none`  | `true`         | Scan lines below cursor as fallback             |
-| `search_backward_if_none` | `true`         | Scan lines above cursor as fallback             |
-| `search_max_lines`        | `60`           | Max lines to scan in each direction             |
-| `pattern`                 | `[%w%._~/#…]+` | Lua pattern for token extraction                |
-| `adapters`                | all `true`     | Enable/disable built-in adapters by name        |
-
----
-
-### `colorcolumn`
-
-Keeps `'colorcolumn'` meaningful under `'wrap'`. Neovim draws colorcolumn at a **text** column; with
-`'wrap'` on in a window narrower than that column, the guide can't land on the first screen row and falls
-onto a wrapped continuation row as a stray highlighted cell near the left edge. This module removes that
-artefact: per window, while `'wrap'` is on it drops the colorcolumn entries that would not fit and
-restores them once the window is wide enough (or `'wrap'` is off).
-
-```lua
-require("lvim-utils").setup({
-    colorcolumn = {
-        enabled = true, -- opt-in; enabled = false sets up but stays inert
-        exclude_ft = { "neo-tree", "NvimTree", "lvim-lsp-outline" }, -- forced off on these
-    },
-})
-```
-
-The **desired** value is read from the GLOBAL `'colorcolumn'` (`vim.go.colorcolumn`) and only
-**window-local** values are ever written, so the source of truth is never clobbered — a host like
-lvim-control-center (which keeps the global in sync from its own DB) or a plain `:set colorcolumn=…` both
-work. `require("lvim-utils.colorcolumn").refresh()` forces a coalesced re-apply across all windows.
-
-### `utils`
-
-Shared helpers used across the lvim-tech plugins.
-
-```lua
--- Deep-merge `opts` into `target` in place: nested maps merge recursively, while
--- lists and scalars are replaced wholesale (an override list IS the list — not an
--- index-merge). Returns `target`.
-require("lvim-utils.utils").merge(target, opts)
-```
-
-Each plugin's `setup()` uses it to merge user options into its live config table, so
-every `require("<plugin>.config")` reader sees the effective values.
-
----
-
-### `icons`
-
-A provider-agnostic icon facade. Every lvim-tech plugin that shows a file/filetype icon
-resolves it here and passes the provider ITS OWN config chose — so a consumer works with
-[lvim-icons](https://github.com/lvim-tech/lvim-icons), `nvim-web-devicons` or `mini.icons`
-(or none) WITHOUT depending on any particular one. The adapter logic lives here once;
-consumers only forward a `provider` string.
-
-```lua
-local icons = require("lvim-utils.icons")
-
--- unified result across every backend: { glyph, hl, color, width, name }
-local r = icons.get("src/main.rs", { provider = "auto" })
-
--- opts.provider: "auto" | "lvim" | "devicons" | "mini"
---   "auto" probes installed providers in order lvim-icons -> nvim-web-devicons ->
---   mini.icons, using the first present (else a built-in fallback glyph). A named but
---   absent provider degrades through the same chain. Never errors, never returns nil.
--- opts.filetype / opts.kind : hints (a filetype for a weak name; a filesystem kind like
---   "directory" / "symlink" / "executable").
--- opts.color_mode : "theme"|"brand"|"theme_brand" — forwarded to lvim-icons only (devicons/mini
---   carry their own colours). Lets a consumer pick the colour mode per call.
-
-icons.get_icons({ provider = "auto" }) -- KEY->{icon,color,hl,name} map (for an fzf awk map)
-icons.active("auto") -- the concrete provider that would be used ("lvim"/"devicons"/"mini"/"fallback")
-local ico = icons.bind("devicons") -- bind a provider once for a hot loop: ico.get(name)
-```
-
-Each consumer exposes an `icon_provider` option in its OWN config (default `"auto"`), and
-forwards it here — so you pick the icon plugin per lvim-tech plugin, in that plugin's setup.
-
----
+`register` also feeds the **live `config.cursor` registry**, so the [mouse](#mouse) selection-lock sees the
+panel automatically — even one that never goes through a surface chassis.
+
+| Function                          | Description                                                          |
+| --------------------------------- | ------------------------------------------------------------------- |
+| `setup(opts)`                     | Register filetypes and install the autocmds                         |
+| `register({ ft, panel_ft })`      | Add filetypes at runtime (extends the registry; no autocmd rebuild) |
+| `update()`                        | Force-refresh cursor state                                          |
+| `mark_input_buffer(buf, v)`       | Keep the cursor visible in `buf` even if its ft is registered       |
+| `mark_hide_buffer(buf, v)`        | Hide while `buf` is current, by handle (for shared-ft floats)       |
+| `mark_cursor_buffer(buf, frag)`   | Give `buf` a custom `guicursor` fragment while current              |
+| `set_cmdline_hide(v)`             | Hide the cursor while the command-line is active                    |
+
+### `mouse`
+
+The ecosystem-wide **mouse-selection lock** for UI panels. A panel is a rendered surface, not text — a mouse
+click there must never start Visual (a fast click emits `<2-/3-/4-LeftMouse>`, which natively select word /
+line / block and replace the row's cursorline bar with a Visual patch over the label). The lock is **global**
+(a buffer-local map only fires when the panel is already current — the wrong case): global `expr` maps decide
+by the window **under the pointer**. It reads the same registry the [cursor](#cursor) module uses.
+
+| Function                          | Description                                                             |
+| --------------------------------- | ---------------------------------------------------------------------- |
+| `setup()`                         | Install the global lock (called from `lvim-utils.setup`)               |
+| `lock(buf, opts)`                 | Mark `buf` a locked panel; `opts.scroll` also nops the wheel           |
+| `register_click(buf, fn)`         | Register a panel's row-click handler `fn(line, col0, pos, count)`      |
+| `should_swallow()`                | True when the current mouse event is over a locked panel — call FIRST from any global mouse map |
+| `defer_activation(fn)`            | Defer a window-switching activation until the button is released       |
+| `flush_activation()`              | Run (and clear) a deferred activation                                  |
+
+### `dim`
+
+Foreground-dim primitives: a highlight **namespace** whose groups are the global highlights with their
+**foreground** muted toward the editor background (backgrounds untouched, so it coexists with `transparent`
+and never hides a terminal-composited image underneath). Two flavours — `build` (dim fg) and `darken`
+(fg + bg toward a dark colour) — plus the focus-aware **surface backdrop** that mutes every window behind an
+open surface and lifts as focus moves out.
+
+| Function                          | Description                                                             |
+| --------------------------------- | ---------------------------------------------------------------------- |
+| `build(bg_hex, amount, ns?)`      | (Re)build a dim namespace (fg toward bg); returns the ns               |
+| `darken(dark_hex, amount, ns?)`   | (Re)build a darken namespace (fg + bg toward dark)                     |
+| `set(win, ns?)`                   | Switch `win` onto namespace `ns` (or back to 0)                        |
+| `preserve(pattern)`               | Leave groups matching `pattern` unmuted (fg carries data, not colour)  |
+| `blend(fg, bg, t)`                | Numeric (0xRRGGBB) blend                                               |
+| `apply_backdrop(id, cfg)`         | Apply a focus-aware backdrop behind a consumer's surface              |
+| `clear_backdrop(id)`              | Tear a backdrop down, restoring every window                          |
+| `refresh_backdrop()`              | Rebuild every backdrop namespace from the live palette (theme change) |
+| `suspend(on)` / `on_suspend(cb)`  | Suspend/resume the per-window dim managers (backdrop coordination)     |
+
+### `dock`
+
+The **dock-stack manager**: coordinates the three docking layouts (`area` / `bottom` / `float`) so at most one
+consumer is visible per layout, each layout keeps its own MRU stack, and a key cycles the visible one. Every
+docked / floated surface reads its **geometry** (size + backdrop + focus behaviour) through `dock.slot(layout)`
+— no plugin keeps its own size. See the [full default config](#full-default-config) for `geometry`.
+
+| Function                          | Description                                                            |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `setup(opts)`                     | Bind the global cycle keymaps per the live config                     |
+| `register(consumer)`              | Register a dock consumer (its open/show/close/… callbacks)            |
+| `open` / `show` / `hide` / `close`| Drive a consumer's visibility in its layout                          |
+| `close_current(layout)`           | Kill the visible consumer of a layout                                |
+| `cycle(layout, dir)`              | Cycle the visible consumer in a layout                               |
+| `menu(layout)`                    | Open an `lvim-ui.select` of every live consumer                      |
+| `reveal(layout)` / `descend()`    | Reveal a layout's stack / descend into a consumer                    |
+| `visible` / `stack` / `entries`   | Query the current visible key / a layout's stack / all entries      |
+| `slot(layout, opts)`              | Resolve a layout's geometry to a rect (the single size authority)    |
+| `set_slot_provider` / `set_handoff` | Register the area-zone provider / the file-open handoff            |
+
+The `:LvimDock` command exposes the same operations from the command line.
 
 ### `store`
 
-The unified persistence model — one seam for every kind of stored state, so no plugin hand-rolls
-persistence. Three backends, plus mirroring + cross-instance sync.
+One persistence model, **three backends**, plus mirroring + cross-instance sync — a **declarative live table**:
+declare fields, then read / assign them directly; assignment auto-persists (and auto-mirrors). A `nil`
+assignment **clears** the field on every backend.
+
+- **`file`** — a flat `key=value` text file (string values, readable early / externally). Atomic writes.
+- **`json`** — one JSON document (typed / nested Lua data, git-friendly). Atomic writes.
+- **`sqlite`** — real relational tables + CRUD + versioned migrations (needs `kkharji/sqlite.lua`).
 
 ```lua
-local store = require("lvim-utils.store")
-
--- Read/write is a DECLARATIVE LIVE TABLE: declare the fields, then just assign — assignment
--- auto-persists and auto-mirrors, no manual save().
-local s = store.new({
-    backend = "sqlite", -- "file" | "json" | "sqlite"
-    name = "control-center", -- → stdpath("data")/control-center/control-center.db
+local s = require("lvim-utils.store").new({
+    backend = "sqlite",
+    name = "control-center",
     fields = { colorscheme = "lvim_dark", opacity = 0.9 },
     mirror = { colorscheme = vim.fn.stdpath("config") .. "/.theme" }, -- plain file for early read
     watch = true,
-    on_change = function(all) end, -- another instance changed the file on disk
-    -- sqlite only: relational tables + versioned migrations
-    tables = { macros = { id = { "integer", primary = true, autoincrement = true }, name = { "text", unique = true } } },
-    version = 1,
-    migrations = {
-        [2] = function(db)
-            db:exec("ALTER TABLE macros ADD COLUMN scope TEXT")
-        end,
-    },
+    on_change = function(all) end, -- another instance changed the file
 })
 
-s.colorscheme = "lvim_light" -- persists + writes the .theme mirror
-print(s.colorscheme) -- reads (live cache)
-s:find("macros", { name = "q" }) -- relational CRUD (sqlite backend)
-s:insert("macros", { name = "q" })
+s.colorscheme = "lvim_light" -- persists to sqlite + writes the .theme mirror
+print(s.colorscheme) -- reads from the live cache
+s.opacity = nil -- CLEARS the field (falls back to the declared default on reload)
 ```
 
-**Backends** — `file` (plain `key=value`, string values, human-readable and readable EARLY /
-externally — the colorscheme choice at startup before plugins); `json` (a typed/nested document,
-git-friendly — lvim-linguistics data, lvim-pkg state); `sqlite` (real relational tables + CRUD +
-`PRAGMA user_version` migrations — vault / tasks / space / control-center).
-
-**Sync** — `mirror = { field = path }` writes a field's raw value to a plain file (the backend
-stays the source of truth) for early/external reads; `watch = true` + `on_change` reloads when the
-backing file changes on disk (another instance / an external tool). For the earliest startup path
-there is a dependency-free static read that opens no store:
+Dependency-free **early reads** open no store:
 
 ```lua
-store.read_file(path) -- a mirror's raw value (e.g. the .theme)
-store.read_json(path, key) -- a value out of a json store
+require("lvim-utils.store").read_file(path) -- a mirror's raw value
+require("lvim-utils.store").read_json(path, key) -- a value out of a json store
 ```
 
-Shared is the **code** only — every plugin owns its **own** file/db (own path, own schema). No
-central store, no cross-plugin coupling. `store.available()` / `store.health(health, mandatory)`
-report the sqlite backend for a consumer's `:checkhealth` (file/json need no dependency).
+| Function                          | Description                                                            |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `new(opts)`                       | Open a store as a declarative live table                              |
+| `read_file(path)`                 | The raw first-line value of a plain file (early, dependency-free)     |
+| `read_json(path, key?)`           | Decode a json store file (whole doc or one key)                       |
+| `available()`                     | Whether the sqlite backend is available                              |
+| `health(health, mandatory?)`      | Report the sqlite backend in a plugin's `:checkhealth`               |
+
+On the handle: `s:save()`, `s:reload()`, `s:all()`, `s:close()`, `s:is_open()`, `s:path()`, and (sqlite)
+`s:find/insert/update/remove/count/exec/transaction`.
+
+### `icons`
+
+A provider **facade** — resolves an icon through `lvim-icons` (preferred) or any other installed icon provider
+(auto-detected), falling back to a single built-in glyph when none is installed.
+
+| Function                          | Description                                                            |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `get(name, opts)`                 | Resolve one icon `{ glyph, hl, color, width, name }`                  |
+| `get_icons(opts)`                 | A `key → { icon, color, hl, name }` map over the provider's table    |
+| `active(requested?)`              | The concrete provider name that would be used                        |
+| `bind(provider, color_mode?)`     | Bind a provider (+ colour mode) once; returns `{ get, get_icons }`   |
+
+### `utils`
+
+| Function                          | Description                                                            |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `merge(target, opts)`             | Deep-merge in place — maps recurse, **lists + scalars replace**       |
+| `match_indices(needle, haystack)` | Case-insensitive subsequence match → 0-based char indices, or nil     |
+
+### `health`
+
+`:checkhealth lvim-utils` verifies truecolor, the Neovim version, palette sync from `lvim-colorscheme`, the
+self-themed group map, the active icon provider, and the store backend.
 
 ---
 
-## Chrome theme spec (`ui`)
+## Split-out modules
 
-Every tint strength and every accent the lvim-tech chrome paints with lives in ONE place —
-`lvim-utils.config.ui`. The highlight factory decides only WHICH ROLE a group plays; the spec decides what
-a role looks like. Retuning the whole set's chrome is therefore a config edit, never a code edit.
+The monorepo split moved the following into their **own plugins**; configure them via
+`require("<plugin>").setup()` (or all at once through `require("lvim-nvim").setup({ ["lvim-<plugin>"] = {…} })`):
 
-```lua
-require("lvim-utils").setup({
-    ui = {
-        -- TINT = how far an accent is blended toward the panel bg (0 = plain bg, 1 = the pure accent).
-        -- Named by ROLE, ordered from the faintest to the densest, so the chrome keeps one rhythm.
-        tint = {
-            cursorline = 0.04, -- the active row's wash (the faintest in the set)
-            body = 0.05, -- a secondary / inactive / body cell
-            bar_fill = 0.08, -- the strip under a bar's buttons
-            input = 0.1, -- a prompt's typed-text area
-            separator = 0.12, -- a bar-group separator box
-            hover = 0.12, -- a mouse hover
-            strong = 0.2, -- a PROMINENT / ACTIVE cell (the workhorse)
-            label = 0.2, -- a badge's label box
-            match = 0.25, -- a fuzzy-match span
-            badge = 0.3, -- a key badge / icon box / counter
-            selection = 0.35, -- the keyboard selection over a focused button
-            bright = 0.4, -- an active text box (a tab's text, a file name)
-            icon = 0.5, -- an icon box / a hovered badge
-            deep = 0.6, -- a chevron / footer-separator BOX
-            -- fg blends (not backgrounds)
-            dim = 0.45, -- a disabled value
-            row_dim = 0.5, -- a disabled ROW
-            path_dim = 0.8, -- a file row's leading directory
-            filter_off = 0.6, -- an inactive filter button
-        },
-        -- ACCENT = which colour a component wears: a palette KEY (tracks the live theme) or "#rrggbb".
-        accent = {
-            title = "blue",
-            subtitle = "yellow",
-            separator = "red",
-            tab = { box = "red", icon = "blue", text = "yellow" },
-            button = "orange",
-            item = "yellow",
-            footer = { key = "blue", label = "yellow", sep = "red", chevron = "yellow" },
-            picker = { prompt = "blue", marker = "red", preview_dir = "yellow" },
-            peek = { title = "blue", kind = "green", file = "yellow", filter = "green" },
-            notify = { info = "blue", warn = "orange", error = "red", debug = "purple" },
-            msgarea = { title = "blue", row_odd = "blue", row_even = "yellow", match = "red" },
-            dashboard = { header = "green_dark", key = "orange", desc = "cyan" },
-        },
-        -- The docked panel's full-width title bar (the message zone's "MESSAGES", and every bar like it).
-        title = { accent = "blue", tint = 0.2 },
-    },
-})
-```
-
-One line recolours a whole component: `accent.notify.error = "#ff00ff"` repaints that level's title, header,
-body, separator **and** its filter button together — they are all derived from the same entry.
-
-## Highlight Groups
-
-All groups are self-themed from the [`colors`](#colors) palette via [`highlight.bind`](#highlight)
-and reapplied on every palette / colorscheme change. They are applied with `default = true`,
-so a colorscheme that defines them (or the user) wins — the palette only fills in what is not
-already themed. Override any group explicitly via `setup({ highlights = { ... } })`.
-
-Every coloured chrome cell follows one tint style: `fg = accent` over `bg = blend(accent, bg_dark, t)`
-— a **strong** tint (`0.2`) for prominent cells (title/name boxes, active tabs/buttons, key badges)
-and a **light** tint (`0.1`) for secondary ones (subtitles, inactive, header stripes, labels,
-separators). Adjust both via `setup({ ui = { tint = { strong = 0.2, light = 0.1 } } })`.
-
-### UI popup groups
-
-| Group                       | Used for                                    |
-| --------------------------- | ------------------------------------------- |
-| `LvimUiNormal`              | Popup background                            |
-| `LvimUiBorder`              | Popup border                                |
-| `LvimUiSeparator`           | Header / footer separator lines             |
-| `LvimUiTitle`               | Popup title                                 |
-| `LvimUiSubtitle`            | Popup subtitle (default, yellow)            |
-| `LvimUiSubtitleInfo`        | Subtitle `type = "info"` (blue, fg only)    |
-| `LvimUiSubtitleWarn`        | Subtitle `type = "warn"` (orange, fg only)  |
-| `LvimUiSubtitleError`       | Subtitle `type = "error"` (red, fg only)    |
-| `LvimUiInfo`                | Info line below subtitle                    |
-| `LvimUiCursorLine`          | Selected row background                     |
-| `LvimUiInput`               | Input field row                             |
-| `LvimUiSpacer`              | Spacer / section label rows                 |
-| `LvimUiFooter`              | Footer key-hints line                       |
-| `LvimUiFooterKey`           | Key indicator in footer                     |
-| `LvimUiFooterLabel`         | Label text in footer                        |
-| `LvimUiTabActive`           | Active tab label background                 |
-| `LvimUiTabInactive`         | Inactive tab label                          |
-| `LvimUiTabIconActive`       | Icon inside active tab                      |
-| `LvimUiTabIconInactive`     | Icon inside inactive tab                    |
-| `LvimUiTabTextActive`       | Text inside active tab                      |
-| `LvimUiTabTextInactive`     | Text inside inactive tab                    |
-| `LvimUiButtonActive`        | Active action button background             |
-| `LvimUiButtonInactive`      | Inactive action button background           |
-| `LvimUiButtonIconActive`    | Icon inside active button                   |
-| `LvimUiButtonIconInactive`  | Icon inside inactive button                 |
-| `LvimUiButtonTextActive`    | Text inside active button                   |
-| `LvimUiButtonTextInactive`  | Text inside inactive button                 |
-| `LvimUiRowIconActive`       | Type icon in active tabs row                |
-| `LvimUiRowIconInactive`     | Type icon in inactive tabs row              |
-| `LvimUiRowItemIconActive`   | Secondary `row.icon` in active tabs row     |
-| `LvimUiRowItemIconInactive` | Secondary `row.icon` in inactive tabs row   |
-| `LvimUiRowTextActive`       | Label text in active tabs row               |
-| `LvimUiRowTextInactive`     | Label text in inactive tabs row             |
-| `LvimUiItemIconActive`      | Icon for active select / multiselect item   |
-| `LvimUiItemIconInactive`    | Icon for inactive select / multiselect item |
-| `LvimUiItemTextActive`      | Text for active select / multiselect item   |
-| `LvimUiItemTextInactive`    | Text for inactive select / multiselect item |
-| `LvimUiCheckboxSelected`    | Checked multiselect checkbox symbol         |
-| `LvimUiCheckboxEmpty`       | Unchecked multiselect checkbox symbol       |
-| `LvimUiPeekNormal`          | Peek pane background                        |
-| `LvimUiPeekBorder`          | Peek pane border                            |
-| `LvimUiPeekTitle`           | Brand title on the container border         |
-| `LvimUiPeekKind`            | List winbar kind (e.g. "References")        |
-| `LvimUiPeekKindBar`         | List winbar bar + count                     |
-| `LvimUiPeekFile`            | Preview winbar file name                    |
-| `LvimUiPeekFileBar`         | Preview winbar bar + path                   |
-| `LvimUiPeekGroup`           | Per-file group header                       |
-| `LvimUiPeekGroupIcon`       | Fold chevron in the group header            |
-| `LvimUiPeekDir`             | Directory path in the group header          |
-| `LvimUiPeekCount`           | Count in the group header                   |
-| `LvimUiPeekText`            | Location row text                           |
-| `LvimUiPeekGuide`           | Vertical guide (`▏`) before expanded rows   |
-| `LvimUiPeekCursorLine`      | Focused list row background                 |
-| `LvimUiPeekMatch`           | Matched range (both list and preview)       |
-| `LvimUiPeekFooterKey`       | Key badge on the bottom-border footer       |
-| `LvimUiPeekFooterLabel`     | Label on the bottom-border footer           |
-| `LvimUiPeekFilterActive`    | Active filter-bar button                    |
-| `LvimUiPeekFilterInactive`  | Inactive filter-bar button                  |
-
-### Chrome groups
-
-Self-themed from the palette by the [chrome](#chrome) module (accent fg groups sit on the bar bg; mode
-pills and tab cells are bg-coloured; diagnostic counts take their fg from the editor's own
-`Diagnostic*` groups so they match the gutter signs).
-
-| Group                                                          | Used for                                     |
-| ------------------------------------------------------------- | -------------------------------------------- |
-| `LvimUiChromeBlue` / `Green` / `Orange` / `Cyan` / `Red` / `Purple` / `Yellow` | Accent fg segments on the bar |
-| `LvimUiChromeFill`                                            | The bar fill (the `%=` gap) — stays bar-coloured |
-| `LvimUiChromeModeN` / `ModeI` / `ModeV` / `ModeC` / `ModeR` / `ModeT` | Mode pill per Vim mode               |
-| `LvimUiChromeGitAdd` / `GitChange` / `GitDelete`             | Git diff counts on the bar                   |
-| `LvimUiChromeDiagError` / `DiagWarn` / `DiagInfo` / `DiagHint` | Diagnostic counts on the bar               |
-| `LvimUiChromeTabLogo` / `TabActive` / `TabInactive` / `TabWorkspace` / `TabProject` | Tabline cells        |
-| `LvimUiChromeMark`                                            | Statuscolumn mark letter                     |
-
-### Notify groups
-
-| Group                   | Used for                         |
-| ----------------------- | -------------------------------- |
-| `LvimNotifyNormal`      | Notify panel background          |
-| `LvimNotifyTitle`       | Notify panel title text          |
-| `LvimNotifyInfo`        | Info-level content               |
-| `LvimNotifyWarn`        | Warn-level content               |
-| `LvimNotifyError`       | Error-level content              |
-| `LvimNotifyDebug`       | Debug-level content              |
-| `LvimNotifyTitleInfo`   | Info-level entry title           |
-| `LvimNotifyTitleWarn`   | Warn-level entry title           |
-| `LvimNotifyTitleError`  | Error-level entry title          |
-| `LvimNotifyTitleDebug`  | Debug-level entry title          |
-| `LvimNotifyHeaderInfo`  | Info-level panel header bar      |
-| `LvimNotifyHeaderWarn`  | Warn-level panel header bar      |
-| `LvimNotifyHeaderError` | Error-level panel header bar     |
-| `LvimNotifyHeaderDebug` | Debug-level panel header bar     |
-| `LvimNotifySepInfo`     | Info-level entry separator line  |
-| `LvimNotifySepWarn`     | Warn-level entry separator line  |
-| `LvimNotifySepError`    | Error-level entry separator line |
-| `LvimNotifySepDebug`    | Debug-level entry separator line |
-
-### Other
-
-| Group                   | Used for                           |
-| ----------------------- | ---------------------------------- |
-| `LvimUtilsHiddenCursor` | Transparent cursor (cursor module) |
+| Was `lvim-utils.<x>` | Now                       |
+| -------------------- | ------------------------- |
+| `ui`                 | `lvim-ui`                 |
+| `notify`             | `lvim-notify`             |
+| `msgarea` / `cmdline`| `lvim-msgarea`            |
+| `picker` / `fuzzy`   | `lvim-picker`             |
+| `dashboard`          | `lvim-dashboard`          |
+| `chrome`             | `lvim-statusline` et al.  |
+| `gx`                 | `lvim-gx`                 |
 
 ---
 
-## Default Keymaps (UI popups)
+## Highlights
 
-| Key              | Action                                 |
-| ---------------- | -------------------------------------- |
-| `j` / `k`        | Navigate rows / items                  |
-| `<CR>`           | Confirm / toggle / execute             |
-| `<Esc>` / `q`    | Cancel / close                         |
-| `l` / `h`        | Next / prev tab (or action button)     |
-| `<Tab>` / `<BS>` | Cycle select option forward / backward |
-| `<Space>`        | Toggle item (multiselect)              |
+`lvim-utils.config` builds the **central highlight-group map** (the `LvimUi*` / `LvimNotify*` / `LvimUiMsgArea*`
+/ `LvimUiDashboard*` / `LvimUiChrome*` families) from the live palette and publishes it as `config.colors`. It
+stays in the base because **every split plugin references those groups by name** (they don't redefine them) —
+one theming source of truth. `setup()` binds the factory via `highlight.bind`, so the whole map self-themes on
+every palette / `ColorScheme` change; the accents and tints are the `ui` config above.
 
-All keys are configurable via `ui.keys` in `setup()`.
+## License
 
----
-
-## Health
-
-```vim
-:checkhealth lvim-utils
-```
-
-Reports:
-
-- Neovim version and `termguicolors`.
-- Whether `lvim-colorscheme` is driving the palette (vs the bundled one) and whether the UI groups are themed.
-- ext_cmdline conflicts (e.g. noice.nvim) when the self-rendered cmdline is enabled.
-- The [message area](#msgarea) zone: enabled / unified state, active integrations, and live segment names.
-- The [picker](#picker) backends: the file-listing engine (`fd` / `fdfind` / `rg` / `find`), ripgrep
-  availability for grep, and the fzf-TUI backend (`fzf` + `mkfifo`) for the heavy finders.
-- Delegates to the [dashboard](#dashboard)'s own `health()` when present.
+BSD-3-Clause — see [LICENSE](./LICENSE).

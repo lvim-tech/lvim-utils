@@ -183,22 +183,6 @@ M.blend = hl.blend
 M.lighten = hl.lighten
 M.darken = hl.darken
 
--- ── setup ─────────────────────────────────────────────────────────────────
-
----Override palette colors. Overrides are remembered and re-applied on top of the active
----base, so they survive background flips and palette syncs. Derived colors (fg_dim,
----fg_muted, bg_input) are recomputed unless explicitly provided.
----@param overrides table<string, string>
-function M.setup(overrides)
-    if not overrides then
-        return
-    end
-    for k, v in pairs(overrides) do
-        _overrides[k] = v
-    end
-    _apply_base()
-end
-
 -- ── palette access ────────────────────────────────────────────────────────
 
 setmetatable(M, {
@@ -303,6 +287,33 @@ end
 ---Sync palette from lvim-colorscheme (if available) and notify all on_change listeners.
 function M.sync_from_lcs()
     _sync_from_lcs()
+    _fire_change()
+end
+
+-- ── setup ─────────────────────────────────────────────────────────────────
+
+---Override palette colors. Overrides are remembered and re-applied on top of the active
+---base, so they survive background flips and palette syncs. Derived colors (fg_dim,
+---fg_muted, bg_input) are recomputed unless explicitly provided.
+---
+---Defined AFTER the sync section so it can re-apply on top of an already-synced theme: if
+---lvim-colorscheme has already driven the palette, re-run the sync (which re-lays the overrides
+---over the synced values) instead of reverting to the bundled base — otherwise a late set() would
+---throw the live theme away until the next `User LvimColorscheme`. Always fires on_change so
+---already-bound highlight factories re-render with the new palette.
+---@param overrides table<string, string>
+function M.setup(overrides)
+    if not overrides then
+        return
+    end
+    for k, v in pairs(overrides) do
+        _overrides[k] = v
+    end
+    if _lcs_synced then
+        _sync_from_lcs()
+    else
+        _apply_base()
+    end
     _fire_change()
 end
 

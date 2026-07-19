@@ -238,9 +238,6 @@ return function(c)
         LvimUiBarFillHover = { bg = mtint(a_barfill, T.hover) },
         LvimUiBarSep = { fg = a_barsep, bg = mtint(a_barsep, T.separator) }, -- the ➤ / ● between bar groups
         LvimUiFrameSel = { bg = mtint(a_barsep, T.strong) }, -- the focused bar-button selection (no-accent fallback)
-        -- The BACKDROP veil behind an open surface — pure black; `config.dock.<layout>.backdrop.blend`
-        -- (winblend) decides how much shows through, so one group reads as a darken OR a soft dim.
-        LvimUiBackdrop = { bg = c.black },
 
         -- ── Spacers / disabled ────────────────────────────────────────────────────────────────────────
         LvimUiSpacer = { fg = a_spacer },

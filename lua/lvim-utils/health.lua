@@ -55,6 +55,13 @@ function M.check()
             health.ok(("icon provider (auto) resolves to %q"):format(active))
         end
     end
+
+    -- store backend: the sqlite backend needs sqlite.lua (file/json need nothing). Reported here so a plugin
+    -- built on the sqlite backend surfaces the dependency in one place.
+    local ok_store, store = pcall(require, "lvim-utils.store")
+    if ok_store then
+        store.health(health)
+    end
 end
 
 return M

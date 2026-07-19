@@ -22,7 +22,7 @@ M.highlight = require("lvim-utils.highlight")
 M.dock = require("lvim-utils.dock")
 
 ---Setup the base (lvim-utils). Only the palette + cursor + the self-themed group map are configured here.
----@param opts? { highlights?: table<string, table>, colors?: table, cursor?: table, dock?: table }
+---@param opts? { highlights?: table<string, table>, colors?: table, cursor?: table, dock?: table, section?: LvimUtilsSectionConfig, ui?: LvimUtilsUiConfig }
 function M.setup(opts)
     opts = opts or {}
 
@@ -61,9 +61,8 @@ function M.setup(opts)
         M.cursor.setup(M.config.cursor)
     end
 
-    -- 6. dock: the dock-stack manager (area / bottom / float coordination). config.setup already merged
-    --    opts.dock; dock.setup binds the global cycle keymaps per the LIVE config (gated by `enable`).
-    M.config.setup({ dock = opts.dock })
+    -- 6. dock: the dock-stack manager (area / bottom / float coordination). Step 2 already merged opts.dock
+    --    into the live config; dock.setup binds the global cycle keymaps per the LIVE config (gated by `enable`).
     M.dock.setup()
 
     -- 7. mouse: the ecosystem-wide selection lock. A panel is a rendered surface, not text — a mouse click

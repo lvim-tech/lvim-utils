@@ -216,7 +216,7 @@ function M.bind(provider, color_mode)
             return M.get(name, opts)
         end,
         get_icons = function()
-            return M.get_icons({ provider = provider })
+            return M.get_icons({ provider = provider, color_mode = color_mode })
         end,
     }
 end

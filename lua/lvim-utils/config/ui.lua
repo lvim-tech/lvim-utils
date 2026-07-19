@@ -19,6 +19,9 @@
 ---@class LvimUtilsUiTint
 ---@field cursorline number  the active list row's wash — the faintest tint in the set
 ---@field body       number  a secondary / inactive / body cell (stripes, subtitles, inactive boxes)
+---@field row_odd    number  the odd list-stripe row (a completion-grid / list row)
+---@field row_even   number  the even list-stripe row (a touch stronger than odd)
+---@field row_sel    number  the SELECTED list row (stronger still, so it reads above the stripes)
 ---@field bar_fill   number  the continuous strip under a bar's buttons
 ---@field separator  number  a separator box between bar groups
 ---@field input      number  the typed-text FIELD of any input popup / prompt (its background wash)

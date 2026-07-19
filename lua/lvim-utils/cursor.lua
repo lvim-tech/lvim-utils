@@ -15,6 +15,28 @@
 local M = {}
 
 local api = vim.api
+local config = require("lvim-utils.config")
+
+--- Mirror a registered filetype into the LIVE `config.cursor` registry (`ft` / `panel_ft`) so the ONE registry
+--- is authoritative. `lvim-utils.mouse` reads `config.cursor.<list>` to decide which buffers to mouse-lock; a
+--- panel that self-registers ONLY through `cursor.register` (the CLAUDE.md canon) must land there too, or the
+--- mouse lock would never see it (its "covered automatically, even off-surface" guarantee would be false). The
+--- module-local `state.fts/panel_fts` sets stay the O(1) lookup for cursor hiding; the config list is the
+--- shared source of truth. Dedup so repeated setup()/register() calls don't grow the lists.
+---@param list_key "ft"|"panel_ft"
+---@param ft string
+local function mirror_config_ft(list_key, ft)
+    local list = config.cursor and config.cursor[list_key]
+    if type(list) ~= "table" then
+        return
+    end
+    for _, f in ipairs(list) do
+        if f == ft then
+            return
+        end
+    end
+    list[#list + 1] = ft
+end
 
 ---@class CursorState
 ---@field fts            table<string, boolean>   Popup filetypes: hide whenever visible in ANY window
@@ -333,9 +355,11 @@ function M.register(opts)
     opts = opts or {}
     for _, ft in ipairs(opts.ft or {}) do
         state.fts[ft] = true
+        mirror_config_ft("ft", ft)
     end
     for _, ft in ipairs(opts.panel_ft or {}) do
         state.panel_fts[ft] = true
+        mirror_config_ft("panel_ft", ft)
     end
     if not state.augroup then
         refresh_autocmds() -- also schedules update()
@@ -354,10 +378,12 @@ function M.setup(opts)
     end
     for _, ft in ipairs(opts.filetypes or opts.ft or {}) do
         state.fts[ft] = true
+        mirror_config_ft("ft", ft)
     end
     -- Persistent side panels: hide the cursor only while one is the CURRENT window (not globally).
     for _, ft in ipairs(opts.panel_filetypes or opts.panel_ft or {}) do
         state.panel_fts[ft] = true
+        mirror_config_ft("panel_ft", ft)
     end
     refresh_autocmds()
 end

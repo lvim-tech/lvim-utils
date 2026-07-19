@@ -138,7 +138,15 @@ local function write_mirror(path, value)
     if not pcall(vim.fn.writefile, { tostring(value) }, tmp) then
         return false
     end
-    return pcall(uv.fs_rename, tmp, path) == true
+    -- Sync uv.fs_rename does NOT raise on failure — it returns nil,err. So `pcall(...) == true` would only
+    -- test "didn't throw" and report success on a FAILED rename (read-only dir, ENOSPC, cross-device tmp);
+    -- capture the real result. Drop the dead .tmp so a failed write leaves nothing behind.
+    local ok, renamed = pcall(uv.fs_rename, tmp, path)
+    if not (ok and renamed == true) then
+        pcall(uv.fs_unlink, tmp)
+        return false
+    end
+    return true
 end
 
 -- ── the declarative store handle ────────────────────────────────────────────

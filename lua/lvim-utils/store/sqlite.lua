@@ -226,6 +226,12 @@ end
 ---@param value any
 ---@return boolean
 function Sql:write(key, value)
+    -- A nil assignment CLEARS the field — same contract as the json/file backends (which drop the key). Without
+    -- this, encode(nil) falls through to ("string", "nil") and the row is persisted as the literal string "nil",
+    -- so the field comes back as "nil" after a reload instead of being absent / falling back to its default.
+    if value == nil then
+        return self:erase(key)
+    end
     local tag, text = encode(value)
     local existing = self:find(SETTINGS, { name = key })
     if type(existing) == "table" and existing[1] then
@@ -319,6 +325,18 @@ end
 ---@param where table?
 ---@return integer
 function Sql:count(name, where)
+    local t = self._tables[name]
+    if not t then
+        return 0
+    end
+    -- Unfiltered count: `t:count()` runs `SELECT COUNT(*)` — a scalar, no per-row transfer. A FILTERED count
+    -- keeps the find path (the installed sqlite.tbl `count` takes no where clause).
+    if where == nil or next(where) == nil then
+        local ok, n = pcall(function()
+            return t:count()
+        end)
+        return (ok and type(n) == "number") and n or 0
+    end
     local rows = self:find(name, where)
     return (type(rows) == "table") and #rows or 0
 end

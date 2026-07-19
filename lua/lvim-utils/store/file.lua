@@ -35,11 +35,18 @@ local function atomic_write(path, lines)
     if not ok then
         return false
     end
-    return pcall(uv.fs_rename, tmp, path) == true
+    -- Sync uv.fs_rename returns nil,err on failure (it does NOT raise), so `pcall(...) == true` would report
+    -- success on a failed rename — capture the real result and clean up the dead .tmp.
+    local renamed_ok, renamed = pcall(uv.fs_rename, tmp, path)
+    if not (renamed_ok and renamed == true) then
+        pcall(uv.fs_unlink, tmp)
+        return false
+    end
+    return true
 end
 
---- Parse a `key=value` file into a table. A file with no `=` on its single line is treated as
---- one raw value under the caller-provided single key (handled in load()).
+--- Parse a `key=value` file into a table (one field per line; lines without a `=` are skipped). A single raw
+--- value written by a `mirror` target is read back through the static `store.read_file`, not this backend.
 ---@param path string
 ---@return table<string, string>
 local function parse(path)

@@ -35,7 +35,14 @@ local function atomic_write(path, text)
     if not ok then
         return false
     end
-    return pcall(uv.fs_rename, tmp, path) == true
+    -- Sync uv.fs_rename returns nil,err on failure (it does NOT raise), so `pcall(...) == true` would report
+    -- success on a failed rename — capture the real result and clean up the dead .tmp.
+    local renamed_ok, renamed = pcall(uv.fs_rename, tmp, path)
+    if not (renamed_ok and renamed == true) then
+        pcall(uv.fs_unlink, tmp)
+        return false
+    end
+    return true
 end
 
 --- Read + decode the JSON document at `path`, or an empty table on missing/invalid.
@@ -95,7 +102,8 @@ function Json:erase(key)
     return self:flush()
 end
 
---- Write the whole document (atomic, pretty-printed for a readable diff).
+--- Write the whole document (atomic). `vim.json.encode` emits a single line (it has no indent option); a
+--- per-key change is still a whole-line change, so the file stays git-diffable.
 ---@return boolean
 function Json:flush()
     local ok, text = pcall(function()
