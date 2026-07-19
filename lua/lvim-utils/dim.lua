@@ -263,10 +263,13 @@ local function make_rebuild(mode, amount, fixed_bg)
     end
 end
 
---- Resolve (creating on first use) the backdrop namespace for `cfg`'s effective look and (re)build it from the
---- LIVE palette; returns the ns behind-windows go onto. Called only on apply / refresh — NOT on every focus hop
---- (a focus hop reuses the stored `bd.ns`), so window navigation with a dock open no longer pays a full
---- all-groups rebuild per WinEnter.
+--- Resolve the backdrop namespace for `cfg`'s effective look — BUILDING it only the FIRST time this look is
+--- seen. A given look-key has a fixed mode/amount/bg (bg is part of the key), so the namespace never needs
+--- rebuilding on a later apply — and MUST NOT be, because the ns may be IN USE by a still-applied backdrop
+--- (a deferred handoff leaves the old veil visible while the new panel inherits the SAME ns): rewriting its
+--- highlight groups live repaints those windows = a subtle tremble on the way back. A real palette/theme change
+--- rebuilds every look's ns through `refresh_backdrop()`, which is the only place that should. A focus hop
+--- reuses `bd.ns` and never calls here at all.
 ---@param cfg LvimDimBackdrop
 ---@return integer
 local function bd_ns(cfg)
@@ -280,14 +283,14 @@ local function bd_ns(cfg)
     end
     local entry = bd_ns_cache[key]
     if not entry then
-        entry = { ns = api.nvim_create_namespace("lvim_utils_backdrop_" .. key) }
+        entry = {
+            ns = api.nvim_create_namespace("lvim_utils_backdrop_" .. key),
+            rebuild = make_rebuild(mode, amount, cfg.bg),
+        }
         bd_ns_cache[key] = entry
         backdrop_ns_set[entry.ns] = true
+        entry.rebuild(entry.ns) -- populate ONCE; later applies reuse it, refresh_backdrop() repopulates on theme
     end
-    -- Keep the freshest closure (its `amount`/`bg` never change for a given key, but `fixed_bg` may go from an
-    -- explicit value to nil across callers — the latest wins, both correct for this look).
-    entry.rebuild = make_rebuild(mode, amount, cfg.bg)
-    entry.rebuild(entry.ns)
     return entry.ns
 end
 
