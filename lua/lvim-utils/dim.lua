@@ -408,6 +408,14 @@ function M.hold_backdrop(on)
     end
 end
 
+--- True while a surface TRANSITION is in progress (a hold is active) — focus may be passing transiently through
+--- the editor between two protected surfaces. Focus-reactive chrome (the winbar breadcrumb) reads this so it
+--- does not render a window ACTIVE during the swap, when the editor is momentarily current mid-teardown.
+---@return boolean
+function M.transition_active()
+    return bd_lift_hold > 0
+end
+
 --- Is the CURRENT window protected by any LIVE backdrop (i.e. focus is on a consumer surface, not the editor)?
 ---@return boolean
 local function current_is_protected()
