@@ -275,6 +275,19 @@ return function(c)
         LvimUiPeekNormal = { bg = panel_bg, fg = c.fg },
         LvimUiPeekBorder = { bg = panel_bg, fg = col(pe.title, "blue") },
         LvimUiPeekTitle = { fg = col(pe.title, "blue"), bg = mtint(col(pe.title, "blue"), T.strong), bold = true },
+        -- The title TEXT on a band that already carries the tint (a `title_counter` row, whose strip is
+        -- LvimUiPeekTitle/…Hover): fg only, so the text inherits the strip's bg and the band reads as ONE
+        -- solid block. A boxed title over that strip would sit at the RESTING depth while the strip deepens
+        -- on focus — the title would look like a lighter patch cut out of its own bar.
+        LvimUiPeekTitleText = { fg = col(pe.title, "blue"), bold = true },
+        -- The SAME title band while its window/frame has focus: one step deeper on the tint scale
+        -- (`strong` → `badge`), same hue — so a title says WHICH panel the cursor is in without moving
+        -- anything (the `LvimUiBarFill`/`…Hover` pair, applied to titles).
+        LvimUiPeekTitleHover = {
+            fg = col(pe.title, "blue"),
+            bg = mtint(col(pe.title, "blue"), T.badge),
+            bold = true,
+        },
         LvimUiPeekTitleIcon = { fg = col(pe.icon, "blue"), bg = mtint(col(pe.icon, "blue"), T.bright), bold = true },
         LvimUiPeekCounter = { fg = col(pe.count, "green"), bg = mtint(col(pe.count, "green"), T.badge), bold = true },
         LvimUiPeekKindBar = { fg = col(pe.kind, "green"), bg = mtint(col(pe.kind, "green"), T.badge) },
