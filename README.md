@@ -218,7 +218,7 @@ require("lvim-utils").setup({
             },
         },
         -- The docked panel's full-width TITLE bar.
-        title = { accent = "blue", tint = 0.2 },
+        title = { accent = "blue", tint = 0.2, tint_hover = 0.3 },
     },
 })
 ```

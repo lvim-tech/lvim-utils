@@ -115,8 +115,9 @@
 ---@field dashboard LvimUtilsUiAccentDashboard
 
 ---@class LvimUtilsUiTitle
----@field accent string  the docked panel's full-width title bar colour
----@field tint   number  how far that accent is blended onto the bg
+---@field accent     string  the docked panel's full-width title bar colour
+---@field tint       number  how far that accent is blended onto the bg
+---@field tint_hover number  the same bar while it is the ACTIVE sector (one step deeper, same hue)
 
 ---@class LvimUtilsUiConfig
 ---@field tint   LvimUtilsUiTint
@@ -231,5 +232,5 @@ return {
     },
 
     -- ── The docked panel's full-width TITLE bar (the message zone's "MESSAGES", and every bar like it) ──
-    title = { accent = "blue", tint = 0.2 },
+    title = { accent = "blue", tint = 0.2, tint_hover = 0.3 },
 }

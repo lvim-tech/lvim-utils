@@ -100,7 +100,7 @@ values.
       -- ui: the shared chrome theme spec (every tint strength + accent the UI
       -- paints with, named by role). See lua/lvim-utils/config/ui.lua for the
       -- complete default table; every value is overridable here.
-      ui = { tint = {}, accent = {}, title = { accent = "blue", tint = 0.2 } },
+      ui = { tint = {}, accent = {}, title = { accent = "blue", tint = 0.2, tint_hover = 0.3 } },
   })
 <
 TINT = how far an accent is blended toward the panel background (0 = plain bg,

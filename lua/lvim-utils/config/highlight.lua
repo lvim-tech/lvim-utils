@@ -82,6 +82,7 @@ return function(c)
     local title_cfg = ui_cfg.title or spec.title
     local a_zone = col(title_cfg.accent, "blue")
     local t_zone = title_cfg.tint or T.strong
+    local t_zone_hover = title_cfg.tint_hover or T.badge
 
     --- The four notify/message groups per level share one shape — build them from the accent map.
     ---@param level string  "info"|"warn"|"error"|"debug"
@@ -131,6 +132,14 @@ return function(c)
         LvimUiMsgAreaNormal = { fg = c.fg, bg = c.bg_dark },
         LvimUiMsgAreaTitle = { fg = a_zone, bg = mtint(a_zone, t_zone), bold = true },
         LvimUiMsgAreaTitleFill = { bg = mtint(a_zone, t_zone) },
+        -- The title TEXT on a strip that already carries the tint (the `:Messages` filter bar): fg only, so it
+        -- inherits the strip and does not stay at the resting depth as a lighter patch when the strip deepens.
+        -- `LvimUiMsgAreaTitle` keeps its bg — a title row WITHOUT a bar IS the band (one full-row span).
+        LvimUiMsgAreaTitleText = { fg = a_zone, bold = true },
+        -- The zone title strip while the BAR is the active sector — the sub-sector inside the zone the cursor
+        -- is on (its buttons), as opposed to the message list below it. Same hue, one step deeper, the
+        -- LvimUiPeekTitle/…Hover pair expressed for the docked zone.
+        LvimUiMsgAreaTitleFillHover = { bg = mtint(a_zone, t_zone_hover) },
         -- The intercepted completion grid rendered IN the zone (blink stays the engine; we draw it). Striped
         -- by accent: the WHOLE row takes its accent as fg over a BODY tint; the selected cell raises it to
         -- STRONG (+ bold), one solid block. fg and bg share the colour ("fg = the tint").
