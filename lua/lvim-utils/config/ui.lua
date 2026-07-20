@@ -128,7 +128,11 @@
 return {
     -- ── The tint scale, ordered from the faintest to the densest ────────────────────────────────────────
     tint = {
-        cursorline = 0.04, -- the active row's wash: must sit BELOW the section/header bands so the two never read alike
+        -- The active row's wash. Raised from 0.04 to 0.11: at 0.04 the band measured 1.07:1 over the panel
+        -- background — present in the numbers, invisible on screen — so a selected row read as unselected.
+        -- 0.11 lands at ~1.19:1, matching the tint the editor's own CursorLine now derives to. Still well
+        -- below the section/header bands (0.1 / 0.2 of a full accent), so the two never read alike.
+        cursorline = 0.11,
         body = 0.05, -- secondary / inactive / body
         -- The list STRIPES (LvimUiMsgAreaRow*/Sel*): both rows are the SAME accent (blue), so the zebra reads by
         -- DEPTH of tint, not by hue — odd lighter, even a touch stronger, and the selected row stronger still.
