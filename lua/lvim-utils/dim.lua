@@ -323,7 +323,12 @@ local function bd_paint(bd, on)
         for _, w in ipairs(api.nvim_list_wins()) do
             if api.nvim_win_is_valid(w) then
                 local buf = api.nvim_win_get_buf(w)
-                local special = vim.bo[buf].buftype ~= ""
+                -- A SPECIAL (non-empty buftype) window — a sidebar / panel / prompt — is normally left LIT so a
+                -- docked surface never dims its neighbours. A MODAL backdrop (`dim_panels`) mutes them too, so a
+                -- panel-heavy workspace visibly recedes behind the modal; a TERMINAL is always skipped (a kitty
+                -- image composited under it must stay intact).
+                local bt = vim.bo[buf].buftype
+                local special = bt == "terminal" or (bt ~= "" and not bd.cfg.dim_panels)
                 if not bd.cfg.protect(w) and not special and not bd.dimmed[w] then
                     -- Remember the window's CURRENT namespace (it may be on its OWN, e.g. neo-tree) so close
                     -- restores it EXACTLY instead of clobbering it to 0. (0 is truthy in Lua, so the guard holds.)
@@ -346,8 +351,25 @@ local function bd_paint(bd, on)
             end
         end
     else
+        -- Restoring this backdrop's windows. A window may ALSO be muted by ANOTHER still-live backdrop (two
+        -- stacked modals both dimmed the panels; the top modal also dimmed the one below). Restoring it to
+        -- `prev` would UN-dim it even though the other veil still wants it — that is "closing the second popup
+        -- clears the first's backdrop too". So hand each window to a remaining live owner instead of blanking
+        -- it: set it to that backdrop's namespace (and let its `dimmed` keep the record) — only a window NO
+        -- live backdrop still claims goes back to its pre-backdrop `prev`.
         for w, prev in pairs(bd.dimmed) do
-            M.set(w, prev)
+            local other
+            for oid, obd in pairs(backdrops) do
+                if obd ~= bd and obd.dimmed[w] then
+                    other = obd
+                    break
+                end
+            end
+            if other and api.nvim_win_is_valid(w) then
+                M.set(w, other.ns or bd_ns(other.cfg))
+            else
+                M.set(w, prev)
+            end
         end
         bd.dimmed = {}
         sync_suspend()
@@ -406,7 +428,7 @@ function M.hold_backdrop(on)
         local cur = api.nvim_get_current_win()
         local okc = api.nvim_win_is_valid(cur)
         for _, bd in pairs(backdrops) do
-            bd_paint(bd, okc and bd.cfg.protect(cur) or false)
+            bd_paint(bd, okc and (bd.cfg.focus_keeps or bd.cfg.protect)(cur) or false)
         end
     end
 end
@@ -427,7 +449,7 @@ local function current_is_protected()
         return false
     end
     for _, bd in pairs(backdrops) do
-        if bd.cfg.protect(cur) then
+        if (bd.cfg.focus_keeps or bd.cfg.protect)(cur) then
             return true
         end
     end
@@ -502,7 +524,7 @@ local function register_bd_focus()
             bd_focus_gen = bd_focus_gen + 1
             local deferred = false
             for _, bd in pairs(backdrops) do
-                if ok and bd.cfg.protect(cur) then
+                if ok and (bd.cfg.focus_keeps or bd.cfg.protect)(cur) then
                     bd_paint(bd, true) -- entering this surface → dim its behind NOW (idempotent if already dim)
                 elseif bd_lift_hold == 0 then
                     deferred = true -- this backdrop would LIFT → defer it (see below); a HOLD suppresses it
@@ -517,7 +539,7 @@ local function register_bd_focus()
                     local c = api.nvim_get_current_win()
                     local okc = api.nvim_win_is_valid(c)
                     for _, bd in pairs(backdrops) do
-                        bd_paint(bd, okc and bd.cfg.protect(c) or false)
+                        bd_paint(bd, okc and (bd.cfg.focus_keeps or bd.cfg.protect)(c) or false)
                     end
                 end)
             end
@@ -548,7 +570,9 @@ function M.apply_backdrop(id, cfg)
     -- frame flushes (a swap race), the flushed frame showed the editor bright = a one-frame flash. Also dim while
     -- a HOLD is active (a load/swap in progress). An UPDATE to an existing backdrop stays focus-aware.
     local cur = api.nvim_get_current_win()
-    local muted = (not existing) or bd_lift_hold > 0 or (api.nvim_win_is_valid(cur) and cfg.protect(cur) or false)
+    local muted = not existing
+        or bd_lift_hold > 0
+        or (api.nvim_win_is_valid(cur) and (cfg.focus_keeps or cfg.protect)(cur) or false)
     bd_paint(bd, muted)
 end
 
