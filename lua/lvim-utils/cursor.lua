@@ -175,6 +175,53 @@ local function any_hidden_win_open()
     return false
 end
 
+---Return true when the CURRENT (normal, non-float) editor window's cursor sits on a screen row COVERED
+---by a docked bottom/area panel — a FULL-WIDTH float that overlays the editor WITHOUT reserving rows,
+---so a buffer scrolled past the panel's top edge still draws its hardware cursor UNDER it (the "_"
+---bleeding through the panel). The panel is full width, so occlusion depends on the row alone; narrow
+---floats (hover / completion) are ignored, and a real split panel resizes the editor so never overlaps.
+---@param win integer  the current window
+---@return boolean
+local function cursor_occluded(win)
+    local okc, cfg = pcall(api.nvim_win_get_config, win)
+    if okc and cfg and cfg.relative and cfg.relative ~= "" then
+        return false -- the current window is itself a float (e.g. the panel) — ft logic owns it
+    end
+    -- The cursor's 1-based SCREEN row, computed FRESH: window top + winbar + window-relative line.
+    -- NOT `screenrow()` — called synchronously from CursorMoved it still reports the PRE-move physical
+    -- row (so the boundary row would stay lit until some later event). `winline()` already reflects the
+    -- new cursor line (a full-height window behind the panel never scrolls, so its topline is stable);
+    -- add the window's screen top and a winbar row when present (winline counts text lines only).
+    local wtop = api.nvim_win_get_position(win)[1] -- 0-based screen row of the window frame
+    local winbar = (vim.wo[win].winbar and vim.wo[win].winbar ~= "") and 1 or 0
+    local srow = wtop + winbar + vim.fn.winline()
+    if srow <= 0 then
+        return false
+    end
+    local cols = vim.o.columns
+    for _, w in ipairs(api.nvim_list_wins()) do
+        if w ~= win and api.nvim_win_is_valid(w) then
+            local ok, c = pcall(api.nvim_win_get_config, w)
+            -- Only EDITOR-relative full-width floats (a bottom/area dock panel or its frame container).
+            -- `relative == "win"` floats are window DECORATIONS (a winbar / winfooter) — not panels — and
+            -- must NOT count, or the cursor would hide behind a footer near the TOP of the file too.
+            if ok and c and c.relative == "editor" and api.nvim_win_get_width(w) >= cols - 2 then
+                -- Occlude only the screen rows the float actually SPANS — not everything below its top (a
+                -- higher band would then hide the cursor in the visible code above the panel). Position is
+                -- the text area (0-based); the panel's own border/title band sits INSIDE this window and
+                -- does not extend the occluded region upward, so use the text-area top verbatim.
+                local pos = api.nvim_win_get_position(w)
+                local top = pos[1] + 1 -- 1-based first text row (the cursor one row ABOVE this stays shown)
+                local bottom = pos[1] + api.nvim_win_get_height(w) -- 1-based last text row
+                if srow >= top and srow <= bottom then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 -- ─── core update ──────────────────────────────────────────────────────────────
 
 --- Recompute and apply the correct cursor visibility for the current context.
@@ -211,6 +258,8 @@ local function update()
 
     if is_hidden_buffer(buf) or any_hidden_win_open() then
         hide_cursor()
+    elseif cursor_occluded(win) then
+        hide_cursor() -- the cursor scrolled UNDER a docked bottom/area panel — don't bleed through it
     else
         show_cursor()
     end
@@ -285,6 +334,22 @@ local function refresh_autocmds()
         group = state.augroup,
         callback = function()
             vim.schedule(update)
+        end,
+    })
+
+    -- Cursor motion / scroll: while a docked bottom/area panel overlays the editor, a buffer scrolled
+    -- PAST the panel's top edge would draw its hardware cursor UNDER the panel (the "_" bleeding
+    -- through). Re-evaluate occlusion on every move/scroll — but ONLY while such a panel is actually
+    -- visible (a cheap dock lookup), so normal editing with no docked panel pays nothing.
+    api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "WinScrolled" }, {
+        group = state.augroup,
+        callback = function()
+            local ok, dock = pcall(require, "lvim-utils.dock")
+            if ok and dock.visible and (dock.visible("bottom") or dock.visible("area")) then
+                -- SYNCHRONOUS (not vim.schedule): hide in the SAME frame the cursor crosses under the
+                -- panel, else it flashes visible for one redraw before a scheduled update catches it.
+                update()
+            end
         end,
     })
 
