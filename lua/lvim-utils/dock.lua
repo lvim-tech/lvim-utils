@@ -406,12 +406,16 @@ function M.close(key)
         return
     end
     local L = key_layout(key)
+    local c = by_key[key]
     local was_visible = visible[L] == key
+    -- `M.close` is the EXPLICIT KILL (the `<Leader>x` target) — it ALWAYS tears the consumer down and
+    -- removes it from the stack, regardless of `keep_closed`. It is the deliberate escape hatch that
+    -- removes a PARKED entry: the soft dismiss paths (`M.closed` self-close, `M.dropped`) honour
+    -- `keep_closed` and park a live consumer, so `<Leader>x` is the one gesture that truly forgets it.
     if was_visible then
         visible[L] = nil
     end
     remove_leader(key)
-    local c = by_key[key]
     if c.close then
         pcall(c.close)
     else
@@ -568,16 +572,29 @@ end
 
 --- Notify the manager that consumer `id` closed ITSELF (its window was destroyed externally — a
 --- `:q`, a killed terminal, a WinClosed). The manager only updates bookkeeping — it does NOT call
---- the consumer's hide/close (it is already gone) — then reveals the next on that layout (LIFO).
+--- the consumer's hide/close (it is already gone).
+---
+--- keep_closed (config, default true): a RESTORABLE consumer (`is_alive()` true — its state survives
+--- the window teardown, e.g. the tasks panel backed by the registry) is KEPT on its stack (parked,
+--- collapsed, at the TOP for easy re-summon) instead of dropped — the `<Leader>m` menu / cycle can
+--- re-open it. A non-restorable one (dead process) is dropped. RETURNS `true` when the entry was KEPT
+--- (the consumer must then keep its stored key), `false` when it was dropped (clear the key).
 ---@param key string
+---@return boolean kept  true = parked (keep your dock key), false = dropped (clear it)
 function M.closed(key)
-    if not by_key[key] then
-        return
+    local c = by_key[key]
+    if not c then
+        return false
     end
     local L = key_layout(key)
     local was_visible = visible[L] == key
     if was_visible then
         visible[L] = nil
+    end
+    -- Restorable consumer + keep_closed → PARK it (kept on the stack, re-summonable). It collapses
+    -- (no auto-reveal of the next) — a self-close means "dismiss", and the entry stays at the TOP.
+    if (config.dock or {}).keep_closed ~= false and (c.is_alive == nil or c.is_alive() == true) then
+        return true
     end
     remove_leader(key)
     remove_id(stacks[L], key)
@@ -585,6 +602,7 @@ function M.closed(key)
     if was_visible then
         show_top(L)
     end
+    return false
 end
 
 --- Notify the manager that consumer `id` closed ITSELF and should be DROPPED from the stack, WITHOUT
@@ -594,17 +612,25 @@ end
 --- "pop the stack": revealing (and focusing) the parked neighbour would otherwise steal the window a confirm's
 --- own action (e.g. opening the picked file) needs.
 ---@param key string
+---@return boolean kept  true = parked (keep your dock key), false = dropped (clear it)
 function M.dropped(key)
-    if not by_key[key] then
-        return
+    local c = by_key[key]
+    if not c then
+        return false
     end
     local L = key_layout(key)
     if visible[L] == key then
         visible[L] = nil
     end
+    -- keep_closed (config): PARK a restorable consumer (is_alive) instead of dropping it, so it can be
+    -- re-summoned. A finder that is DONE (query consumed) reports is_alive() false → still dropped.
+    if (config.dock or {}).keep_closed ~= false and (c.is_alive == nil or c.is_alive() == true) then
+        return true
+    end
     remove_leader(key)
     remove_id(stacks[L], key)
     forget(key)
+    return false
 end
 
 --- Notify the manager that consumer `id` PARKED itself — its window/surface is gone (a self-dismissal: a

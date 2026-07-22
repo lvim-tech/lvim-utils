@@ -39,6 +39,13 @@
 ---@field default_layout "area"|"bottom"|"float"  Layout `cycle()` targets when no dock is focused.
 ---@field capture_leader boolean               Install the buffer-local leader owner in a docked window, so ONLY
 ---                                            the cycle keys work under `<Leader>` there (all else is swallowed).
+---@field keep_closed    boolean               true (default) → a SOFT dismiss of a dock consumer (its window
+---                                            self-closes — `q` / `:q` / `WinClosed`) PARKS it (kept on its
+---                                            stack, re-summonable via the `<Leader>m` menu / cycle) when its
+---                                            state survives (`is_alive()`); a non-restorable one is removed.
+---                                            The explicit `<Leader>x` KILL (`M.close`) ALWAYS removes — it is
+---                                            the escape hatch that forgets a parked entry. false → soft
+---                                            dismiss also always tears down and removes (old behaviour).
 ---@field geometry       table<"area"|"bottom"|"float", LvimUtilsDockLayoutGeometry>  The SINGLE authority for
 ---                      per-layout geometry (size + backdrop + keep_focus + auto_hide). EVERY docked / floated
 ---                      consumer (pickers, the terminal, the qf browser, control-center, lvim-ui modals) reads
@@ -56,6 +63,7 @@ return {
     },
     default_layout = "area",
     capture_leader = true,
+    keep_closed = true,
 
     -- The SINGLE source of truth for the geometry of every docked / floated surface in the whole lvim-tech UI
     -- (pickers, the terminal, the quickfix browser, control-center, standalone lvim-ui modals). No plugin holds
