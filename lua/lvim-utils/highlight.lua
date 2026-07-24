@@ -349,14 +349,29 @@ function M.band_line(parts, sep)
     return text, hls
 end
 
----Install the ColorScheme autocmd so registered + bound groups survive theme changes.
+---Install the theme-change autocmds so registered + bound groups survive theme changes.
 ---Call once during plugin initialisation.
+---
+---Two events are watched:
+---  * native `ColorScheme` — fired by `:colorscheme` (third-party themes, and lvim-colorscheme's
+---    own restore path).
+---  * `User LvimColorscheme` — how lvim-colorscheme actually applies its themes, INCLUDING the
+---    picker's live-preview VARIANT switches: it sets the highlights directly + fires this event,
+---    it does NOT go through native `ColorScheme`. Without listening here, every bound factory
+---    (chrome/winbar accents, section tints, …) lagged one theme behind during preview — the
+---    editor previewed the new theme while the bar segments kept the last committed colours.
 function M.setup()
     local aug = vim.api.nvim_create_augroup("LvimUtilsHighlights", { clear = true })
     vim.api.nvim_create_autocmd("ColorScheme", {
         group = aug,
         callback = apply_all,
-        desc = "Re-apply lvim-utils highlight groups after colorscheme change",
+        desc = "Re-apply lvim-utils highlight groups after a native colorscheme change",
+    })
+    vim.api.nvim_create_autocmd("User", {
+        group = aug,
+        pattern = "LvimColorscheme",
+        callback = apply_all,
+        desc = "Re-apply lvim-utils highlight groups after an lvim-colorscheme (variant/preview) change",
     })
 end
 
