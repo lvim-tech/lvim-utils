@@ -98,6 +98,60 @@ function Sql:_eval(sql, params)
     return ok and result or nil
 end
 
+--- Run one statement with every value bound BY INDEX, and return whether it succeeded.
+---
+--- This exists because sqlite.lua's convenience layer (`tbl:insert` / `tbl:update`, and its
+--- named-parameter `stmt:bind(table)`) treats a string value matching `^%S+%(.*%)$` as a SQL
+--- EXPRESSION and splices it into the statement unbound — the feature that lets you write
+--- `insert { ts = "date('now')" }`. Any ordinary text of that shape (`client.log(1)`, a code
+--- snippet, a body, a filename with parens) therefore becomes a call to a function SQLite does not
+--- have, and the write silently fails. Binding BY INDEX takes the other branch of `stmt:bind`,
+--- which goes straight to the C API with no heuristic, so a value is always just a value.
+--- The new row's id comes back from the SAME connection: sqlite.lua closes the handle between ops,
+--- and `last_insert_rowid()` asked on a fresh connection is 0.
+---@param sql string   a statement using `?` placeholders
+---@param args any[]   one value per placeholder, in order
+---@return boolean ok, integer? rowid
+function Sql:_exec_bound(sql, args)
+    if not self._db then
+        return false, nil
+    end
+    local stmt_ok, sqlstmt = pcall(require, "sqlite.stmt")
+    if not stmt_ok then
+        return false, nil
+    end
+    local rowid
+    local function run(conn)
+        local stmt = sqlstmt:parse(conn, sql)
+        for i, v in ipairs(args) do
+            -- sqlite.lua binds number/string/nil; a boolean has no bind function, so it takes the
+            -- integer form SQLite stores booleans as anyway.
+            if type(v) == "boolean" then
+                v = v and 1 or 0
+            end
+            stmt:bind(i, v)
+        end
+        stmt:step()
+        stmt:finalize()
+
+        local id_stmt = sqlstmt:parse(conn, "select last_insert_rowid() as id")
+        id_stmt:step()
+        local row = id_stmt:kv()
+        rowid = row and tonumber(row.id) or nil
+        id_stmt:finalize()
+    end
+    local ok = pcall(function()
+        if self._db:isopen() then
+            run(self._db.conn)
+        else
+            self._db:with_open(function(conn)
+                run(conn.conn)
+            end)
+        end
+    end)
+    return ok, rowid
+end
+
 -- ── version / migrations ────────────────────────────────────────────────────
 
 ---@return integer
@@ -284,14 +338,21 @@ end
 ---@param values table
 ---@return integer|false
 function Sql:insert(name, values)
-    local t = self._tables[name]
-    if not t then
+    if not self._tables[name] then
         return false
     end
-    local ok, id = pcall(function()
-        return t:insert(values)
-    end)
-    return ok and id or false
+    local cols, marks, args = {}, {}, {}
+    for k, v in pairs(values) do
+        cols[#cols + 1] = k
+        marks[#marks + 1] = "?"
+        args[#args + 1] = v
+    end
+    if #cols == 0 then
+        return false
+    end
+    local sql = ("insert into %s (%s) values (%s)"):format(name, table.concat(cols, ", "), table.concat(marks, ", "))
+    local ok, rowid = self:_exec_bound(sql, args)
+    return (ok and rowid) and rowid or false
 end
 
 ---@param name string
@@ -299,13 +360,26 @@ end
 ---@param set table
 ---@return boolean
 function Sql:update(name, where, set)
-    local t = self._tables[name]
-    if not t then
+    if not self._tables[name] then
         return false
     end
-    return (pcall(function()
-        t:update({ where = where, set = set })
-    end))
+    local sets, wheres, args = {}, {}, {}
+    for k, v in pairs(set) do
+        sets[#sets + 1] = k .. " = ?"
+        args[#args + 1] = v
+    end
+    if #sets == 0 then
+        return true
+    end
+    for k, v in pairs(where or {}) do
+        wheres[#wheres + 1] = k .. " = ?"
+        args[#args + 1] = v
+    end
+    local sql = ("update %s set %s"):format(name, table.concat(sets, ", "))
+    if #wheres > 0 then
+        sql = sql .. " where " .. table.concat(wheres, " and ")
+    end
+    return (self:_exec_bound(sql, args))
 end
 
 ---@param name string
