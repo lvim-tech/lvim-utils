@@ -45,6 +45,14 @@ function M.preserve(pattern)
     preserved[pattern] = true
 end
 
+-- lvim's own UI FURNITURE is chrome, not dimmable content. A surface backdrop must never fade a panel's
+-- TITLE BAND (lvim-files' "LVIM FILES" strip, the peek/msgarea titles, a section band) just because a float
+-- opened — only the CODE behind it should mute. These groups are defined in `lvim-utils.config.highlight`,
+-- so the policy belongs here, next to the namespaces that would otherwise mute them.
+-- (The chrome BARS — `LvimUiChrome*` — are self-registered by lvim-hud, which owns those.)
+M.preserve("^LvimUi.*Title") -- Title / PeekTitle / MsgAreaTitle / DashboardTitle (+ Icon/Text/Hover/Fill)
+M.preserve("^LvimUi.*Band") -- SectionBand / TitleBandResult / TitleBandSpec
+
 ---@type boolean whether a per-window dim MANAGER (lvim-colorscheme's dim_inactive/dark_active) should stand
 --- down — set while an lvim-ui surface owns a namespace backdrop, so the two managers don't fight over the same
 --- windows (which left the backdrop covering only SOME windows).
