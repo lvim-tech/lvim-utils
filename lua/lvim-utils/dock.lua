@@ -121,6 +121,75 @@ local swap_handoff = nil
 --- `config.dock.geometry` itself. See `M.set_slot_provider`.
 local slot_providers = {}
 
+-- ── tab workspaces: a COEXISTING dimension (NOT part of the one-visible stacks) ──────────────────────
+-- A `tab` workspace is a whole tabpage, not a docked region: MANY are open at once and never occlude each
+-- other (you switch with `gt` / this menu), so they do NOT join the area/bottom/float stack machinery
+-- (`stacks` / `visible` / the LAYOUTS occlusion). They join only the `<Leader>m` MENU + `M.show`, so you
+-- can JUMP TO (or RESTORE) any workspace from the one place — the point of registering them here. Keyed by
+-- the workspace `id` (no layout composite). The consumer (lvim-ui.workspace) supplies the closures.
+---@class LvimDockTabEntry
+---@field id        string           The workspace id (stable identity, e.g. "lvim-rest", "lvim-git:status").
+---@field name      string           Human label for the menu.
+---@field icon      string?          Optional menu glyph.
+---@field show      fun()            Bring it up: FOCUS its tab when open, else RESTORE it (reopen).
+---@field is_current fun(): boolean? Is it the CURRENT tabpage? (marks it "visible" in the menu)
+---@field is_alive  fun(): boolean?  Still listable — open, or restorable? false ⇒ dropped from the menu.
+---@type table<string, LvimDockTabEntry>
+local tab_entries = {}
+---@type string[]  workspace ids in REGISTRATION order (stable — the order `cycle` steps through)
+local tab_ids = {}
+---@type string?   the most-recently-CURRENT workspace id — what `reveal` ("bring the last one forward") shows
+local tab_last = nil
+---@type boolean   the TabEnter "last used" tracker is installed (idempotent)
+local tab_tracker = false
+-- A tab entry's menu KEY (distinct from the `id..RS..layout` stack keys so `M.show` can route it).
+local TAB_KEY = "\9tab\9"
+
+--- Whether a tab entry is still listable (open, or restorable).
+---@param id string
+---@return boolean
+local function tab_alive(id)
+    local e = tab_entries[id]
+    return e ~= nil and (e.is_alive == nil or e.is_alive() == true)
+end
+
+--- The ALIVE workspace ids in registration order — and, as a side effect, prunes forgotten ids from
+--- `tab_ids` so the stable cycle order stays tight.
+---@return string[]
+local function live_tabs()
+    local out, kept = {}, {}
+    for _, id in ipairs(tab_ids) do
+        if tab_entries[id] then
+            kept[#kept + 1] = id
+            if tab_alive(id) then
+                out[#out + 1] = id
+            end
+        end
+    end
+    tab_ids = kept
+    return out
+end
+
+--- Install the "last used" tracker once: whenever a WORKSPACE tab becomes current, remember it as
+--- `tab_last` so `reveal` brings the one you were most recently in forward. Also catches native `gt`/`gT`.
+local function ensure_tab_tracker()
+    if tab_tracker then
+        return
+    end
+    tab_tracker = true
+    api.nvim_create_autocmd("TabEnter", {
+        group = api.nvim_create_augroup("LvimDockTabTrack", { clear = true }),
+        callback = function()
+            for id, e in pairs(tab_entries) do
+                if e.is_current and e.is_current() == true then
+                    tab_last = id
+                    return
+                end
+            end
+        end,
+    })
+end
+
 -- ─── small list helpers ─────────────────────────────────────────────────────────
 
 --- The 1-based index of `id` in `list`, or nil.
@@ -351,6 +420,73 @@ function M.register(consumer)
     end
 end
 
+--- Register (or replace) a TAB WORKSPACE in the `<Leader>m` menu — a coexisting entry (never occludes the
+--- others, unlike a docked consumer). Idempotent per `id`; the consumer supplies `show` (focus-or-restore),
+--- `is_current` and `is_alive`. Registering once (on first open) is enough — the closures read live state,
+--- so the same entry serves every later open / close / restore.
+---@param entry LvimDockTabEntry
+function M.register_tab(entry)
+    if entry and entry.id and type(entry.show) == "function" then
+        if not tab_entries[entry.id] then
+            tab_ids[#tab_ids + 1] = entry.id -- append to the stable cycle order (first registration only)
+        end
+        tab_entries[entry.id] = entry
+        ensure_tab_tracker()
+    end
+end
+
+--- Reveal the LAST-USED workspace — the `:LvimDock tab` action, the tab analogue of `M.reveal` for a
+--- docked layout: focus the workspace you were most recently in (restore it if it was closed), else the
+--- most-recently-registered live one. Notifies when there are none.
+function M.reveal_tab()
+    local id = (tab_last and tab_alive(tab_last)) and tab_last or nil
+    if not id then
+        local live = live_tabs()
+        id = live[#live] -- fall back to the most-recently-registered live workspace
+    end
+    if not id then
+        pcall(vim.notify, "lvim-dock: no workspaces open", vim.log.levels.INFO)
+        return
+    end
+    tab_last = id
+    pcall(tab_entries[id].show)
+end
+
+--- Cycle to the next / previous workspace (`:LvimDock tab next|prev`) — the tab analogue of `M.cycle`.
+--- Steps through the ALIVE workspaces in stable registration order from the current one (wrapping); when
+--- the cursor is not on a workspace tab, `next` goes to the first and `prev` to the last.
+---@param dir integer  +1 next, -1 previous
+function M.cycle_tab(dir)
+    local live = live_tabs()
+    if #live == 0 then
+        pcall(vim.notify, "lvim-dock: no workspaces open", vim.log.levels.INFO)
+        return
+    end
+    if #live == 1 then
+        tab_last = live[1]
+        pcall(tab_entries[live[1]].show)
+        return
+    end
+    local cur
+    for i, id in ipairs(live) do
+        local e = tab_entries[id]
+        if e.is_current and e.is_current() == true then
+            cur = i
+            break
+        end
+    end
+    local n = #live
+    local j = cur and (((cur - 1 + dir) % n) + 1) or (dir > 0 and 1 or n)
+    tab_last = live[j]
+    pcall(tab_entries[live[j]].show)
+end
+
+--- Drop a tab workspace from the menu (e.g. a consumer that can never be restored, on final close).
+---@param id string
+function M.unregister_tab(id)
+    tab_entries[id] = nil
+end
+
 --- Open a consumer — SHOW-OR-CREATE by its (id, `consumer.layout`) ENTRY KEY:
 ---   • if a LIVE entry with this (id, layout) already exists → RE-SHOW it (MRU-bump, make it visible,
 ---     focus) — NOT a duplicate in that stack;
@@ -444,6 +580,16 @@ end
 --- dock"). No-op for an unknown / dead key.
 ---@param key string
 function M.show(key)
+    -- A tab workspace: route to its own show (focus-or-restore) — it is NOT in the occlusion stacks.
+    if key:sub(1, #TAB_KEY) == TAB_KEY then
+        local id = key:sub(#TAB_KEY + 1)
+        local e = tab_entries[id]
+        if e then
+            tab_last = id -- showing it makes it the "last used" for a later reveal
+            pcall(e.show)
+        end
+        return
+    end
     if not (by_key[key] and alive(key)) then
         return
     end
@@ -483,6 +629,20 @@ function M.entries()
             end
         end
     end
+    -- Tab workspaces (coexisting — appended after the three stacks). Listed when alive (open or
+    -- restorable); `visible` marks the one that is the CURRENT tabpage.
+    for _, e in pairs(tab_entries) do
+        if e.is_alive == nil or e.is_alive() == true then
+            out[#out + 1] = {
+                key = TAB_KEY .. e.id,
+                id = e.id,
+                name = e.name or e.id,
+                layout = "tab",
+                icon = e.icon,
+                visible = e.is_current ~= nil and e.is_current() == true,
+            }
+        end
+    end
     return out
 end
 
@@ -491,15 +651,68 @@ end
 --- layout's consumers (the `:LvimDock <layout> menu` scope); without, ALL three stacks. The menu is a transient
 --- float that is NOT a dock (it never enters a stack). Degrades to a notify when lvim-ui is absent — NEVER a
 --- hand-rolled float / vim.ui.select (the canonical-UI rule).
----@param layout ("area"|"bottom"|"float")?  restrict to this layout's consumers (nil = all)
-function M.menu(layout)
+--- The layouts shown as TABS in the unified menu, in order.
+local MENU_TABS = { "area", "bottom", "float", "tab" }
+
+--- The unified dock MENU as a TABBED panel (`:LvimDock` / `:LvimDock menu` / `<Leader>m`): one tab per
+--- layout (area / bottom / float / tab), each a navigable list of that layout's entries; choosing one
+--- shows it (`M.show`). Built on the canonical `lvim-ui.tabs` (NOT control-center — a base plugin never
+--- depends on a UI plugin; it `pcall`s lvim-ui at call time, the same soft seam the single-list menu uses).
+local function menu_tabbed()
     local entries = M.entries()
-    if layout then
-        entries = vim.tbl_filter(function(e)
-            return e.layout == layout
-        end, entries)
-    end
     if #entries == 0 then
+        pcall(vim.notify, "lvim-dock: no docks open", vim.log.levels.INFO)
+        return
+    end
+    local ok, ui = pcall(require, "lvim-ui")
+    if not (ok and type(ui) == "table" and ui.tabs) then
+        pcall(vim.notify, "lvim-dock: lvim-ui unavailable — the dock menu needs it", vim.log.levels.WARN)
+        return
+    end
+    local tabs = {}
+    local initial = nil -- the INDEX of the first tab that actually has entries (open there)
+    for i, L in ipairs(MENU_TABS) do
+        local rows = {}
+        for _, e in ipairs(entries) do
+            if e.layout == L then
+                rows[#rows + 1] = {
+                    type = "action",
+                    icon = e.icon and (" " .. e.icon .. " ") or nil,
+                    label = e.name .. (e.visible and "  (visible)" or ""),
+                    run = function(_, close)
+                        M.show(e.key)
+                        if type(close) == "function" then
+                            close()
+                        end
+                    end,
+                }
+            end
+        end
+        if #rows > 0 and initial == nil then
+            initial = i
+        end
+        if #rows == 0 then
+            rows = { { type = "action", label = "— none —", disabled = true, flat = true } }
+        end
+        tabs[#tabs + 1] = { label = L:gsub("^%l", string.upper), menu = true, rows = rows }
+    end
+    ui.tabs({ title = "Docks", tabs = tabs, tab_selector = initial or 1 })
+end
+
+--- The dock MENU. No `layout` → the unified TABBED panel across all four layouts (`menu_tabbed`). A
+--- `layout` → a single flat list scoped to it (`lvim-ui.select`; the `:LvimDock <layout> menu` scope).
+--- Degrades to a notify when lvim-ui is absent — NEVER a hand-rolled float / vim.ui.select.
+---@param layout ("area"|"bottom"|"float"|"tab")?  restrict to this layout (nil = the tabbed all-layouts menu)
+function M.menu(layout)
+    if not layout then
+        return menu_tabbed()
+    end
+    local entries = vim.tbl_filter(function(e)
+        return e.layout == layout
+    end, M.entries())
+    if #entries == 0 then
+        local what = (layout == "tab" and "workspaces") or (layout .. " docks")
+        pcall(vim.notify, "lvim-dock: no " .. what .. " open", vim.log.levels.INFO)
         return
     end
     local ok, ui = pcall(require, "lvim-ui")
@@ -515,7 +728,7 @@ function M.menu(layout)
         }
     end
     ui.select({
-        title = layout and ("Docks — " .. layout) or "Docks",
+        title = "Docks — " .. layout,
         items = items,
         callback = function(confirmed, index)
             if confirmed and index and entries[index] then
@@ -528,8 +741,11 @@ end
 --- Reveal the TOP of `layout`'s stack — the `:LvimDock <layout>` action. If a consumer is already visible
 --- there, just FOCUS it; otherwise show the most-recently-used live one (pruning dead ones). No-op on an empty
 --- stack. Complements `cycle` (step) and `menu` (pick) with a plain "bring this layout's dock forward".
----@param layout "area"|"bottom"|"float"
+---@param layout "area"|"bottom"|"float"|"tab"
 function M.reveal(layout)
+    if layout == "tab" then
+        return M.reveal_tab()
+    end
     local st = stacks[layout]
     if not (st and #st > 0) then
         return
@@ -675,9 +891,12 @@ end
 --- Cycle the visible consumer of `layout` by `dir` (+1 next / -1 previous) through that layout's
 --- stack, wrapping and skipping dead entries (which are pruned). Hides the visible one (kept on the
 --- stack) and shows the neighbour. No-op when the stack has fewer than 2 live entries.
----@param layout ("area"|"bottom"|"float")?  defaults to the focused / last / configured layout
+---@param layout ("area"|"bottom"|"float"|"tab")?  defaults to the focused / last / configured layout
 ---@param dir integer  +1 next, -1 previous
 function M.cycle(layout, dir)
+    if layout == "tab" then
+        return M.cycle_tab(dir)
+    end
     layout = layout or M.current_layout()
     local st = stacks[layout]
     if #st < 2 then
@@ -889,39 +1108,60 @@ function M.setup(opts)
     M.setup_command()
 end
 
----@type table<string, true>  the three coordinated layouts, as a set (for the command validation)
-local LAYOUT_SET = { area = true, bottom = true, float = true }
+-- Layouts the COMMAND accepts (the three occlusion stacks + the coexisting `tab` workspaces). `tab` is
+-- NOT in LAYOUTS/LAYOUT_SET (those drive the stack machinery). The bare `:LvimDock` / `:LvimDock menu`
+-- opens the unified tabbed menu across all four.
+local CMD_LAYOUTS = { "area", "bottom", "float", "tab" }
+local CMD_LAYOUT_SET = { area = true, bottom = true, float = true, tab = true }
+-- Second-token actions, for every layout.
+local CMD_ACTIONS = { "menu", "next", "prev" }
 
---- Register the `:LvimDock <layout> [menu]` user command (idempotent):
----   `:LvimDock area|bottom|float`        → reveal the TOP of that layout's stack (`M.reveal`)
----   `:LvimDock area|bottom|float menu`   → a layout-scoped dock menu (`M.menu(layout)`)
---- An unknown / missing layout notifies the usage. Completion offers the layouts, then `menu`.
+--- Register the `:LvimDock …` user command (idempotent). Consistent across ALL FOUR layouts:
+---   `:LvimDock` / `:LvimDock menu`           → the unified TABBED menu (area / bottom / float / tab tabs)
+---   `:LvimDock <layout>`                     → REVEAL that layout's current dock / last-used workspace
+---   `:LvimDock <layout> menu`                → a single-list menu scoped to that layout
+---   `:LvimDock <layout> next|prev`           → cycle that layout forward / back
+--- An unknown token notifies the usage.
 function M.setup_command()
     pcall(vim.api.nvim_create_user_command, "LvimDock", function(o)
-        local layout = o.fargs[1]
-        if not (layout and LAYOUT_SET[layout]) then
-            pcall(vim.notify, "LvimDock: usage — :LvimDock <area|bottom|float> [menu]", vim.log.levels.WARN)
+        local a1, a2 = o.fargs[1], o.fargs[2]
+        if not a1 or a1 == "menu" then
+            return M.menu() -- unified tabbed menu
+        end
+        if not CMD_LAYOUT_SET[a1] then
+            pcall(
+                vim.notify,
+                "LvimDock: usage — :LvimDock [<area|bottom|float|tab> [menu|next|prev]]",
+                vim.log.levels.WARN
+            )
             return
         end
-        if o.fargs[2] == "menu" then
-            M.menu(layout)
+        if a2 == "menu" then
+            M.menu(a1)
+        elseif a2 == "next" then
+            M.cycle(a1, 1)
+        elseif a2 == "prev" then
+            M.cycle(a1, -1)
         else
-            M.reveal(layout)
+            M.reveal(a1) -- bare layout → reveal (focus the current dock / last-used workspace)
         end
     end, {
-        nargs = "+",
+        nargs = "*",
         complete = function(arg_lead, cmd_line, _)
             local parts = vim.split(cmd_line, "%s+")
             if #parts <= 2 then
+                local first = vim.list_extend({ "menu" }, CMD_LAYOUTS)
                 return vim.tbl_filter(function(l)
                     return l:find(arg_lead, 1, true) == 1
-                end, LAYOUTS)
-            elseif #parts == 3 then
-                return (("menu"):find(arg_lead, 1, true) == 1) and { "menu" } or {}
+                end, first)
+            elseif #parts == 3 and CMD_LAYOUT_SET[parts[2]] then
+                return vim.tbl_filter(function(a)
+                    return a:find(arg_lead, 1, true) == 1
+                end, CMD_ACTIONS)
             end
             return {}
         end,
-        desc = "LvimDock — reveal a layout's dock (:LvimDock <area|bottom|float> [menu])",
+        desc = "LvimDock — dock menu / reveal / cycle (:LvimDock [<area|bottom|float|tab> [menu|next|prev]])",
     })
 end
 
