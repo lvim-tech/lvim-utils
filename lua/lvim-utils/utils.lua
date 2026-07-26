@@ -67,4 +67,32 @@ function M.match_indices(needle, haystack)
     return idxs
 end
 
+--- Open `url` (or a path) with the system handler, reporting the REAL outcome.
+---
+--- `vim.ui.open` does not RAISE when no handler exists — it RETURNS `nil, err`. Every consumer that
+--- wrapped it in `pcall` and branched on the status therefore took the success path even when nothing
+--- opened, and their documented fallbacks (yank the URL, warn the user) were dead code. Four plugins had
+--- that bug independently, which is why the knowledge lives here now instead of being rediscovered.
+---
+--- Returns `false, reason` when the URL could not be opened — a raise and a "no handler" both land there.
+---@param url string
+---@return boolean ok
+---@return string? reason  why it did not open (nil on success)
+function M.open_url(url)
+    if type(url) ~= "string" or url == "" then
+        return false, "no url"
+    end
+    if type(vim.ui.open) ~= "function" then
+        return false, "vim.ui.open is unavailable"
+    end
+    local called, handle, err = pcall(vim.ui.open, url)
+    if not called then
+        return false, tostring(handle) -- pcall's second value is the ERROR here
+    end
+    if not handle then
+        return false, err or "no handler"
+    end
+    return true, nil
+end
+
 return M
