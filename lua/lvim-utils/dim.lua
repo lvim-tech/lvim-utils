@@ -204,6 +204,11 @@ end
 ---@field amount?  number   mute fraction 0..1 (default 0.5).
 ---@field bg?      string   (dim mode) the bg foregrounds blend toward (default the live Normal bg).
 ---@field protect  fun(win: integer): boolean  true → `win` belongs to the consumer and is NEVER muted.
+---@field focus_keeps? fun(win: integer): boolean  A WIDER focus test than `protect`: true → the veil is KEPT
+---                    (never lifted) while `win` is current, even though `win` itself is muted. For a consumer
+---                    whose flow legitimately focuses a window it does not own (a preview, an input popup).
+---@field dim_panels? boolean  A MODAL backdrop also mutes special-buftype PANEL windows (terminals are always
+---                    skipped, since a composited image would be destroyed). Default false.
 
 ---@class LvimDimBackdropEntry
 ---@field cfg LvimDimBackdrop
@@ -489,6 +494,13 @@ local function arm_settle()
     end)
 end
 
+-- How long the settle backstop waits before releasing a hold that no protected WinEnter ever confirmed.
+-- It is NOT a tuning knob and deliberately not a config option: this module is a base primitive with no
+-- config dependency, and the value has no user-facing meaning — the PRIMARY release is the protected
+-- WinEnter, and this only guarantees the editor is never left dimmed when a consumer's panel fails to
+-- open at all. Long enough to outlast a normal surface swap, short enough that a failed one is not felt.
+local SETTLE_BACKSTOP_MS = 60
+
 --- Release a hold once the transition has SETTLED — the picker teardown calls this instead of a blind
 --- `vim.schedule(hold_backdrop(false))`. It waits for focus to rest on a protected window (the reopened panel),
 --- so Neovim's transient terminal focus-fall can never trigger a lift-reconcile (the second flash). A fallback
@@ -501,7 +513,7 @@ function M.release_backdrop_when_settled()
         if release_pending > 0 then
             drain_releases()
         end
-    end, 60)
+    end, SETTLE_BACKSTOP_MS)
 end
 
 --- The one session-wide WinEnter that keeps every live backdrop in step with focus: for each, mute-behind while
