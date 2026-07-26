@@ -103,6 +103,7 @@ require("lvim-utils").setup({
         },
         default_layout = "area", -- layout cycle() targets when no dock is focused
         capture_leader = true, -- install the buffer-local <Leader> owner in a docked window
+        keep_closed = true, -- a SOFT dismiss PARKS a restorable consumer instead of removing it
         geometry = {
             float = {
                 height = 0.7,
@@ -338,6 +339,30 @@ open surface and lifts as focus moves out.
 | `clear_backdrop(id)`              | Tear a backdrop down, restoring every window                          |
 | `refresh_backdrop()`              | Rebuild every backdrop namespace from the live palette (theme change) |
 | `suspend(on)` / `on_suspend(cb)`  | Suspend/resume the per-window dim managers (backdrop coordination)     |
+| `hold_backdrop(on)`               | Freeze every backdrop's focus reconciliation across a transition       |
+| `release_backdrop_when_settled()` | Release the hold once focus has settled on a protected window          |
+| `transition_active()`             | Is a hold in progress? (focus-reactive chrome reads this)              |
+
+The backdrop `cfg` passed to `apply_backdrop`:
+
+| Field                     | Meaning                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| `enabled`                 | `false` → no backdrop (equivalent to `clear_backdrop`)                          |
+| `mode`                    | `"dim"` (mute fg toward `bg`) or `"darken"` (fg + bg toward black)              |
+| `amount`                  | Mute fraction, `0..1` (default `0.5`)                                          |
+| `bg`                      | The background foregrounds blend toward (default: the live `Normal` bg)         |
+| `protect(win)`            | `true` → `win` belongs to the consumer and is never muted                       |
+| `focus_keeps(win)`        | Wider than `protect`: `true` → keep the veil while `win` is current             |
+| `dim_panels`              | A modal backdrop also mutes special-buftype panels (terminals always skipped)   |
+
+**Holding a backdrop across a transition.** Reconciling focus on every `WinEnter` is right while a
+surface simply sits there, and wrong while one surface is being replaced by another: focus passes
+transiently through the editor mid-swap, the veil lifts, and the user sees a flash. A consumer that
+tears one surface down and opens another wraps the swap in `hold_backdrop(true)` and ends it with
+`release_backdrop_when_settled()`, which waits for focus to rest on a protected window and falls back
+to a timer only if that never happens — so the editor can never be left permanently dimmed. This is a
+**consumer-side seam** (`lvim-ui.surface` and the pickers use it); ordinary callers only need
+`apply_backdrop` / `clear_backdrop`.
 
 ### `dock`
 
@@ -358,8 +383,50 @@ docked / floated surface reads its **geometry** (size + backdrop + focus behavio
 | `visible` / `stack` / `entries`   | Query the current visible key / a layout's stack / all entries      |
 | `slot(layout, opts)`              | Resolve a layout's geometry to a rect (the single size authority)    |
 | `set_slot_provider` / `set_handoff` | Register the area-zone provider / the file-open handoff            |
+| `closed(key)` / `dropped(key)` / `parked(key)` | Report a self-dismissal; return `true` when the entry was PARKED |
+| `register_tab` / `unregister_tab` | Register a full-tab **workspace** in the fourth (coexisting) layout  |
+| `reveal_tab()` / `cycle_tab(dir)` | Reveal the last-used workspace / step through the live ones          |
 
-The `:LvimDock` command exposes the same operations from the command line.
+#### Soft dismiss vs kill (`keep_closed`)
+
+A consumer that closes its OWN window (`q`, `:q`, `WinClosed`) reports it with `closed` / `dropped` /
+`parked`. With `keep_closed = true` (the default) such a **soft dismiss PARKS** a consumer whose state
+survives the teardown (`is_alive()` returns true — e.g. a panel backed by a registry): the entry stays
+on its stack, at the top, re-summonable from the `<Leader>m` menu or by cycling, and `closed`/`dropped`
+return `true` so the consumer keeps its dock key. A non-restorable consumer (a finished process) is
+removed. The explicit `<Leader>x` **kill** (`close`) always removes, and is the escape hatch that forgets
+a parked entry. Parking also drops the buffer-local `<Leader>` owner — a parked consumer's buffers may
+outlive its window, and such a buffer must not keep swallowing leader chords; re-showing reinstalls it.
+
+#### Tab workspaces (the fourth layout)
+
+Beyond the three occlusion stacks, a consumer that owns a WHOLE tabpage (a full-screen workbench) can
+register as a **workspace**. Workspaces coexist rather than occlude — the tab layout has no
+one-visible-per-layout rule — so they get their own reveal/cycle and appear as a fourth tab in the
+unified menu. A workspace entry is:
+
+| Field          | Meaning                                                                       |
+| -------------- | ----------------------------------------------------------------------------- |
+| `id`           | Stable identity (e.g. `"lvim-rest"`, `"lvim-git:status"`)                      |
+| `name`         | Human label for the menu                                                      |
+| `icon`         | Optional menu glyph                                                           |
+| `show()`       | Bring it up: FOCUS its tab when open, otherwise RESTORE (reopen) it            |
+| `is_current()` | Is it the current tabpage? (marks it visible in the menu)                      |
+| `is_alive()`   | Still listable — open, or restorable? `false` drops it from the menu           |
+
+Registration order is the cycle order, and is stable across re-registration.
+
+#### The `:LvimDock` command
+
+```
+:LvimDock                      the unified TABBED menu (area / bottom / float / tab)
+:LvimDock menu                 the same
+:LvimDock <layout>             reveal that layout's current dock (or last-used workspace for `tab`)
+:LvimDock <layout> menu        a single-list menu scoped to that layout
+:LvimDock <layout> next|prev   cycle that layout forward / back
+```
+
+`<layout>` is `area`, `bottom`, `float` or `tab`; every token completes.
 
 ### `store`
 

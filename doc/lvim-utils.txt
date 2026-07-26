@@ -222,6 +222,39 @@ apply_backdrop(id, cfg)         Apply a focus-aware backdrop behind a surface.
 clear_backdrop(id)              Tear a backdrop down, restoring every window.
 refresh_backdrop()              Rebuild every backdrop ns from the live palette.
 suspend(on) / on_suspend(cb)    Suspend/resume per-window dim managers.
+hold_backdrop(on)               Freeze focus reconciliation across a transition.
+release_backdrop_when_settled() Release the hold once focus has settled.
+transition_active()             Is a hold in progress?
+
+                                                   *lvim-utils-dim-backdrop*
+The `cfg` handed to apply_backdrop(): >lua
+    {
+        enabled = true,       -- false → no backdrop (same as clear_backdrop)
+        mode = "dim",         -- "dim" (fg toward bg) | "darken" (fg+bg → black)
+        amount = 0.5,         -- mute fraction 0..1
+        bg = nil,             -- blend target (default: the live Normal bg)
+        protect = function(win) end,      -- win is the consumer's → never muted
+        focus_keeps = function(win) end,  -- wider: keep the veil while current
+        dim_panels = false,   -- also mute special-buftype panels (not terminals)
+    }
+<
+                                                       *lvim-utils-dim-hold*
+Reconciling focus on every |WinEnter| is right while a surface sits there, and
+wrong while one surface REPLACES another: focus passes transiently through the
+editor mid-swap, the veil lifts, and the user sees a flash. A consumer that
+tears one surface down and opens another wraps the swap: >lua
+    dim.hold_backdrop(true)
+    -- … close the old surface, open the new one …
+    dim.release_backdrop_when_settled()
+<
+release_backdrop_when_settled() waits for focus to rest on a PROTECTED window
+(the primary signal) and falls back to a timer only if that never happens, so
+the editor can never be left permanently dimmed. `focus_keeps` covers the
+narrower case of a consumer that legitimately focuses a window it does not own
+(a preview, an input popup) without lifting the veil.
+
+This is a CONSUMER-SIDE seam — lvim-ui.surface and the pickers use it; ordinary
+callers need only apply_backdrop() / clear_backdrop().
 
 ==============================================================================
 8. DOCK                                                     *lvim-utils-dock*
@@ -244,9 +277,50 @@ reveal(layout) / descend()      Reveal a layout's stack / descend a consumer.
 visible/stack/entries           Query visible key / a stack / all entries.
 slot(layout, opts)              Resolve a layout's geometry to a rect.
 set_slot_provider / set_handoff Register the area-zone provider / file handoff.
+closed/dropped/parked(key)      Report a self-dismissal (see the parking rules).
+register_tab / unregister_tab   Register a full-tab WORKSPACE (fourth layout).
+reveal_tab() / cycle_tab(dir)   Reveal the last-used workspace / step through.
+
+                                                    *lvim-utils-dock-parking*
+A consumer that closes its OWN window (`q`, `:q`, |WinClosed|) reports it with
+closed() / dropped() / parked(). With `keep_closed = true` (the default) such a
+SOFT DISMISS PARKS a consumer whose state survives the teardown (`is_alive()`
+true — e.g. a panel backed by a registry): the entry stays on its stack, at the
+top, re-summonable from the `<Leader>m` menu or by cycling, and closed()/
+dropped() return `true` so the consumer keeps its dock key. A non-restorable
+consumer (a finished process) is removed instead.
+
+The explicit `<Leader>x` KILL (close()) ALWAYS removes — it is the escape hatch
+that forgets a parked entry. Parking also drops the buffer-local `<Leader>`
+owner: a parked consumer's buffers may outlive its window, and such a buffer
+must not keep swallowing leader chords. Re-showing reinstalls it.
+
+                                                       *lvim-utils-dock-tabs*
+Beyond the three occlusion stacks, a consumer that owns a WHOLE tabpage (a
+full-screen workbench) registers as a WORKSPACE. Workspaces COEXIST rather than
+occlude — the tab layout has no one-visible-per-layout rule — so they get their
+own reveal/cycle and appear as a fourth tab in the unified menu: >lua
+    require("lvim-utils.dock").register_tab({
+        id = "lvim-rest",                       -- stable identity
+        name = "REST workbench",                -- menu label
+        icon = "󰖟",                              -- optional glyph
+        show = function() end,                  -- FOCUS its tab, else RESTORE it
+        is_current = function() end,            -- is it the current tabpage?
+        is_alive = function() end,              -- still listable? false → dropped
+    })
+<
+Registration order is the cycle order, and is stable across re-registration.
 
                                                                   *:LvimDock*
-The :LvimDock command exposes the same operations from the command line.
+:LvimDock                       The unified TABBED menu (area/bottom/float/tab).
+:LvimDock menu                  The same.
+:LvimDock {layout}              Reveal that layout's current dock — or, for
+                                `tab`, the last-used workspace.
+:LvimDock {layout} menu         A single-list menu scoped to that layout.
+:LvimDock {layout} next         Cycle that layout forward.
+:LvimDock {layout} prev         Cycle that layout back.
+
+{layout} is `area`, `bottom`, `float` or `tab`; every token completes.
 
 ==============================================================================
 9. STORE                                                   *lvim-utils-store*
