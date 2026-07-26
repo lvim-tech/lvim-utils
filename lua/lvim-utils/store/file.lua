@@ -9,7 +9,7 @@
 --
 ---@module "lvim-utils.store.file"
 
-local uv = vim.uv or vim.loop
+local uv = vim.uv
 
 local M = {}
 
