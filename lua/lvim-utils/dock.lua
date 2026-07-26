@@ -367,7 +367,8 @@ end
 ---@param key string
 ---@param reason "open"|"cycle"|"restore"
 ---@param previous_key string?
-local function do_show(key, reason, previous_key)
+---@param no_focus boolean?  true = show it but leave the cursor where it is (see `M.open`)
+local function do_show(key, reason, previous_key, no_focus)
     local c = by_key[key]
     if not c then
         return
@@ -377,7 +378,12 @@ local function do_show(key, reason, previous_key)
     -- (config.dock.geometry via `M.slot`) instead of computing its own — that is what makes every consumer in a
     -- layout land in the identical rect. A consumer's own `c.slot` is an ANCHORED override (wins over global).
     pcall(c.show, { layout = L, reason = reason, previous_id = previous_key, rect = M.slot(L, c.slot) })
-    if c.focus then
+    -- REVEAL WITHOUT FOCUS (`open(consumer, { focus = false })`): the consumer is shown but the cursor
+    -- stays where it is. This is the seam a caller needs when the panel is a SIDE EFFECT of an action
+    -- taken elsewhere — a test run fired from the summary tree wants its output visible without being
+    -- yanked out of the tree. Without it the caller can only restore focus AFTER the fact, which is a
+    -- race: the dock focuses on a deferred tick, so the restore has to guess a delay.
+    if c.focus and not no_focus then
         pcall(c.focus)
     end
     install_leader(key)
@@ -496,13 +502,19 @@ end
 --- enforces one-visible-per-layout (any OTHER visible consumer there is hidden — it stays on the stack,
 --- state preserved). RETURNS the entry KEY — the consumer stores it and passes it back to the lifecycle
 --- APIs (`M.parked`/`closed`/`dropped`/`hide`/`close`/`refresh_leader`/`show`) for THIS entry.
+--- `opts.focus = false` REVEALS WITHOUT FOCUSING: the consumer is shown but the cursor stays where it
+--- is. Use it when the panel is a SIDE EFFECT of an action taken elsewhere (a test run fired from a
+--- summary tree wants its output visible without yanking the cursor out of the tree). The alternative —
+--- restoring focus after the fact — is a race, because the show happens on a deferred tick.
 ---@param consumer LvimDockConsumer
+---@param opts? { focus?: boolean }  focus = false → show it, but leave the cursor where it is
 ---@return string key
-function M.open(consumer)
+function M.open(consumer, opts)
     local L = consumer.layout
     local key = ekey(consumer.id, L)
     by_key[key] = consumer
     local cur = visible[L]
+    local no_focus = opts ~= nil and opts.focus == false
     -- COALESCE the swap (see `run_swap`): whenever a consumer is already visible here we do a RELEASE (hide the
     -- previous, or — for a re-show of the SAME key — the consumer's `show` tears its own surface down) immediately
     -- followed by a RESERVE (`do_show`), so a zone-hosted layout must paint both as one reflow (else it collapses
@@ -513,7 +525,7 @@ function M.open(consumer)
         end
         push_top(stacks[L], key)
         visible[L] = key
-        do_show(key, "open", cur ~= key and cur or nil)
+        do_show(key, "open", cur ~= key and cur or nil, no_focus)
     end)
     return key
 end
@@ -809,7 +821,12 @@ function M.closed(key)
     end
     -- Restorable consumer + keep_closed → PARK it (kept on the stack, re-summonable). It collapses
     -- (no auto-reveal of the next) — a self-close means "dismiss", and the entry stays at the TOP.
+    -- The leader owner goes even though the ENTRY stays: the consumer's buffers may outlive the window
+    -- (a panel backed by a registry), and such a buffer opened outside the dock would otherwise keep
+    -- swallowing every <Leader> chord. `do_show` re-installs it idempotently on re-summon — the same
+    -- semantics as `M.parked`, the other park flavour.
     if (config.dock or {}).keep_closed ~= false and (c.is_alive == nil or c.is_alive() == true) then
+        remove_leader(key)
         return true
     end
     remove_leader(key)
@@ -840,7 +857,10 @@ function M.dropped(key)
     end
     -- keep_closed (config): PARK a restorable consumer (is_alive) instead of dropping it, so it can be
     -- re-summoned. A finder that is DONE (query consumed) reports is_alive() false → still dropped.
+    -- The leader owner is removed here too (see `M.closed`): the entry survives, its on-screen window
+    -- does not, and a surviving buffer must not keep the dock's <Leader> owner installed.
     if (config.dock or {}).keep_closed ~= false and (c.is_alive == nil or c.is_alive() == true) then
+        remove_leader(key)
         return true
     end
     remove_leader(key)
