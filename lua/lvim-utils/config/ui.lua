@@ -220,6 +220,7 @@ return {
             match = "red",
             kind = "cyan",
             marker = "red",
+            visual = "blue", -- the zone's OWN Visual selection (the editor's wash is invisible on tinted rows)
         },
 
         dashboard = {

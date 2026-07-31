@@ -130,6 +130,13 @@ return function(c)
 
         -- ── Message area (lvim-msgarea): a docked panel — own dark bg + a full-width title bar ─────────
         LvimUiMsgAreaNormal = { fg = c.fg, bg = c.bg_dark },
+        -- The zone is a scrollback you SELECT and copy from, and every row already carries a tint of its
+        -- own — the editor's `Visual` (a near-bg wash) disappears against them, so what is selected is
+        -- guesswork. Its own group, tinted well past the row tints, so the selection is unmistakable.
+        LvimUiMsgAreaVisual = { bg = mtint(col(ma.visual, "blue"), T.active or 0.35) },
+        -- The OTHER rows of the item under the cursor: emphasis only, no background of its own — the item
+        -- reads as one block while the cursor tint still marks the single row you are on.
+        LvimUiMsgAreaItemFocus = { bold = true },
         LvimUiMsgAreaTitle = { fg = a_zone, bg = mtint(a_zone, t_zone), bold = true },
         LvimUiMsgAreaTitleFill = { bg = mtint(a_zone, t_zone) },
         -- The title TEXT on a strip that already carries the tint (the `:Messages` filter bar): fg only, so it
