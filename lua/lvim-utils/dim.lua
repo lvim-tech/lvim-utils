@@ -39,21 +39,20 @@ M.darken_ns = nil
 -- them); leaving a slightly-muted previous colour for a frame until the next rebuild is harmless, whereas an
 -- empty override makes real panels disappear. If strict cleanup is ever needed, recreate the ns — never blank it.
 
----@type table<string, true> Lua patterns for highlight groups whose fg must NOT be muted — their foreground
---- carries DATA, not a colour (e.g. lvim-image's `LvimImage_<id>` encode the kitty image id in fg; muting it
---- makes the terminal read a different id and the image vanishes). Registered via `M.preserve`.
+---@type table<string, "data"|"chrome"> Lua patterns for highlight groups whose fg must NOT be muted — their
+--- foreground carries DATA, not a colour (e.g. lvim-image's `LvimImage_<id>` encode the kitty image id in fg;
+--- muting it makes the terminal read a different id and the image vanishes). Registered via `M.preserve`.
 local preserved = {}
 
 --- Register a Lua pattern of highlight-group NAMES to leave UNMUTED in the dim namespace (their fg copied
 --- verbatim). Use for groups whose foreground is a data channel, not a visible colour.
----@param pattern string
---- @param pattern string  a Lua pattern matched against the group NAME
---- @param opts? { data?: boolean }  `data = true` marks a group whose colour IS DATA (an image placement id,
+---@param pattern string  a Lua pattern matched against the group NAME
+---@param opts? { data?: boolean }  `data = true` marks a group whose colour IS DATA (an image placement id,
 ---   a jump label) — never touched, in any mode. Without it the group is CHROME: kept at full colour under a
 ---   `dim` veil (which only mutes foregrounds, so chrome must stay legible) but muted with everything else
 ---   under a `darken` veil, whose whole point is that the screen behind the float goes dark. Chrome that
 ---   stayed bright there read as lit islands over a darkened editor.
---- @return nil
+---@return nil
 function M.preserve(pattern, opts)
     preserved[pattern] = (opts and opts.data) and "data" or "chrome"
 end
@@ -92,10 +91,8 @@ end
 
 --- Whether `name` matches any registered preserve pattern.
 ---@param name string
+---@param mode? string  "darken" applies the stricter rule: only DATA groups survive the veil
 ---@return boolean
---- @param name string
---- @param mode? string  "darken" applies the stricter rule: only DATA groups survive the veil
---- @return boolean
 local function is_preserved(name, mode)
     for pat, kind in pairs(preserved) do
         -- Only DATA survives a veil, in either mode. Chrome used to be exempt under `dim` so the bars stayed
@@ -136,7 +133,7 @@ function M.build(bg_hex, amount, ns)
         if not M.ns then
             M.ns = api.nvim_create_namespace("lvim_utils_dim")
         end
-        ns = M.ns
+        ns = M.ns --[[@as integer]]
     end
     local bg = tonumber((bg_hex or "#000000"):gsub("#", ""), 16) or 0
     ns_rule[ns] = { mode = "dim", target = bg, amount = amount }
@@ -162,6 +159,52 @@ function M.build(bg_hex, amount, ns)
     return ns --[[@as integer]]
 end
 
+--- Push ONE group into every live namespace, muted by that namespace's OWN rule.
+---
+--- A namespace is a SNAPSHOT: `build`/`darken` walk the whole highlight table once, so a group defined or
+--- REDEFINED afterwards is simply not in it, and a veiled window falls back to the global (ns 0) definition for
+--- it — at full, unveiled colour. That is not a corner case, it is the normal life of the chrome: the bars mint
+--- a per-extension devicon group the first time a filetype is shown, and re-stamp it with the new bar background
+--- on every palette change, both of which land AFTER the veil was built. The result was the icon cell keeping
+--- the PREVIOUS theme's bar background — a light chip left on a screen the picker had just repainted dark.
+---
+--- lvim-hud has been calling this on exactly those two paths all along (`pcall`-wrapped, so a missing function
+--- failed silently and looked like a dim bug). `ns_rule` records how each namespace was built precisely so the
+--- transformation can be reproduced for one group: verbatim for data, the link kept for a link, otherwise the
+--- same blend toward the same target — fg only under `dim`, fg + bg under `darken`.
+---@param name string  the highlight group, already set in ns 0
+---@return nil
+function M.publish(name)
+    if type(name) ~= "string" or next(ns_rule) == nil then
+        return
+    end
+    local def = api.nvim_get_hl(0, { name = name })
+    if not def or vim.tbl_isempty(def) then
+        return
+    end
+    for ns, rule in pairs(ns_rule) do
+        if is_preserved(name, rule.mode) then
+            api.nvim_set_hl(ns, name, def)
+        elseif def.link then
+            api.nvim_set_hl(ns, name, { link = def.link })
+        else
+            -- A copy per namespace: two veils with different amounts must each blend from the ORIGINAL colour,
+            -- not from what the previous iteration left behind.
+            local muted = vim.deepcopy(def)
+            if muted.fg then
+                muted.fg = M.blend(muted.fg, rule.target, rule.amount)
+            end
+            if muted.sp then
+                muted.sp = M.blend(muted.sp, rule.target, rule.amount)
+            end
+            if rule.mode == "darken" and muted.bg then
+                muted.bg = M.blend(muted.bg, rule.target, rule.amount)
+            end
+            api.nvim_set_hl(ns, name, muted)
+        end
+    end
+end
+
 --- (Re)build the DARKEN namespace from the current global highlights, muting each group's fg AND bg (and sp)
 --- toward `dark_hex` by `amount` — so EVERYTHING (text + background) goes darker, matching the old winblend
 --- veil look, but through a namespace (no covering window) so a terminal-composited image under a darkened
@@ -175,7 +218,7 @@ function M.darken(dark_hex, amount, ns)
         if not M.darken_ns then
             M.darken_ns = api.nvim_create_namespace("lvim_utils_darken")
         end
-        ns = M.darken_ns
+        ns = M.darken_ns --[[@as integer]]
     end
     local dark = tonumber((dark_hex or "#000000"):gsub("#", ""), 16) or 0
     ns_rule[ns] = { mode = "darken", target = dark, amount = amount }
