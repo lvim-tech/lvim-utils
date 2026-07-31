@@ -20,6 +20,12 @@ local M = {}
 
 ---@type integer? the DIM namespace (foreground muted toward bg); lazily created by build()
 M.ns = nil
+---@type table<integer, { mode: string, target: integer, amount: number }>  how each namespace was BUILT —
+--- the rule `publish` must reproduce for a group created after the build. Without it a late-born group was
+--- copied verbatim into every veil, which is right for a `dim` veil (chrome is preserved there) and wrong for
+--- a `darken` one, where the same group must be muted with everything else — it showed as a lit island.
+local ns_rule = {}
+
 ---@type integer? the DARKEN namespace (background muted toward a dark colour); lazily created by darken()
 M.darken_ns = nil
 
@@ -41,8 +47,15 @@ local preserved = {}
 --- Register a Lua pattern of highlight-group NAMES to leave UNMUTED in the dim namespace (their fg copied
 --- verbatim). Use for groups whose foreground is a data channel, not a visible colour.
 ---@param pattern string
-function M.preserve(pattern)
-    preserved[pattern] = true
+--- @param pattern string  a Lua pattern matched against the group NAME
+--- @param opts? { data?: boolean }  `data = true` marks a group whose colour IS DATA (an image placement id,
+---   a jump label) — never touched, in any mode. Without it the group is CHROME: kept at full colour under a
+---   `dim` veil (which only mutes foregrounds, so chrome must stay legible) but muted with everything else
+---   under a `darken` veil, whose whole point is that the screen behind the float goes dark. Chrome that
+---   stayed bright there read as lit islands over a darkened editor.
+--- @return nil
+function M.preserve(pattern, opts)
+    preserved[pattern] = (opts and opts.data) and "data" or "chrome"
 end
 
 -- lvim's own UI FURNITURE is chrome, not dimmable content. A surface backdrop must never fade a panel's
@@ -80,9 +93,12 @@ end
 --- Whether `name` matches any registered preserve pattern.
 ---@param name string
 ---@return boolean
-local function is_preserved(name)
-    for pat in pairs(preserved) do
-        if name:find(pat) then
+--- @param name string
+--- @param mode? string  "darken" applies the stricter rule: only DATA groups survive the veil
+--- @return boolean
+local function is_preserved(name, mode)
+    for pat, kind in pairs(preserved) do
+        if name:find(pat) and (kind == "data" or mode ~= "darken") then
             return true
         end
     end
@@ -119,6 +135,7 @@ function M.build(bg_hex, amount, ns)
         ns = M.ns
     end
     local bg = tonumber((bg_hex or "#000000"):gsub("#", ""), 16) or 0
+    ns_rule[ns] = { mode = "dim", target = bg, amount = amount }
     for name, def in pairs(api.nvim_get_hl(0, {})) do
         if is_preserved(name) then
             -- Data-carrying fg (e.g. an image id) — copy verbatim so it renders identically under the dim ns.
@@ -157,8 +174,9 @@ function M.darken(dark_hex, amount, ns)
         ns = M.darken_ns
     end
     local dark = tonumber((dark_hex or "#000000"):gsub("#", ""), 16) or 0
+    ns_rule[ns] = { mode = "darken", target = dark, amount = amount }
     for name, def in pairs(api.nvim_get_hl(0, {})) do
-        if is_preserved(name) then
+        if is_preserved(name, "darken") then
             api.nvim_set_hl(ns, name, def)
         elseif def.link then
             api.nvim_set_hl(ns, name, { link = def.link })
@@ -276,6 +294,13 @@ local function make_rebuild(mode, amount, fixed_bg)
     end
 end
 
+-- NOTE: the look-key deliberately does NOT include the palette. Keying by palette gives each theme its own
+-- namespace, and the colorscheme picker changes the palette on every keystroke — so a new namespace is minted
+-- mid-preview and the windows already dimmed stay on the previous one. Measured: every window on a DIFFERENT
+-- ns (the tree on 82, the editor on 7, the outline on 92 …), which is one veil in name only. A palette change
+-- is handled by REBUILDING the namespace in place (`refresh_backdrop`), which keeps its identity stable —
+-- that is why the cache is keyed by the look alone.
+
 --- Resolve the backdrop namespace for `cfg`'s effective look — BUILDING it only the FIRST time this look is
 --- seen. A given look-key has a fixed mode/amount/bg (bg is part of the key), so the namespace never needs
 --- rebuilding on a later apply — and MUST NOT be, because the ns may be IN USE by a still-applied backdrop
@@ -302,8 +327,18 @@ local function bd_ns(cfg)
         }
         bd_ns_cache[key] = entry
         backdrop_ns_set[entry.ns] = true
-        entry.rebuild(entry.ns) -- populate ONCE; later applies reuse it, refresh_backdrop() repopulates on theme
+        entry.rebuild(entry.ns)
     end
+    -- REBUILD on every apply. A namespace is a SNAPSHOT of the highlights as they stood when it was made, and
+    -- it was made at the FIRST float of the session — which can be before the remembered theme has been
+    -- applied, or simply long before the palette last changed. From then on every float showed that old
+    -- palette behind it: not a dimmed editor, a DIFFERENT THEME (measured: the veil holding
+    -- `LvimUiBarFill.bg = #343837` from a dark palette while the live group was `#dad9d7`). `refresh_backdrop`
+    -- only covers a theme APPLY, and a user who never switches themes never triggers it.
+    --
+    -- Unconditional on purpose: a guard that skipped the rebuild while any backdrop was live turned out to
+    -- skip it always (a stale entry keeps `dimmed` populated), which is how this stayed hidden.
+    entry.rebuild(entry.ns)
     return entry.ns
 end
 
