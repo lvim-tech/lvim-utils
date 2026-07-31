@@ -98,7 +98,11 @@ end
 --- @return boolean
 local function is_preserved(name, mode)
     for pat, kind in pairs(preserved) do
-        if name:find(pat) and (kind == "data" or mode ~= "darken") then
+        -- Only DATA survives a veil, in either mode. Chrome used to be exempt under `dim` so the bars stayed
+        -- readable — but with the panels, the trees and the editor all receding, the bars were the one thing
+        -- left at full colour, which reads as a rendering fault rather than as a choice. A veil that covers
+        -- everything except what is literally data (an image placement id, a jump label) is the honest one.
+        if name:find(pat) and kind == "data" then
             return true
         end
     end
