@@ -203,7 +203,7 @@ local function cursor_occluded(win)
         if w ~= win and api.nvim_win_is_valid(w) then
             local ok, c = pcall(api.nvim_win_get_config, w)
             -- Only EDITOR-relative full-width floats (a bottom/area dock panel or its frame container).
-            -- `relative == "win"` floats are window DECORATIONS (a winbar / winfooter) — not panels — and
+            -- `relative == "win"` floats are window DECORATIONS (a winbar / winband) — not panels — and
             -- must NOT count, or the cursor would hide behind a footer near the TOP of the file too.
             if ok and c and c.relative == "editor" and api.nvim_win_get_width(w) >= cols - 2 then
                 -- Occlude only the screen rows the float actually SPANS — not everything below its top (a
