@@ -14,11 +14,14 @@
 ---@field menu       string  Open a MENU (lvim-ui.select) of every live dock consumer across the three
 ---                          stacks; selecting one shows it in its layout (default "<Leader>m").
 
+--- The central per-layout spec carries every field; a per-OPEN override may carry only `enabled`
+--- (`backdrop = false` disables it for one open), which is why the look fields are optional — they are
+--- read only once a backdrop is on, and each reader already defaults them.
 ---@class LvimUtilsDockBackdrop
 ---@field enabled boolean   false → no backdrop for that layout.
----@field mode    "darken"|"dim"  which look is LIVE — "darken" (fg+bg toward black) or "dim" (fg only, lighter).
----@field dim     { amount: number }  the "dim" mute fraction 0..1 (used when mode == "dim").
----@field darken  { amount: number }  the "darken" mute fraction 0..1 (used when mode == "darken").
+---@field mode?   "darken"|"dim"  which look is LIVE — "darken" (fg+bg toward black) or "dim" (fg only, lighter).
+---@field dim?    { amount: number }  the "dim" mute fraction 0..1 (used when mode == "dim").
+---@field darken? { amount: number }  the "darken" mute fraction 0..1 (used when mode == "darken").
 
 ---@class LvimUtilsDockLayoutGeometry
 ---@field height      number   Fraction 0.1..1.0 of the screen height (area/bottom are also clamped to the room).

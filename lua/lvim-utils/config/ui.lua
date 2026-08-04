@@ -78,6 +78,7 @@
 ---@field match    string  the typed-query match inside an item
 ---@field kind     string  an item's kind icon
 ---@field marker   string  the multi-select mark
+---@field visual   string  the zone's OWN Visual selection (the editor's wash vanishes on tinted rows)
 
 ---@class LvimUtilsUiAccentDashboard
 ---@field header  string

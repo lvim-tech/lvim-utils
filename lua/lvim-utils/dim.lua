@@ -89,11 +89,11 @@ function M.suspend(on)
     end
 end
 
---- Whether `name` matches any registered preserve pattern.
+--- Whether `name` matches any registered preserve pattern. The rule is the SAME in both veil modes
+--- (see below), so the caller's mode is not part of the answer.
 ---@param name string
----@param mode? string  "darken" applies the stricter rule: only DATA groups survive the veil
 ---@return boolean
-local function is_preserved(name, mode)
+local function is_preserved(name)
     for pat, kind in pairs(preserved) do
         -- Only DATA survives a veil, in either mode. Chrome used to be exempt under `dim` so the bars stayed
         -- readable — but with the panels, the trees and the editor all receding, the bars were the one thing
@@ -183,8 +183,8 @@ function M.publish(name)
         return
     end
     for ns, rule in pairs(ns_rule) do
-        if is_preserved(name, rule.mode) then
-            api.nvim_set_hl(ns, name, def)
+        if is_preserved(name) then
+            api.nvim_set_hl(ns, name, def --[[@as vim.api.keyset.highlight]])
         elseif def.link then
             api.nvim_set_hl(ns, name, { link = def.link })
         else
@@ -200,7 +200,7 @@ function M.publish(name)
             if rule.mode == "darken" and muted.bg then
                 muted.bg = M.blend(muted.bg, rule.target, rule.amount)
             end
-            api.nvim_set_hl(ns, name, muted)
+            api.nvim_set_hl(ns, name, muted --[[@as vim.api.keyset.highlight]])
         end
     end
 end
@@ -223,7 +223,7 @@ function M.darken(dark_hex, amount, ns)
     local dark = tonumber((dark_hex or "#000000"):gsub("#", ""), 16) or 0
     ns_rule[ns] = { mode = "darken", target = dark, amount = amount }
     for name, def in pairs(api.nvim_get_hl(0, {})) do
-        if is_preserved(name, "darken") then
+        if is_preserved(name) then
             api.nvim_set_hl(ns, name, def)
         elseif def.link then
             api.nvim_set_hl(ns, name, { link = def.link })
@@ -454,7 +454,7 @@ local function bd_paint(bd, on)
         -- live backdrop still claims goes back to its pre-backdrop `prev`.
         for w, prev in pairs(bd.dimmed) do
             local other
-            for oid, obd in pairs(backdrops) do
+            for _, obd in pairs(backdrops) do
                 if obd ~= bd and obd.dimmed[w] then
                     other = obd
                     break

@@ -133,7 +133,9 @@ return function(c)
         -- The zone is a scrollback you SELECT and copy from, and every row already carries a tint of its
         -- own — the editor's `Visual` (a near-bg wash) disappears against them, so what is selected is
         -- guesswork. Its own group, tinted well past the row tints, so the selection is unmistakable.
-        LvimUiMsgAreaVisual = { bg = mtint(col(ma.visual, "blue"), T.active or 0.35) },
+        -- `selection` (0.35) is the tint this always resolved to: the key it used to name (`active`) has
+        -- never existed in the tint table, so the `or 0.35` fallback was the only value it ever took.
+        LvimUiMsgAreaVisual = { bg = mtint(col(ma.visual, "blue"), T.selection or 0.35) },
         -- The OTHER rows of the item under the cursor: emphasis only, no background of its own — the item
         -- reads as one block while the cursor tint still marks the single row you are on.
         LvimUiMsgAreaItemFocus = { bold = true },
