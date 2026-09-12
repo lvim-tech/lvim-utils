@@ -642,18 +642,18 @@ function M.entries()
         end
     end
     -- Tab workspaces (coexisting — appended after the three stacks). Listed when alive (open or
-    -- restorable); `visible` marks the one that is the CURRENT tabpage.
-    for _, e in pairs(tab_entries) do
-        if e.is_alive == nil or e.is_alive() == true then
-            out[#out + 1] = {
-                key = TAB_KEY .. e.id,
-                id = e.id,
-                name = e.name or e.id,
-                layout = "tab",
-                icon = e.icon,
-                visible = e.is_current ~= nil and e.is_current() == true,
-            }
-        end
+    -- restorable), in REGISTRATION order (`live_tabs`, the same order `cycle_tab` steps through —
+    -- a `pairs` walk shuffled the menu between calls); `visible` marks the CURRENT tabpage.
+    for _, id in ipairs(live_tabs()) do
+        local e = tab_entries[id]
+        out[#out + 1] = {
+            key = TAB_KEY .. e.id,
+            id = e.id,
+            name = e.name or e.id,
+            layout = "tab",
+            icon = e.icon,
+            visible = e.is_current ~= nil and e.is_current() == true,
+        }
     end
     return out
 end
