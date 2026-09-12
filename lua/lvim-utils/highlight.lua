@@ -205,6 +205,22 @@ end
 ---@param fn fun(colors?: table): table<string, table>
 ---@return fun()  dispose
 function M.bind(fn)
+    -- Bound ONCE per factory: `lvim-utils.setup()` binds the central factory on every call, so a
+    -- repeated setup() used to stack a second (third, …) copy of it, each re-run on every palette
+    -- change and ColorScheme. A factory already bound is only re-applied.
+    for _, f in ipairs(bound) do
+        if f == fn then
+            apply_bound(fn, false)
+            return function()
+                for i, g in ipairs(bound) do
+                    if g == fn then
+                        table.remove(bound, i)
+                        break
+                    end
+                end
+            end
+        end
+    end
     bound[#bound + 1] = fn
     -- initial: default (overwritable by a colorscheme/user that already themed the group)
     apply_bound(fn, false)
