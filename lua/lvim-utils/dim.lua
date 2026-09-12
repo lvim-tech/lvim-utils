@@ -44,24 +44,23 @@ M.darken_ns = nil
 --- muting it makes the terminal read a different id and the image vanishes). Registered via `M.preserve`.
 local preserved = {}
 
---- Register a Lua pattern of highlight-group NAMES to leave UNMUTED in the dim namespace (their fg copied
---- verbatim). Use for groups whose foreground is a data channel, not a visible colour.
+--- Register a Lua pattern of highlight-group NAMES whose foreground is a DATA channel, not a visible colour
+--- — copied verbatim into every veil, in both modes. Only `data = true` registrations have an effect: a
+--- registration without it marks the group as CHROME, which is muted like everything else (chrome used to
+--- stay lit under a `dim` veil, but with the panels and the editor all receding the bars read as a rendering
+--- fault — see `is_preserved`). Chrome registrations are still accepted so the intent stays declared in one
+--- place, but they change nothing.
 ---@param pattern string  a Lua pattern matched against the group NAME
----@param opts? { data?: boolean }  `data = true` marks a group whose colour IS DATA (an image placement id,
----   a jump label) — never touched, in any mode. Without it the group is CHROME: kept at full colour under a
----   `dim` veil (which only mutes foregrounds, so chrome must stay legible) but muted with everything else
----   under a `darken` veil, whose whole point is that the screen behind the float goes dark. Chrome that
----   stayed bright there read as lit islands over a darkened editor.
+---@param opts? { data?: boolean }  `data = true` → the group's colour IS DATA (an image placement id, a jump
+---   label) and is never touched
 ---@return nil
 function M.preserve(pattern, opts)
     preserved[pattern] = (opts and opts.data) and "data" or "chrome"
 end
 
--- lvim's own UI FURNITURE is chrome, not dimmable content. A surface backdrop must never fade a panel's
--- TITLE BAND (lvim-files' "LVIM FILES" strip, the peek/msgarea titles, a section band) just because a float
--- opened — only the CODE behind it should mute. These groups are defined in `lvim-utils.config.highlight`,
--- so the policy belongs here, next to the namespaces that would otherwise mute them.
--- (The chrome BARS — `LvimUiChrome*` — are self-registered by lvim-hud, which owns those.)
+-- lvim's own UI FURNITURE (title bands, section bands; the `LvimUiChrome*` bars are registered by lvim-hud)
+-- is declared here as CHROME — which, since the veil covers chrome too, means it is muted with everything
+-- else. The declarations remain as the record of which groups are furniture, should the policy ever flip.
 M.preserve("^LvimUi.*Title") -- Title / PeekTitle / MsgAreaTitle / DashboardTitle (+ Icon/Text/Hover/Fill)
 M.preserve("^LvimUi.*Band") -- SectionBand / TitleBandResult / TitleBandSpec
 
