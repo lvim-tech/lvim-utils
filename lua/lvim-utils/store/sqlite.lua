@@ -152,6 +152,77 @@ function Sql:_exec_bound(sql, args)
     return ok, rowid
 end
 
+--- Run one SELECT with every value bound BY INDEX and return its rows as key/value tables, or nil
+--- on error / closed handle. The read-side twin of `_exec_bound`: sqlite.lua's `tbl:get` /
+--- `tbl:remove` inline a WHERE value as a SQL literal, and a value holding a single quote came
+--- back as a broken statement — a saved connection or macro named `O'Brien` could be inserted
+--- but never found, counted or removed again. Binding takes no such path.
+---@param sql string   a statement using `?` placeholders
+---@param args any[]   one value per placeholder, in order
+---@return table[]?
+function Sql:_query_bound(sql, args)
+    if not self._db then
+        return nil
+    end
+    local stmt_ok, sqlstmt = pcall(require, "sqlite.stmt")
+    if not stmt_ok then
+        return nil
+    end
+    local rows
+    local function run(conn)
+        local stmt = sqlstmt:parse(conn, sql)
+        for i, v in ipairs(args) do
+            if type(v) == "boolean" then
+                v = v and 1 or 0
+            end
+            stmt:bind(i, v)
+        end
+        rows = stmt:kvrows()
+        stmt:finalize()
+    end
+    local ok = pcall(function()
+        if self._db:isopen() then
+            run(self._db.conn)
+        else
+            self._db:with_open(function(conn)
+                run(conn.conn)
+            end)
+        end
+    end)
+    return ok and rows or nil
+end
+
+--- A column / table name that can be spliced into SQL verbatim (letters, digits, underscore).
+---@param name any
+---@return boolean
+local function is_ident(name)
+    return type(name) == "string" and name:match("^[%a_][%w_]*$") ~= nil
+end
+
+--- `where` as a bound clause: the SQL fragment (without `where`) and its values, or nil when a
+--- key is not a plain identifier or a value is not a bindable scalar (the caller then keeps
+--- sqlite.lua's own path).
+---@param where table?
+---@return string? clause, any[] args
+local function bound_where(where)
+    local parts, args = {}, {}
+    local keys = {}
+    for k in pairs(where or {}) do
+        keys[#keys + 1] = k
+    end
+    table.sort(keys)
+    for _, k in ipairs(keys) do
+        local v = where[k]
+        local t = type(v)
+        if not is_ident(k) or (t ~= "string" and t ~= "number" and t ~= "boolean") then
+            return nil, {}
+        end
+        parts[#parts + 1] = k .. " = ?"
+        args[#args + 1] = v
+    end
+    return table.concat(parts, " and "), args
+end
+
 -- ── version / migrations ────────────────────────────────────────────────────
 
 ---@return integer
@@ -318,15 +389,46 @@ function Sql:find(name, where, options)
     if not t then
         return false
     end
-    local q = options or {}
-    if where and next(where) ~= nil then
-        q.where = where
+    -- BOUND path: a plain equality `where` plus, at most, `order_by = { asc|desc = column }` and a
+    -- numeric `limit` — everything the set's callers use. Any other option (select / contains /
+    -- join …) keeps sqlite.lua's own query builder below.
+    local clause, args = bound_where(where)
+    local opts = options or {}
+    local bound_ok = clause ~= nil and is_ident(name)
+    local order, limit = "", ""
+    for k, v in pairs(opts) do
+        if k == "order_by" and type(v) == "table" then
+            local dir, col = next(v)
+            if (dir == "asc" or dir == "desc") and is_ident(col) and next(v, dir) == nil then
+                order = (" order by %s %s"):format(col, dir)
+            else
+                bound_ok = false
+            end
+        elseif k == "limit" and type(v) == "number" then
+            limit = (" limit %d"):format(v)
+        else
+            bound_ok = false
+        end
     end
-    local ok, res = pcall(function()
-        return t:get(q)
-    end)
-    if not ok then
-        return false
+    local res
+    if bound_ok then
+        local sql = ("select * from %s%s%s%s"):format(name, clause ~= "" and (" where " .. clause) or "", order, limit)
+        res = self:_query_bound(sql, args)
+        if res == nil then
+            return false
+        end
+    else
+        local q = options or {}
+        if where and next(where) ~= nil then
+            q.where = where
+        end
+        local ok, got = pcall(function()
+            return t:get(q)
+        end)
+        if not ok then
+            return false
+        end
+        res = got
     end
     if res == nil or (type(res) == "table" and not next(res)) then
         return nil
@@ -390,6 +492,10 @@ function Sql:remove(name, where)
     if not t then
         return false
     end
+    local clause, args = bound_where(where)
+    if clause and clause ~= "" and is_ident(name) then
+        return (self:_exec_bound(("delete from %s where %s"):format(name, clause), args))
+    end
     return (pcall(function()
         t:remove(where)
     end))
@@ -410,6 +516,11 @@ function Sql:count(name, where)
             return t:count()
         end)
         return (ok and type(n) == "number") and n or 0
+    end
+    local clause, args = bound_where(where)
+    if clause and clause ~= "" and is_ident(name) then
+        local rows = self:_query_bound(("select count(*) as n from %s where %s"):format(name, clause), args)
+        return (rows and rows[1] and tonumber(rows[1].n)) or 0
     end
     local rows = self:find(name, where)
     return (type(rows) == "table") and #rows or 0
