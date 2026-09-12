@@ -168,7 +168,10 @@ local function _apply_base()
     for k, v in pairs(base) do
         _p[k] = (type(v) == "table") and vim.deepcopy(v) or v
     end
-    _p.fg_dim, _p.fg_muted, _p.bg_input = _overrides.fg_dim, _overrides.fg_muted, _overrides.bg_input
+    -- The derived keys are NOT in the base table, so they must be reset explicitly or the previous
+    -- base's value survives the flip (bg_float stayed the dark panel bg after switching to light).
+    _p.fg_dim, _p.fg_muted, _p.bg_input, _p.bg_float =
+        _overrides.fg_dim, _overrides.fg_muted, _overrides.bg_input, _overrides.bg_float
     for k, v in pairs(_overrides) do
         _p[k] = v
     end
