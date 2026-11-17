@@ -175,7 +175,7 @@ return function(c)
         -- ── Picker (the finder prompt + its panes) ─────────────────────────────────────────────────────
         LvimUiPickerPrompt = { fg = col(pk.prompt, "blue"), bg = mtint(col(pk.prompt, "blue"), T.badge), bold = true },
         LvimUiPickerInput = { fg = col(pk.input, "blue"), bg = mtint(col(pk.input, "blue"), T.input) },
-        LvimUiPickerCursor = { bg = col(pk.cursor, "blue"), fg = c.bg }, -- the fzf caret (a thin bar via guicursor)
+        LvimUiPickerCursor = { bg = col(pk.cursor, "blue"), fg = c.bg }, -- the finder input caret (a thin bar via guicursor)
         LvimUiPickerMarker = { fg = col(pk.marker, "red"), bold = true }, -- the multi-select mark dot
         LvimUiPickerSeparator = { fg = col(pk.separator, "red"), bg = panel_bg }, -- the thin divider line
         LvimUiPickerPreviewDir = {

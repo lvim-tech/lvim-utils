@@ -201,7 +201,7 @@ return {
         picker = {
             prompt = "blue", -- the icon/label badge before the typed area
             input = "blue", -- the typed text
-            cursor = "blue", -- the fzf caret
+            cursor = "blue", -- the finder input caret
             marker = "red", -- the multi-select dot
             separator = "red", -- the thin divider line between the panes
             preview_dir = "yellow",
