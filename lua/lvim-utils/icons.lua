@@ -249,6 +249,25 @@ function M.ui(opts)
     }
 end
 
+-- ── the live mode ────────────────────────────────────────────────────────────
+
+---@type integer  bumped on every live lvim-icons mode switch (`User LvimIconsMode`)
+local generation = 0
+vim.api.nvim_create_autocmd("User", {
+    group = vim.api.nvim_create_augroup("LvimUtilsIconsMode", { clear = true }),
+    pattern = "LvimIconsMode",
+    callback = function()
+        generation = generation + 1
+    end,
+})
+
+--- A counter that changes on every live lvim-icons mode switch. A consumer that keeps a converted icon
+--- (an image swapped in once) stores the generation with it and converts again when it changed.
+---@return integer
+function M.generation()
+    return generation
+end
+
 --- A UI icon written as TEXT — one glyph with optional blanks around it (`" "`, the shape plugins hand to
 --- their rows / trees / badges) — and the group painting it. When lvim-icons draws UI icons as images
 --- ("material") and the glyph has one, the glyph is replaced by its image cells (the blanks kept) and the group

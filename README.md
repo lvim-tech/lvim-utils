@@ -487,6 +487,7 @@ A provider **facade** — resolves an icon through `lvim-icons` (preferred) or a
 | `guide(opts)`                     | A tree guide line image (`nil` where images cannot be shown)          |
 | `on_bg(res, bg)`                  | A group with an image's id as fg on the background of `bg` (group or `#hex`) |
 | `text(res, sep)` / `mark(...)`    | Paint an icon result as text or as an extmark, honouring its placement |
+| `generation()`                    | A counter bumped on every live lvim-icons mode switch (re-convert a kept icon) |
 
 `ui_text` is the one-line way to make a plugin's own glyph an image: words, letters and several glyphs stay
 text, and a glyph with no SVG gets one more blank so it still takes the two cells an image takes. An image's
