@@ -482,6 +482,16 @@ A provider **facade** — resolves an icon through `lvim-icons` (preferred) or a
 | `get_icons(opts)`                 | A `key → { icon, color, hl, name }` map over the provider's table    |
 | `active(requested?)`              | The concrete provider name that would be used                        |
 | `bind(provider, color_mode?)`     | Bind a provider (+ colour mode) once; returns `{ get, get_icons }`   |
+| `ui(opts)`                        | A UI icon `{ glyph, hl }` — an lvim-icons image in `material`, else unchanged |
+| `ui_text(text, hl)`               | The icon text a plugin paints (one glyph, blanks around it) → `text, hl, is_image` |
+| `guide(opts)`                     | A tree guide line image (`nil` where images cannot be shown)          |
+| `on_bg(res, bg)`                  | A group with an image's id as fg on the background of `bg` (group or `#hex`) |
+| `text(res, sep)` / `mark(...)`    | Paint an icon result as text or as an extmark, honouring its placement |
+
+`ui_text` is the one-line way to make a plugin's own glyph an image: words, letters and several glyphs stay
+text, and a glyph with no SVG gets one more blank so it still takes the two cells an image takes. An image's
+group carries its id in the foreground — paint it over the icon bytes at a higher priority than any row tint,
+and use `on_bg` when the icon sits on a tinted box.
 
 ### `utils`
 
