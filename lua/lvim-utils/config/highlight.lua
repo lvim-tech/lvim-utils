@@ -254,7 +254,7 @@ return function(c)
         -- bar's row (the whole bar reads as "active" without moving anything — one bg, two tints).
         LvimUiBarFill = { bg = mtint(a_barfill, T.bar_fill) },
         LvimUiBarFillHover = { bg = mtint(a_barfill, T.hover) },
-        LvimUiBarSep = { fg = a_barsep, bg = mtint(a_barsep, T.separator) }, -- the ➤ / ● between bar groups
+        LvimUiBarSep = { fg = a_barsep, bg = mtint(a_barsep, T.separator) }, -- the 󰅂 / ● between bar groups
         LvimUiFrameSel = { bg = mtint(a_barsep, T.strong) }, -- the focused bar-button selection (no-accent fallback)
 
         -- ── Spacers / disabled ────────────────────────────────────────────────────────────────────────

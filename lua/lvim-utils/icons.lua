@@ -249,6 +249,34 @@ function M.ui(opts)
     }
 end
 
+--- A UI icon written as TEXT — one glyph with optional blanks around it (`" "`, the shape plugins hand to
+--- their rows / trees / badges) — and the group painting it. When lvim-icons draws UI icons as images
+--- ("material") and the glyph has one, the glyph is replaced by its image cells (the blanks kept) and the group
+--- by the image's own; anything else (no glyph, words, another mode, no images) comes back unchanged.
+---@param text? string
+---@param hl? string
+---@return string? text, string? hl, boolean image
+function M.ui_text(text, hl)
+    if type(text) ~= "string" or text == "" then
+        return text, hl, false
+    end
+    local lead, glyph, trail = text:match("^(%s*)([^%s]+)(%s*)$")
+    -- exactly ONE character between the blanks, outside ASCII (a symbol, not a word or a letter badge)
+    if not glyph or vim.fn.strchars(glyph) ~= 1 or glyph:byte(1) < 0x80 then
+        return text, hl, false
+    end
+    local r = M.ui({ glyph = glyph, hl = hl })
+    if not r.image then
+        -- a glyph that cannot be an image while the others are: one blank after it, so it takes the two cells
+        -- an image takes and the column stays aligned
+        if r.pad and vim.fn.strdisplaywidth(glyph) == 1 then
+            return lead .. glyph .. " " .. trail, hl, false
+        end
+        return text, hl, false
+    end
+    return lead .. r.glyph .. trail, r.hl, true
+end
+
 --- A tree guide line as an IMAGE (lvim-icons, wherever the terminal shows images): two cells, a vertical line
 --- at their middle — the centre of a 2-cell icon — over the full cell height, in the colour of `opts.hl`. nil
 --- when there is no such image (another provider, no images): draw the text guide then.

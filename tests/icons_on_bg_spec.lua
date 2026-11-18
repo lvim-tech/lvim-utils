@@ -93,3 +93,32 @@ it("a caller colour applies to a font icon, never to an image", function()
     eq("Directory", marks[1][4].virt_text[1][2])
     eq("LvimIconImg_x", marks[2][4].virt_text[1][2], "the image keeps its id group")
 end)
+
+describe("lvim-utils.icons.ui_text")
+
+it("leaves words, letters and empty text alone", function()
+    eq("Hello", (iconlib.ui_text("Hello", "Comment")))
+    eq(" M ", (iconlib.ui_text(" M ", "Comment")), "a letter badge is not an icon")
+    eq("", (iconlib.ui_text("", "Comment")))
+    eq(nil, (iconlib.ui_text(nil, "Comment")))
+    local t, h, img = iconlib.ui_text(" \u{F07B}\u{F07C} ", "Comment")
+    eq(" \u{F07B}\u{F07C} ", t, "two glyphs are not one icon")
+    eq("Comment", h)
+    eq(false, img)
+end)
+
+it("hands a single glyph to the provider, keeping the blanks around it", function()
+    local ok, icons = pcall(require, "lvim-icons")
+    if not ok then
+        return skip("hands a single glyph to the provider", "needs lvim-icons beside this checkout")
+    end
+    local orig = icons.ui
+    icons.ui = function(o)
+        return { glyph = "<" .. o.glyph .. ">", hl = "Img_" .. o.hl, width = 2, image = true }
+    end
+    local t, h, img = iconlib.ui_text("  \u{E702}  ", "Git")
+    icons.ui = orig
+    eq("  <\u{E702}>  ", t)
+    eq("Img_Git", h)
+    eq(true, img)
+end)

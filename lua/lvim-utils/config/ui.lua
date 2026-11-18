@@ -108,7 +108,7 @@
 ---@field help      table   { odd, even } — the cheatsheet's row striping accents
 ---@field footer    LvimUtilsUiAccentFooter
 ---@field bar_fill  string  the strip under a bar
----@field bar_sep   string  the ➤/● separator box between bar groups
+---@field bar_sep   string  the 󰅂/● separator box between bar groups
 ---@field picker    table   { prompt, input, cursor, marker, separator, preview_dir }
 ---@field peek      LvimUtilsUiAccentPeek
 ---@field notify    LvimUtilsUiAccentNotify

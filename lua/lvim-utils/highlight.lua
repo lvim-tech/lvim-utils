@@ -342,12 +342,12 @@ end
 --- exactly what a lvim-ui `subtitle`/meta band consumes (`return { { text = text, hls = hls } }`). THE shared
 --- way every info band (repo bands, filter/scope bands) paints its segments in distinct hues instead of one
 --- flat colour — a part with no `accent` is left uncoloured (default fg). A part may set its own `sep` to
---- override the separator placed BEFORE it (e.g. a subject that trails a sha with a plain space, not the ➤).
+--- override the separator placed BEFORE it (e.g. a subject that trails a sha with a plain space, not the 󰅂).
 ---@param parts { text: string, accent?: string, sep?: string }[]
----@param sep? string  the default segment separator (default " ➤ ", the pointer canon)
+---@param sep? string  the default segment separator (default " 󰅂 ", the pointer canon)
 ---@return string text, table[] hls
 function M.band_line(parts, sep)
-    sep = sep or " \u{27a4} " -- ➤
+    sep = sep or " \u{f0142} " -- 󰅂
     local text, hls, pos = "", {}, 0
     for i, p in ipairs(parts) do
         if i > 1 then
