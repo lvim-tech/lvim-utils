@@ -318,6 +318,7 @@ return function(c)
             bg = mtint(col(pe.file, "yellow"), T.bright),
             bold = true,
         },
+        LvimUiPeekMarker = { fg = col(pe.marker, "orange"), bold = true }, -- the 󰅂 on a file preview's focused line
         LvimUiPeekGroup = { fg = col(pe.kind, "green"), bold = true }, -- the file NAME (tail)
         LvimUiPeekGroupIcon = { fg = a_sep }, -- the ▸/▾ fold arrows
         LvimUiPeekDir = { fg = col(pe.file, "yellow") }, -- the file PATH (dir)
