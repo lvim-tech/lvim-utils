@@ -279,6 +279,13 @@ local function install_leader_buf(buf)
     if vim.b[buf].lvim_dock_leader then
         return
     end
+    -- Never take over a REAL FILE buffer: a finder's preview panel shows the user's own file buffer (the
+    -- editable preview), and owning it put a swallowing <Leader> on the file and switched lvim-keys-helper off
+    -- for it — its triggers went away (two were left orphaned, so `[q` / `]q` died in that file) and the
+    -- hints stayed off after the finder closed. The dock owns its own panels only.
+    if vim.bo[buf].buftype == "" and api.nvim_buf_get_name(buf) ~= "" then
+        return
+    end
     vim.b[buf].lvim_dock_leader = true
     -- Opt out of lvim-keys-helper for this buffer BEFORE our <Leader> owner is set, so the helper's
     -- keymap watcher already sees the flag on its recompute and never installs a buffer-local <Leader>
@@ -318,7 +325,7 @@ end
 ---@param key string
 local function remove_leader(key)
     for _, b in ipairs(leader_bufs[key] or {}) do
-        if b and api.nvim_buf_is_valid(b) then
+        if b and api.nvim_buf_is_valid(b) and vim.b[b].lvim_dock_leader then
             pcall(vim.keymap.del, "n", "<leader>", { buffer = b })
             vim.b[b].lvim_dock_leader = nil
             -- Release the keys-helper opt-out so it resumes normal behavior on this buffer.
