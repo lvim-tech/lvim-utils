@@ -319,6 +319,13 @@ return function(c)
             bold = true,
         },
         LvimUiPeekMarker = { fg = col(pe.marker, "orange"), bold = true }, -- the 󰅂 on a file preview's focused line
+        -- The table of facts a media preview (a picture, a video, a PDF …) shows above the picture — the colours
+        -- lvim-commander and lvim-fuzzy-cli draw it in: labels blue, values yellow, the dots between parts dim.
+        LvimUiPeekFactLabel = { fg = col(pe.fact_label, "blue") },
+        LvimUiPeekFactValue = { fg = col(pe.fact_value, "yellow") },
+        LvimUiPeekFactDot = { fg = c.comment },
+        -- what the machine lacks for a full preview (a program that is not installed), under the facts
+        LvimUiPeekFactMissing = { fg = col(pe.fact_missing, "red") },
         LvimUiPeekGroup = { fg = col(pe.kind, "green"), bold = true }, -- the file NAME (tail)
         LvimUiPeekGroupIcon = { fg = a_sep }, -- the ▸/▾ fold arrows
         LvimUiPeekDir = { fg = col(pe.file, "yellow") }, -- the file PATH (dir)
